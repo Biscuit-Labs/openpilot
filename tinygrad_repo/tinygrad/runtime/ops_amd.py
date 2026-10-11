@@ -379,7 +379,10 @@ class AMDComputeQueue(HWQueue):
 
     dispatch_init = self.gc.regCOMPUTE_DISPATCH_INITIATOR.encode(
       **({'cs_w32_en': int(data.wave32)} if self.target[0] != 9 else {}), force_start_at_000=1, compute_shader_en=1)
-    self.acquire_mem(gli=0, gl2=0)
+    # write back + invalidate GL2 before every dispatch, not just the small caches: over USB the Chestnut's inputs are written by
+    # the host / SDMA outside the compute queue, and a kernel reading stale GL2 lines gave intermittent NaN in the big model's
+    # action head (~1/5-10k frames; 0 in 2x40000 stress runs with this; no measurable cost)
+    self.acquire_mem(gli=0, gl2=1)
     slot = self.prof_start(data, info, lib)
     self.wreg(self.gc.regCOMPUTE_PGM_LO, prog_addr >> 8)
     self.wreg(self.gc.regCOMPUTE_PGM_RSRC1, data.rsrc1, data.rsrc2)

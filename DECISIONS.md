@@ -2325,7 +2325,7 @@ car keeps the rail: its range closes, so the fit floor is at or below the rail.
 
 Not road-validated.
 
-## D-102 — DRAFT: an off-ramp whose lane guidance already marks the exit-side edge lane is taken without blinker or wheel nudge (2026-10-11, static + replay trigger timing only, not driven, NOT IMPLEMENTED)
+## D-102 — An off-ramp whose lane guidance already marks the exit-side edge lane is taken without blinker or wheel nudge (2026-10-11, static + replay trigger timing only, not driven, default off)
 
 **Problem (owner, 2026-10-11, route 0000031d segs 38-44):** already in the right lane, "slight right" to the exit, the car
 did not take the exit on its own. The owner had to use the blinker (41:49, 61 m before the maneuver point).
@@ -2338,11 +2338,17 @@ lane is not a further lane to change into) and defers to the keepLeft/keepRight 
 exit). No `preLaneChange` happened before 41:49, matching the log. The lane-width gate is not the blocker:
 `LaneDetectionWidth` defaults to 0.0 (right width on the approach was 0.00-2.2 m, unstable).
 
-**Proposed decision (not built):** behind a new default-off toggle, when `off ramp`, the active lane's direction is
+**Decision:** behind the new default-off `NavExitAutoKeep` toggle (`desire_helper._nav_exit_auto_keep`), when `off ramp`, the active lane's direction is
 the exit side, the distance is inside the existing `_nav_keep_is_imminent` window, vEgo is at least 8 m/s, no blinker
 is on, the exit-side blind spot is clear, and `lane_change_state == off`, issue keepLeft/keepRight without the torque
-requirement. Open safety questions for the owner: how long the desire may persist, a cancel on any steering override,
-shared-with-straight lanes (this route's case: the lane is also a through lane), and a minimum distance to finish.
+requirement. Off ramps only, never forks. Any driver steering input withdraws it; the nudge path still works. Unit tests
+(`test_navigation_desires.py`, 40 pass) cover default-off, each gate and the withdrawal. Not wired to safe mode
+(`safe_mode.py` left alone). Still open: a minimum distance to finish the move, and a closed-loop lateral replay.
+
+**Provenance:** an independent design; no IQ.Pilot code is used. IQ.Pilot's actual exit logic is closed source (the
+compiled `navd/nav_turn_signals` .so, which turns on the real blinker). Its readable `NavExitLaneChangeController` is
+never called, and it has no lane-guidance or shared-lane handling. Read statically by John on the Mac at 762eaa1; nothing
+was run.
 
 **Evidence (replay trigger only):** `tools/replay/nav_exit_autotake_proto.py` on 31d segs 40-41: all gates pass first
 at 41:46, 142 m before the maneuver point at 27.1 m/s, about 5 s ahead of the owner's blinker (41:49, 61 m). Before that

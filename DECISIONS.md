@@ -2324,3 +2324,29 @@ car keeps the rail: its range closes, so the fit floor is at or below the rail.
   - 263 6:12-6:16 is not railed: the floor is None on both sides and the results match tick for tick.
 
 Not road-validated.
+
+## D-102 — DRAFT: an off-ramp whose lane guidance already marks the exit-side edge lane is taken without blinker or wheel nudge (2026-10-11, static + replay trigger timing only, not driven, NOT IMPLEMENTED)
+
+**Problem (owner, 2026-10-11, route 0000031d segs 38-44):** already in the right lane, "slight right" to the exit, the car
+did not take the exit on its own. The owner had to use the blinker (41:49, 61 m before the maneuver point).
+
+**Cause (static, from code and rlog; toggle values are not in the rlog):** navInstruction held `off ramp / right`
+from 39:50 and its lane guidance was `[straight] inactive, [straight, slightRight] active` every second 41:15-41:51, so
+`activeLaneDirection = slightRight`. `DesireHelper._get_nav_exit_lane_change_direction` then returns none by design (the
+lane is not a further lane to change into) and defers to the keepLeft/keepRight path. That path needs
+`NavLanePositioningAllowed` (default 0), `_nav_keep_is_imminent`, and `_nav_torque_applied` (a wheel nudge toward the
+exit). No `preLaneChange` happened before 41:49, matching the log. The lane-width gate is not the blocker:
+`LaneDetectionWidth` defaults to 0.0 (right width on the approach was 0.00-2.2 m, unstable).
+
+**Proposed decision (not built):** behind a new default-off toggle, when `off ramp`, the active lane's direction is
+the exit side, the distance is inside the existing `_nav_keep_is_imminent` window, vEgo is at least 8 m/s, no blinker
+is on, the exit-side blind spot is clear, and `lane_change_state == off`, issue keepLeft/keepRight without the torque
+requirement. Open safety questions for the owner: how long the desire may persist, a cancel on any steering override,
+shared-with-straight lanes (this route's case: the lane is also a through lane), and a minimum distance to finish.
+
+**Evidence (replay trigger only):** `tools/replay/nav_exit_autotake_proto.py` on 31d segs 40-41: all gates pass first
+at 41:46, 142 m before the maneuver point at 27.1 m/s, about 5 s ahead of the owner's blinker (41:49, 61 m). Before that
+only the distance window blocked it. This checks trigger timing only; it does not show the model would follow the
+desire, and no closed-loop lateral replay was run.
+
+Not road-validated.

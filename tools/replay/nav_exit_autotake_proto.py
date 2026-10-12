@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay-only prototype for D-102: when the nav says "off ramp" and the lane guidance already puts the active lane on the
+"""Replay-only prototype for D-107: when the nav says "off ramp" and the lane guidance already puts the active lane on the
 exit side (slightRight / slightLeft on the edge lane), would an automatic keep-to-exit trigger have fired, and when?
 
 READ-ONLY. It reads rlog segments and prints the first tick each gate passes. It does not touch desire_helper.py and

@@ -10990,7 +10990,7 @@ leaves the reading alone when the radar's own distance really closes that fast i
 | 312 807.9: sim accel min | -2.71 | -2.43 |
 | 312 1405.8: sim accel min | -2.84 | -1.95 |
 | 312 609.8, 1342.3 (not covered, see D-096) | -2.33, -1.66 | same |
-| 13 protected windows incl. 311 2490.0 real hard brake, 298 BM3 | - | frame-identical |
+| 13 protected windows incl. 311 2490.0 hard brake (a phantom, D-102), 298 BM3 | - | frame-identical |
 
 Unit tests: test_range_vrel_assist.py far-rail tests follow the new constants; 2 new (312 near-rail / 63 m cover, near
 closing-rail veto). selfdrive/controls/tests: all pass except 2 test_latcontrol failures that also fail on the base. Not driven.
@@ -11068,3 +11068,51 @@ Tests: 12 new in `test_range_vrel_assist.py`, 181 pass. Lint: no new errors. Pro
 - At that point the lead is railed at -12 and coasted, at 78 m (3.5 s). The range opened from 77.9 m to 87.4 m, and the
   bound stays at or below the range fit.
 - Replay fidelity is weak there (corr 0.37). See D-101.
+
+## 238. A lead track that slides onto a slower next-lane car is floored at the camera lead's speed (D-102). Replay + static only, not driven.
+
+311 41:34 braked hard for a dark SUV fully in the left lane. Radar track 27 slid from the in-lane lead at 72 m onto the
+SUV and read 21 -> 5.6 m/s in 1.5 s. The camera lead held the same object at 13-14 m/s. The lead's speed is now floored
+at camera speed - 1.0 (accel at camera - 0.5) on every lead slot carrying that track, latched up to 4 s.
+
+| replay | today | D-102 |
+|---|---|---|
+| 311 41:34 plan min | -3.17 | -1.59 |
+| 311 41:34 sim accel min | -3.89 | -2.45 |
+
+The rest of that brake is the camera's own 13 m/s in-lane lead and cannot be removed without lateral evidence. 311 2490.0
+was listed as a protected real brake in STATUS 232; it is this phantom.
+
+17 replay groups: only 41:34, 313 116:00 (-1.61 -> -1.31), 312 23:32 (-1.00 -> +0.02) and 312 13:33 (-1.45 -> -1.22,
+one tick 0.15 deeper) change. Testing agent: real brakes 311 s9/s46/s72/s84 and 299 s49 unchanged; protected routes
+unchanged except 266a (min unchanged); zero margins rejected (softened 311 84:20 by +0.68). The shipped constants replay
+tick-identically to the tested env-gated version on all 17 groups. Fidelity at 41:34: corr 0.996, v RMSE 0.21-0.25.
+
+Tests: 7 new in `test_radard_slide_bound.py`; radard/lead tests 310 pass. Lint clean. Not road-validated.
+
+## 239. Stock Brake Feel is Bosch-A radar only; description updated (D-103). Static only, not driven.
+
+With BoschARadar off (vision-only ACC) StockBrakeFeel has no effect and the planner drives alone. The device toggle
+moved into the Bosch A Radar section, shown only while the radar is on; Galaxy hides it the same way. Its text now
+reads as matching stock Bosch-A ACC with light brake taps; the coasts removed in D-100 are no longer described. Layout/brake-onset tests 53 pass; lint unchanged from base.
+
+## 240. A long Bosch-A coast is bounded by its last 1.0 s of ranges (D-104). Replay + static only, not driven.
+
+311 84:21: track 33 coasted -1.5 m/s for 14 s while its range closed ~8 m/s; the coast bound averaged the whole coast
+and lagged. It now fits the last 1.0 s. Closed-loop replay: -1.77 -> -1.44 (car -1.60), braking ~3 s earlier, min TTC
+4.9 -> 7.0 s. Testing agent: 21 of 23 windows identical, 2 within 0.01; 311 86:35 sim -4.27 -> -4.38 is sim carry-over
+with identical radar input. Tests: 3 new in `test_bosch_a_coast_fit_window.py`; Bosch-A radar tests 175 pass. Lint clean.
+
+## 241. A Bosch-A lead's braking reading is floored near a confident camera's (D-105). Replay + static only, not driven.
+
+31b 14:57 (bookmark, jolt): the radar read a real lead's braking at -2.5 vs camera -0.3, latching the Stock Brake Feel
+emergency path. aLeadK is now floored at min(camera accel, 0) - 1.0 while a confident camera lead sits at the radar
+lead's range. Closed-loop replay: 14:57 -2.00 -> -1.11, 319 3:31 -2.08 -> -1.54, 319 42:23 -2.43 -> -2.16. Accepted cost:
+2f2 15:07 (real hard brake) reaches full braking 0.45 s later, min gap 20.0 -> 18.0 m, peak unchanged (-3.51 -> -3.52).
+
+## 242. A lead switch onto a nearer, slower car is floored at the camera's speed (D-106). Replay + static only, not driven.
+
+31b 14:34 (bookmark): both sensors switched to a nearer car; the range slide read as closing -13.7 m/s and braking -4.2,
+and the car braked -3.5 below the lead's speed. A SlideBound entry now catches the range drop that neither sensor's speed
+explains. Closed-loop replay: plan -3.63 -> -2.55, sim -4.37 -> -3.67, min gap 33.4 -> 26.1 m. Only hit in an offline
+screen over 31b/319/311/2f5/299. Tests: 10 new in `test_radard_lead_switch.py`; radard tests 153 pass. Lint clean.

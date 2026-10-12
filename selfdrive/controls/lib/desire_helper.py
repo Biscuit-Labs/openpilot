@@ -18,7 +18,7 @@ LANE_CHANGE_SPEED_MIN = 20 * CV.MPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 LANE_CHANGE_NUDGE_TORQUE_THRESHOLD = 1200
 NAV_EXIT_COMMIT_DISTANCE = 500.0
-# D-102: lowest speed at which NavExitAutoKeep applies the exit keep without a wheel nudge
+# D-107: lowest speed at which NavExitAutoKeep applies the exit keep without a wheel nudge
 NAV_EXIT_AUTO_KEEP_MIN_SPEED = 8.0
 NAV_TURN_DISTANCE_SPEED_BREAKPOINTS = [0.0, 5.0, 10.0]
 NAV_TURN_DISTANCE_BREAKPOINTS = [20.0, 25.0, 30.0]
@@ -171,7 +171,7 @@ class DesireHelper:
 
   @staticmethod
   def _nav_exit_auto_keep(carstate, starpilot_toggles, maneuver_type):
-    # D-102: an off-ramp whose lane guidance already marks the exit-side lane is kept without a nudge. Off ramps only,
+    # D-107: an off-ramp whose lane guidance already marks the exit-side lane is kept without a nudge. Off ramps only,
     # never forks. Any steering input from the driver withdraws it (the nudge path below still works).
     return (
       bool(getattr(starpilot_toggles, "nav_exit_auto_keep", False)) and

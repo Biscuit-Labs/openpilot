@@ -2180,7 +2180,8 @@ As a result, the commits were properly cherry-picked. The conflicts in `starpilo
 - **Evidence (closed-loop replay, acl.py, base = old 80 m / exact rail).** 312 807.9 (log 813.6-814.0, track 62 back from a
   +12 m range excursion onto the camera's 54 m car at -12.0): sim accel min -2.71 -> -2.43, plan -1.79 -> -0.59 at 813.98.
   312 1405.8 (log 1412.2-1413.0, track 23 at 82-87 m opening at -11.1): sim accel -2.84 -> -1.95, plan -1.97 -> -0.20.
-  13 protected windows frame-identical (311 2490.0 hard real brake with a railed radar, 298 BM3, 297 4656, 2a6, 2f2 x4,
+  13 protected windows frame-identical (311 2490.0 hard brake with a railed radar — reclassified 2026-10-10 as a
+  phantom, D-102, 298 BM3, 297 4656, 2a6, 2f2 x4,
   305, 308 x4); 312 609 frames identical.
 - **Not covered.** 312 609.8 (railed track 28 at 63 m; camera car 10-15 m farther, so no range match) and 312 1342.3 (held
   -7.9, not near the rail). A wider camera range tolerance or a held-value rule would be a new decision.
@@ -2325,7 +2326,145 @@ car keeps the rail: its range closes, so the fit floor is at or below the rail.
 
 Not road-validated.
 
-## D-102 — An off-ramp whose lane guidance already marks the exit-side edge lane is taken without blinker or wheel nudge (2026-10-11, static + replay trigger timing only, not driven, default off)
+## D-102 — A lead track that slides onto a slower car in the next lane is floored at the camera lead's speed (STATUS 238, 2026-10-10, replay only, not driven)
+
+**Problem (owner, 2026-10-10):** route 00000311 41:34 (log ~2492-2497 s) braked hard with no reason. The video shows a
+dark SUV fully in the left lane; the in-lane cars stay about 70 m ahead.
+
+**Cause:** Bosch-A track 27 was on the in-lane lead at 72 m / 21 m/s, then slid onto the SUV: range 72 -> 46 m and vLead
+21 -> 5.6 m/s in 1.5 s, aLeadK -9.8. Its lateral stayed +0.3..+0.7, inside the lane band, so no lateral or rail gate
+applied. There was no separate track on the SUV. The camera lead also picked the SUV (y -0.2, prob 0.99) but held it at
+13-14 m/s. The planner braked on leadTwo, which carried the same track. Plan -3.17, replay sim -3.89.
+311 2490.0 had been listed as a protected real brake in D-096 / STATUS 232; it is this phantom and is reclassified.
+
+**Decision:** `SLIDE_BOUND` (radard.py, class `SlideBound`, Bosch-A only, default ON). Enter when leadOne is a radar
+track at d >= 20 m and, together:
+- its vLead fell faster than `SLIDE_DECEL` (8 m/s²) over ~0.75 s on the same track id;
+- the camera lead is at the same range (within max(10 m, 20 %)), prob > 0.9 for 1 s, accel > -1.5, ego-referenced
+  speed stdev < 1.5 over 1 s and 2 s trend flatter than -`SLIDE_CAM_SLOPE` (1.0 m/s²);
+- the camera is at least `SLIDE_MIN_GAP` (3 m/s) faster than vLead.
+Then vLead / vLeadK / vRel are raised to camera speed - `SLIDE_MARGIN` (1.0) and aLeadK to min(camera accel, 0) -
+`SLIDE_A_MARGIN` (0.5), on leadOne and on leadTwo / leadOnpath when they carry the same track. The latch holds up to
+`SLIDE_HOLD_S` (4 s) while the camera still sees the same object (prob, accel, range), without re-checking the decel.
+Lift-only, nothing deleted or coasted (D-041/D-042).
+
+**Why not more:** both sensors put the SUV in our lane. The remaining brake is the camera's own 13 m/s in-lane lead.
+Removing it needs a lateral signal neither sensor gives here. Zero margins (0 / 0) took 41:34 to plan -1.30 but softened
+the real brake at 311 84:20 by +0.68, so they were rejected.
+
+**Rejected signature:** range-slope vs vLead disagreement (too noisy, see the earlier refutation). The decel signature
+over 299/311/312 hits 311 41:33, 74:11, 78:54; 312 seg32, seg48; and 299 seg49 4137.2, a real slowing lead the camera
+lagged on (camera trend -1.4..-1.9). `SLIDE_CAM_SLOPE` blocks that one.
+
+**Evidence (replay, car-matched, D-101 and the coast-window change on in all arms):**
+
+| Event | today | D-102 | car |
+|---|---|---|---|
+| 311 41:34 plan min | -3.17 | -1.59 | - |
+| 311 41:34 sim accel min (closed loop) | -3.89 | -2.45 | - |
+| 313 116:00 (radar glitch) | -1.61 | -1.31 | - |
+| 312 23:32 (radar glitch) | -1.00 | +0.02 | - |
+| 312 13:33-37 (real closer lead) | -1.45 | -1.22 | - |
+
+At 312 13:33 the bound held 4.6 s and trimmed vRel to the camera's; one tick was 0.15 deeper. Testing agent (Job),
+independent replay: 41:34 plan -3.23 -> -1.64, sim -3.94 -> -2.47, fidelity corr 0.996. Real brakes 311 s9/s46/s72/s84
+and 299 s49 unchanged. 312 s32 max +0.06; 312 s48 sim -0.27 deeper. Protected 232/236/237/25b/25e/25f/263/266/268/26f/
+1e8/2ae unchanged except 266a (29 ticks shallower, 3 deeper, min -2.00 unchanged).
+
+**Lever:** `SLIDE_BOUND = False` restores the previous behaviour exactly.
+
+## D-103 — StockBrakeFeel runs only with the Bosch-A radar on; its description drops the removed coasts (STATUS 239, 2026-10-10, static only, not driven)
+
+**Owner, 2026-10-10:** vision-only ACC should rely fully on the current planner, without StockBrakeFeel on top, and the
+toggle text should reflect that it no longer coasts (D-100).
+
+**Decision:** `toggle.stock_brake_feel` is true only when Advanced Longitudinal Tune and StockBrakeFeel are on **and** the
+car is a Honda Bosch-A platform with the radar enabled (`not CP.radarUnavailable`, i.e. BoschARadar on). With the
+radar off, the param keeps its stored value but does nothing. The device UI shows the toggle inside the Bosch A Radar
+section, only while BoschARadar is on; the Galaxy layout hides it with `visible_when_all_true: [BoschARadar]`. The
+description says it matches stock Bosch-A ACC with light brake taps (the D-086 depth/onset law by TTC), plus STOP_EASE
+and the D-080 newborn-lead bound; owner asked that it not be worded as "no longer coasts".
+
+## D-104 — A long Bosch-A coast is bounded by its last 1.0 s of ranges, not the whole coast (STATUS 240, 2026-10-10, replay only, not driven)
+
+**Problem (owner, 2026-10-10):** route 00000311 84:21, a late, firmer brake (car -1.60) for a lead at ~100 m.
+
+**Cause:** track 33 had a +2.6 m range jump, so D-062 coasted its -1.5 vRel. Every later sweep was degraded (far range
+sigma), so D-062 never re-rooted and the coast ran 14 s (211 sweeps). The STATUS 111 coast bound fits
+`inconsistent_run`, which by then held the whole coast; the old near-steady ranges dragged the fit to -0.9..-4.8 while
+U11 read -4..-7.7 and the last 1 s of range -5..-11. The lead was closing ~8 m/s while radard published ~-1.5.
+
+**Decision:** `BOSCH_A_COAST_FIT_WINDOW_S = 1.0`: the coast bound fits only the trailing 1.0 s of `inconsistent_run`
+(4x the D-043 minimum span). Unchanged: the bound is one-sided (more closing only) outside a rail hold, the rejoin
+fit still comes first, and nothing is deleted (D-041/D-042). `0` restores the whole-run fit.
+
+**Evidence (closed-loop replay, car-matched):** 84:21 sim -1.77 -> -1.44 (car -1.60), braking starts ~3 s earlier, min
+time to contact 4.9 -> 7.0 s, fidelity v RMSE 0.33, cmd corr 0.975. The shipped constant replays tick-identically to
+the tested env arm. Testing agent (Job), COASTWIN-only A/B, 23 windows incl. the protected real brakes
+(232/236/237/25e/263/266/268/26f/1e8/2ae, 311 s9/s41/s46/s72, 299 s49, 312 s32/s48): 21 identical; 25b and 25f within
+0.01. In 311 s84 the only other change is 86:35, sim accel -4.27 -> -4.38: radard's leadOne is identical in both arms
+there (154 differing ticks, all vRel, all in 84:13-84:21); the difference is the sim car's state carried over from
+84:21 (+0.03 m/s, -0.5 m gap).
+
+## D-105 — A Bosch-A lead's braking reading is floored near a confident camera's (STATUS 241, 2026-10-11, replay only, not driven)
+
+**Problem (owner, 2026-10-10 bookmark):** route 0000031b 14:57, a jolt: the car stabbed to -2.0 within 0.75 s, then let go.
+
+**Cause:** the lead really slowed, 17.5 -> 14 m/s at 35 m. The radar read its braking (aLeadK) at -2.5 while the camera
+read -0.3. aLeadK <= -2.0 latches STOCK_FEEL_EMERGENCY, which bypasses the Stock Brake Feel shaping. That latch fired 50+
+times over 311/319/31b on leads really slowing at -0.5..-1.5. The one real emergency in the set (2f5 10:01) had camera
+accel -1.9.
+
+**Decision:** `CAM_A_BOUND` (radard.py, class `CamABound`, Bosch-A only, default ON). While the camera lead is confident
+(prob > 0.9 for 1 s) and at the radar lead's range (within max(10 m, 20 %)), with dRel >= `CAM_A_BOUND_MIN_D` (15 m),
+aLeadK is raised to at least min(camera accel, 0) - `CAM_A_BOUND_MARGIN` (1.0), on leadOne and on leadTwo / leadOnpath
+when they carry the same track. It runs after SlideBound. vLead / vRel are untouched, so a closing lead still brakes.
+Lift-only, nothing deleted (D-041/D-042).
+
+**Evidence (closed-loop replay, car-matched, 15 windows):** 31b 14:57 -2.00 -> -1.11 with a gentle onset (gap 1.6 m
+shorter, still 27 m; fidelity v RMSE 0.09, corr 0.991); 319 3:31 -2.08 -> -1.54; 319 42:23 -2.43 -> -2.16; 311 8:54
+(real, camera late) -3.45 -> -3.36, gap 0.2 m shorter; 2f5 10:01, 299 s49, stops and 311 41:34 unchanged. Protected
+groups (297a/297b/298/2a6/2f2/311/312a/312b/312c; the 313/305/308 rlogs are no longer on disk): only shallower ticks.
+
+**Accepted cost (owner, 2026-10-11, "if it doesn't make the brake worse I'm ok with sacrificing some distance"):**
+2f2 15:07 is a real hard brake (lead closing ~8 m/s, camera accel lagging). Closed loop, full braking (-3.0) comes
+0.45 s later and the closest gap is 18.0 m instead of 20.0 m. The brake is not deeper: plan -3.51 -> -3.52, sim
+-3.98 -> -3.95. Also shallower: 2f2 7:06 -1.07 -> -0.15 (car -0.47), 312b 13:34 -1.30 -> -0.89 (car -1.66).
+
+**Rejected:** margin 0.5. 311 8:54 lost 3.2 m of gap (12.7 -> 9.5) and 311 54:40 deepened -2.87 -> -3.47.
+
+**Lever:** `CAM_A_BOUND = False` restores the previous behaviour exactly.
+
+## D-106 — A lead switch onto a nearer, slower car is floored at the camera's speed (STATUS 242, 2026-10-11, replay only, not driven)
+
+**Problem (owner, 2026-10-10 bookmark):** route 0000031b 14:34, at night in a pack: the car braked -3.5 down to
+14.6 m/s behind a 17.5 m/s lead. "That was dangerous for a lead following behind me."
+
+**Cause:** track 28 and the camera lead both switched from a car at ~84 m / ~23 m/s to a nearer car at ~17.5 m/s. The
+camera range stepped 66 -> 50 m in ~0.5 s and the radar range slid 60 -> 41 m while U11 vRel said only -6..-8. The
+off-rail range assist read the slide as vRel -13.7, the Doppler blend gave aLeadK -4.2, and STOCK_FEEL_EMERGENCY
+latched past the Stock Brake Feel depth cap. The camera speed was falling, which blocks the D-102 SlideBound entry.
+
+**Decision:** `LEAD_SWITCH` (radard.py, a second SlideBound entry, default ON). Over the last `LEAD_SWITCH_WINDOW_S`
+(1.0 s), the camera range fell >= `LEAD_SWITCH_CAM_EXCESS_M` (10 m) further than the camera's own speed explains
+(that step is held for 1 s, because the radar slide trails it by ~0.4 s), and the same radar track's range fell >=
+`LEAD_SWITCH_RADAR_EXCESS_M` (7 m) further than its U11 vRel explains. The D-102 camera gates still apply (same object,
+prob > 0.9 for 1 s, speed stdev < 1.5, camera >= 3 m/s faster than vLead), and so do D-102's floors (camera speed - 1.0,
+camera accel - 0.5) and hold (4 s). The range assist is untouched: blocking it as well only reached -2.31, and it is
+shared with real far-approach fixes. Nothing deleted (D-041/D-042).
+
+**Evidence (closed-loop replay, car-matched):** 31b 14:34 plan -3.63 -> -2.55, sim accel -4.37 -> -3.67, sim min speed
+15.2 -> ~17 m/s, closest gap 33.4 -> 26.1 m; fidelity v RMSE 1.03, corr 0.955. Same with or without D-105. Fires nowhere
+else in the 15 windows. In the protected groups it never raises a vRel, and with D-105 off 2f2 15:07 is tick-identical.
+Offline screen over 31b/319/311/2f5/299: 31b 14:34 is the only hit. The nearest real brake, 311 86:42, peaks at camera
+excess -7.3 m and radar excess -5.8 m.
+
+**Risk:** one positive example. The floor trusts the camera's speed for the new car, which read ~2.5 m/s fast at 31b. A
+slow cut-in that slides the same radar track while the camera misreads it would be under-braked for up to 4 s.
+
+**Lever:** `LEAD_SWITCH = False` restores the previous behaviour exactly.
+
+## D-107 — An off-ramp whose lane guidance already marks the exit-side edge lane is taken without blinker or wheel nudge (2026-10-11, static + replay trigger timing only, not driven, default off)
 
 **Problem (owner, 2026-10-11, route 0000031d segs 38-44):** already in the right lane, "slight right" to the exit, the car
 did not take the exit on its own. The owner had to use the blinker (41:49, 61 m before the maneuver point).
@@ -2356,3 +2495,4 @@ only the distance window blocked it. This checks trigger timing only; it does no
 desire, and no closed-loop lateral replay was run.
 
 Not road-validated.
+

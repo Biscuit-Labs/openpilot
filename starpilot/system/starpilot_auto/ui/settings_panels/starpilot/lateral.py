@@ -156,6 +156,13 @@ class StarPilotLateralLayout(_SettingsPage):
         set_state=lambda s: p.put_bool("NavLanePositioningAllowed", s),
         visible=lambda: p.get_bool("NavDesiresAllowed"),
       ),
+      SettingRow(
+        "NavExitAutoKeep", "toggle", tr_noop("Auto-Take Exit"),
+        subtitle=tr_noop("Take a same-side highway exit without the blinker or a wheel nudge when navigation lane guidance already puts you in the exit-side edge lane. Off-ramps only (never forks), above 8 m/s, withdrawn by any steering input. Experimental and off by default; not road-validated."),
+        get_state=lambda: p.get_bool("NavExitAutoKeep"),
+        set_state=lambda s: p.put_bool("NavExitAutoKeep", s),
+        visible=lambda: p.get_bool("NavDesiresAllowed") and p.get_bool("NavLanePositioningAllowed"),
+      ),
     ]
 
     # ── 2. Lane Changes ──

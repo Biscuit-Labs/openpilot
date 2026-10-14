@@ -1,6 +1,6 @@
 # Status
 
-**As of: 2026-10-10**
+**As of: 2026-10-13**
 
 Update the date above whenever this file changes. If it is stale, trust `git log` over this
 file.
@@ -11,7 +11,8 @@ Repo: StarPilot / openpilot fork `openpilot-radar`. Working branch
 2026-09-30 and survives as tag `archive/claude/radar-testing-state-88vt2t`.) Branches deleted in that
 cleanup are cited below as their `archive/<name>` tags. For the current tip, trust `git log`, not this line.
 
-**Latest work (2026-10-10), start here:** item 259 (bind the JetLink icon to live per-frame
+**Latest work (2026-10-13), start here:** item 261 (A220 PTM controller calibration and
+firmware VGR support, static/unit tests only). Then item 259 (bind the JetLink icon to live per-frame
 big-model telemetry). Then item 258 (comma 3X JetLink onroad status icon).
 Then item 257 (synced Trung through
 `5c8eebabf9322f4738d7a1e014aba4e075759811`). Items 251-256 describe its radar and
@@ -11527,3 +11528,30 @@ round-trips as a boolean. The JetLink join suite passes **8 tests**; Python comp
 fatal/error-class ruff checks, and `git diff --check` pass. The focused rendered-UI test still
 cannot collect on this Apple-silicon host because the checkout contains the comma's aarch64
 `msgq/ipc_pyx.so`. No live JetLink handoff, rendered comma 3X UI, or road validation was run.
+
+## 261. CR-V A220 PTM firmware-inversion controller support (D-122, 2026-10-13).
+
+`[CONFIRMED by content hashes, checksum validation, static decode and unit tests]` The supplied
+RWD `8f175250…` matches the previously reviewed Honda-repository A220 PTM, application
+`3c6019fd…`, and is now retained in `docs/firmware_evidence/a220/` with its source review.
+The Downloads copy is redundant for this project; the original has not been removed.
+It was genuinely new to this openpilot tree, although already present in the Honda repository.
+
+`39990-TLA,A220` now fingerprints as modified CR-V 5G and selects its exact firmware VGR
+profile. The position map is byte-identical to A040's; the command map differs. The shared
+`LatControlHondaEps` and PID shadow both select `CRV_5G_A220_FF45` from the EPS firmware ID.
+Existing A040/Civic/Clarity behavior, controller toggle, VGR setting, trims and delays remain.
+
+Validation: **193 passed** across the firmware-inversion/controller suite and new artifact
+suite; **428 passed** in the complete Honda suite. A negative control substituting A040's
+command X for A220's fails the artifact-to-calibration test as intended. Full ruff checks on
+all changed Python files, Python compilation and diff whitespace checks pass. The RWD file
+checksum and both internal checksums pass. The controller suite ran after a targeted native
+build of `common/transformations/transformations.so`; no host binaries are committed.
+
+`[INFERRED]` A220 uses the existing A040 R6/load fit from route `00000006--82bb552a2c`,
+openpilot `49e6610d08373bb8512ccce38d2f75c61656325e`. The inversion calibration models
+rows 0/1; A220's live row selection and the effect of its A280 attenuation modification have
+not been measured. No route replay, A220 bench/road test, telemetry patch, firmware flashing,
+or comma deployment was performed. Static support is not closed-loop validation.
+STATUS 260 remains reserved for the unmerged resource-pressure test branch.

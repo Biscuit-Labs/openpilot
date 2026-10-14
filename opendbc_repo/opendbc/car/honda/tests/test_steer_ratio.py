@@ -6,6 +6,7 @@ from opendbc.car.honda.steer_ratio import (
   _CRV_TLA_A040_POSITION_X,
   _CRV_TLA_A040_POSITION_Y,
   HONDA_VGR_CRV_TLA_A040,
+  HONDA_VGR_CRV_TLA_A220,
   HONDA_VGR_INVERSE_BY_PROFILE,
   NRDR_CRV_TLA_A040_VGR_ANGLE_BP,
   NRDR_CRV_TLA_A040_VGR_LINEAR_BP,
@@ -24,7 +25,13 @@ def test_crv_5g_a040_selects_exact_firmware_profile(version):
   assert get_honda_vgr_profile(_eps(version)) == HONDA_VGR_CRV_TLA_A040
 
 
-@pytest.mark.parametrize("version", [b"39990-TLA-A030\0\0", b"39990-TLA-A110\0\0", b"39990-TLA-A220\0\0"])
+@pytest.mark.parametrize("version", [b"39990-TLA-A220\0\0", b"39990-TLA,A220\0\0"])
+def test_crv_5g_a220_selects_its_traced_position_profile(version):
+  assert get_honda_vgr_profile(_eps(version)) == HONDA_VGR_CRV_TLA_A220
+  assert HONDA_VGR_INVERSE_BY_PROFILE[HONDA_VGR_CRV_TLA_A220] == HONDA_VGR_INVERSE_BY_PROFILE[HONDA_VGR_CRV_TLA_A040]
+
+
+@pytest.mark.parametrize("version", [b"39990-TLA-A030\0\0", b"39990-TLA-A110\0\0", b"39990-TLA-A221\0\0"])
 def test_other_crv_firmware_does_not_reuse_a040_table(version):
   assert get_honda_vgr_profile(_eps(version)) is None
 

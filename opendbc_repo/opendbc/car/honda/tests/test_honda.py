@@ -239,6 +239,15 @@ class TestHondaFingerprint:
     assert b'39990-TBA-C120\x00\x00' in FW_VERSIONS[CAR.HONDA_CIVIC_BOSCH][(CarParams.Ecu.eps, 0x18DA30F1, None)]
     assert b'39990-TGG,A020\x00\x00' in FW_VERSIONS[CAR.HONDA_CIVIC_BOSCH][(CarParams.Ecu.eps, 0x18DA30F1, None)]
     assert b'39990-TLA,A040\x00\x00' in FW_VERSIONS[CAR.HONDA_CRV_5G][(CarParams.Ecu.eps, 0x18DA30F1, None)]
+    assert b'39990-TLA,A220\x00\x00' in FW_VERSIONS[CAR.HONDA_CRV_5G][(CarParams.Ecu.eps, 0x18DA30F1, None)]
+
+  def test_a220_ptm_selects_modified_crv_and_exact_vgr(self):
+    fw = [CarParams.CarFw(ecu=CarParams.Ecu.eps, fwVersion=b'39990-TLA,A220\x00\x00', address=0x18DA30F1, subAddress=0)]
+    cp = CarInterface.get_params(CAR.HONDA_CRV_5G, gen_empty_fingerprint(), fw, False, False, False, get_test_toggles())
+    assert cp.flags & HondaFlags.EPS_MODIFIED
+    assert cp.flags & HondaFlags.VGR_CRV_TLA_A220
+    assert not cp.flags & HondaFlags.VGR_CRV_TLA_A040
+    assert list(cp.lateralParams.torqueV) == [0, 4096]
 
   def test_modified_eps_candidates_keep_support_and_apply_nrdr_linear_max_tunes(self):
     # The NRDR linear-max RWD images ramp linearly to the firmware cap, so the piecewise stock

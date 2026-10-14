@@ -397,6 +397,7 @@ FW_VERSIONS = {
     ],
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-TLA,A040\x00\x00',
+      b'39990-TLA,A220\x00\x00',
       b'39990-TLA-A040\x00\x00',
       b'39990-TLA-A110\x00\x00',
       b'39990-TLA-A220\x00\x00',

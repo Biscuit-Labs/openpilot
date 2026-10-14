@@ -44,7 +44,9 @@ Y = 16783,16783,16790,16795,16979,16979,17100,17086,17100,17110,17300,
 
 `steer_ratio.py` reproduces the firmware position conversion as
 `raw * 2**14 / divisor`. The table is selected only for the exact normalized EPS
-identifier `39990-TLA-A040`; A030, A110, and A220 deliberately remain unmapped.
+identifier `39990-TLA-A040`. A220 now has its own exact profile selecting the same
+byte-verified table; see [A220 evidence](honda_crv_5g_a220_eps_controller.md).
+A030 and A110 remain unmapped.
 
 ## Verification boundary
 

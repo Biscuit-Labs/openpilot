@@ -36,6 +36,7 @@ import math
 
 import numpy as np
 
+from opendbc.car.honda.steer_ratio import normalize_honda_eps_fw
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.pid import PIDController
 
@@ -167,6 +168,8 @@ class EpsFirmwareCalibration:
     self.key_clamp = key_clamp
     self.scale_q8 = scale_q8
     self.kff = kff
+    self.kp_key_bp = kp_key_bp
+    self.kp_v = kp_v
     if r5_per_key is not None:
       # upstream's form: the Clarity map is linear (18.02-18.06 R5 per key), so the P row scales straight over
       self.kp_pieces = KP_PIECES
@@ -240,6 +243,39 @@ CRV_5G_A040_FF45 = EpsFirmwareCalibration(
   scale_q8=256.0,
   kff=45.0,
 )
+
+# A220 PTM FF45, application SHA-256 3c6019fd062c3d9c6f605efbc79edc7e30ffa9dc3ee3eadf2db7e0278495bbb6.
+# RWD SHA-256 8f175250519130b0a8505291ef328b82f9caf543cfb76c62c3bc23e954e727a7, retained under
+# docs/firmware_evidence/a220/. Command row 0/1 X=0x11ae0, Y=0x11b5e; P X=0x11e2e, Y=0x11eac.
+# Stored speed ceiling row 0: X=0x11930, Y=0x119ae, 1330 from 150 km/h. SpeedClamp0's exact
+# bypass scope is unmeasured; retain the stored ceiling rather than assuming unlimited speed authority.
+# A040's command X is NOT interchangeable: A220 key 443 asks ~13094 R5 vs A040's 4938.
+# Firmware row selection is configuration-driven; rows 0/1 agree, 2/3 differ at the penultimate knot,
+# and rows 4-6 differ further. No live A220 row telemetry exists in this image. This calibration models
+# rows 0/1 only; it does not prove their selection on the owner's ECU. See the evidence document.
+# Norm 1650, tracker 3200, Kff45 and motor conversion u16 3121 at 0x19c00 match A040. R6 scale and
+# column load are transferred from A040 route 00000006--82bb552a2c (D-093), an inference, not an A220 fit.
+CRV_5G_A220_FF45 = EpsFirmwareCalibration(
+  e4_per_output=4096.0,
+  r5_key_bp=[0, 161, 222, 322, 409, 534, 696, 998, 1663],
+  r5_v=[0, 1926, 4938, 8455, 12036, 15926, 20138, 26955, 30000],
+  envelope_bp=[0, 50, 100, 150, 200, 250, 300, 350, 400],
+  envelope_v=[1774, 1774, 1774, 1774, 1774, 1774, 1330, 1330, 1330],
+  r6_per_deg_s=CRV_5G_A040_FF45.r6_per_deg_s,
+  kp_key_bp=[0, 104, 279, 510, 807, 1108, 1330, 1552, 1663],
+  kp_v=[117, 148, 184, 220, 245, 257, 263, 265, 265],
+  key_clamp=1774,
+  scale_q8=256.0,
+  kff=45.0,
+)
+
+
+def crv_eps_firmware_calibration(CP):
+  """Select the traced A220 PTM command map; retain the existing A040 default."""
+  for fw in CP.carFw:
+    if fw.ecu == "eps" and normalize_honda_eps_fw(fw.fwVersion) == "39990-TLA-A220":
+      return CRV_5G_A220_FF45
+  return CRV_5G_A040_FF45
 
 # Vehicle-load fit (STATUS 227 / D-093) from 40,193 hands-off, active V5 samples of route 00000006--82bb552a2c,
 # OpenPilot 49e6610d08373bb8512ccce38d2f75c61656325e, native extraction (SHA-256 8b94a343...). Target: the EPS

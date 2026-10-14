@@ -508,6 +508,26 @@ def test_the_crv_runs_its_own_calibration_load_and_neutral_trims(monkeypatch):
   assert crv.cmd_delay_schedule == ([0.0], [0.0])
 
 
+@pytest.mark.parametrize("version", [b"39990-TLA,A220\0\0", b"39990-TLA-A220\0\0"])
+def test_a220_controller_and_pid_shadow_use_the_a220_map(monkeypatch, version):
+  monkeypatch.setattr(clarity_eps, "Params", lambda: _ValueParams({"NrdrLatEpsFirmwareFF": "1"}))
+  monkeypatch.setattr(latcontrol_pid, "Params", lambda: _Params())
+  CP = _cp(HONDA.HONDA_CRV_5G)
+  CP.carFw = [car.CarParams.CarFw(ecu=car.CarParams.Ecu.eps, fwVersion=version, address=0x18da30f1)]
+  CP.flags |= int(HondaFlags.VGR_CRV_TLA_A220)
+  assert clarity_eps.use_honda_eps_controller(CP, _ValueParams({"NrdrLatEpsFirmwareFF": "1"}))
+  controller = clarity_eps.LatControlHondaEps(CP.as_reader(), None, DT_CTRL)
+  assert controller.core.ff.cal is eps_ff.CRV_5G_A220_FF45
+  assert controller.core.ff.cal is not CRV_A040
+  assert controller.core.ff.load_coef is eps_ff.CRV_5G_EPS_LOAD
+  assert controller.core.p_scale == controller.core.i_scale == (1.0, 1.0, 1.0)
+  assert controller.vgr_inverse is not None
+  assert controller.cmd_delay_schedule == ([0.0], [0.0])
+  CI = interfaces[HONDA.HONDA_CRV_5G](CP, custom.StarPilotCarParams.new_message())
+  shadow = LatControlPID(CP.as_reader(), CI, DT_CTRL)
+  assert shadow.eps_shadow_ff.cal is eps_ff.CRV_5G_A220_FF45
+
+
 @pytest.mark.parametrize("candidate", [HONDA.HONDA_CLARITY, HONDA.HONDA_CIVIC_BOSCH, HONDA.HONDA_CRV_5G])
 def test_nrdr_settings_are_read(monkeypatch, candidate):
   lac, _, _ = _controller(monkeypatch, candidate, {"NrdrLatUseFirmwareVgr": "1", "NrdrLatAngleRateLimit": "219"})

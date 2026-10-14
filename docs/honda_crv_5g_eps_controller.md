@@ -1,5 +1,7 @@
 # Honda CR-V 5G firmware-inversion lateral controller
 
+For the additional A220 PTM image, see [A220 calibration and limits](honda_crv_5g_a220_eps_controller.md).
+
 This records the CR-V-specific calibration used to select the existing
 `LatControlHondaEps` logic for `HONDA_CRV_5G`. It does not introduce another
 control law: joining, fading, filtering, residual PID, firmware inversion,

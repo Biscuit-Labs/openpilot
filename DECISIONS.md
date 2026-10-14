@@ -2675,3 +2675,24 @@ session. Move the compatibility `JetlinkBigActive` write after inference as well
 it only for startup and older consumers. The new ordinal is the next unused ordinal in that
 struct. No model inputs, outputs, handoff decisions, controller behavior, or fallback rules
 change; this is display telemetry only.
+
+## D-122 — Select a separate CR-V A220 PTM firmware calibration
+
+**2026-10-13; static artifact decode and unit tests only (STATUS 261).** Numbers
+D-119–D-121 and STATUS 260 are reserved by the existing resource-pressure test branch;
+that branch's changes are not part of this controller update.
+
+The owner's A220 RWD SHA-256 `8f175250519130b0a8505291ef328b82f9caf543cfb76c62c3bc23e954e727a7`
+matches the Honda repository's reviewed PTM application `3c6019fd…`. Import the supplied
+artifact and source review into this tree, add its modified firmware fingerprint and exact
+VGR profile, and select a separate `CRV_5G_A220_FF45` in the shared controller and PID shadow.
+The VGR position table is byte-identical to A040's; the command map is not. Reusing A040's
+command map or matching every TLA firmware by prefix is rejected.
+
+Model the common rows 0/1 with their exact command/P tables and retain the stored row-0 speed
+ceiling. No live A220 row evidence is available; other rows differ. The R6 scale and load
+fit are transferred from the existing A040 evidence (route `00000006--82bb552a2c`,
+openpilot `49e6610d08373bb8512ccce38d2f75c61656325e`), explicitly as an inference.
+Do not describe this as an A220 load fit, row validation, attenuation model or road result.
+The supplied image has no telemetry patch; controller support does not add one or authorize
+flashing. See `docs/honda_crv_5g_a220_eps_controller.md` for every address and limitation.

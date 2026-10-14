@@ -17,7 +17,7 @@ SMALL_ONNX=${SMALL_ONNX:-$MODELS/driving_supercombo.onnx}
 LOG=/data/tmp/rebuild_tg_artifacts.log; mkdir -p /data/tmp
 QCOM_FLAGS='DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'
 CHESTNUT_FLAGS='GMMU=0 DEV=USB+AMD:LLVM'
-cd $OP && source ./launch_env.sh >/dev/null 2>&1
+cd $OP && set +u && source ./launch_env.sh >/dev/null 2>&1; set -u   # launch_env.sh reads unset vars
 unset IMAGE NOLOCALS OPENPILOT_HACKS FLOAT16 TC_OPT TC_MIN_GLOBALS JIT_BATCH_SIZE BEAM CACHEDB DEV GMMU
 export PYTHONPATH=$OP:$TG
 log() { echo "== $* $(date +%H:%M:%S)" | tee -a $LOG; }

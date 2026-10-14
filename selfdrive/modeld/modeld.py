@@ -1765,7 +1765,8 @@ def main(demo=False):
   if external_gpu_requested:
     publish_services.append("chestnutState")
   pm = PubMaster(publish_services)
-  sm = SubMaster(["deviceState", "carState", "roadCameraState", "wideRoadCameraState", "liveCalibration", "driverMonitoringState", "carControl", "liveDelay", "starpilotPlan"])
+  sm = SubMaster(["deviceState", "carState", "roadCameraState", "wideRoadCameraState", "liveCalibration", "driverMonitoringState", "carControl",
+                  "controlsState", "liveDelay", "starpilotPlan"])
 
   publish_state = PublishState()
   chestnut_state = ChestnutState(pm, external_gpu_active) if external_gpu_requested else None
@@ -2058,6 +2059,10 @@ def main(demo=False):
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
 
+      # comma #39091: while lateral is not active, smooth from the curvature the car is actually driving, not the model's
+      # last (unused) output, so engaging does not start from a stale curvature
+      if not sm['carControl'].latActive:
+        prev_action.desiredCurvature = sm['controlsState'].curvature
       if model_lab_active and longitudinal_model_output is not None:
         lateral_action = get_action_from_model(
           lateral_model_output, prev_action,

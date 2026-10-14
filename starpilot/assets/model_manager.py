@@ -31,7 +31,8 @@ from openpilot.system.hardware.usb import chestnut_firmware_ready
 MANIFEST_CANDIDATES = ("v26",)
 MODEL_NAMESPACE_SUFFIX = "3"
 DEFAULT_MODEL_KEY = "rdf43"
-BUILTIN_MODEL_NAME = "Comma small v16"
+BUILTIN_MODEL_NAME = "CD210 (Comma small)"
+BUILTIN_MODEL_RELEASED = "2026-02-04"  # comma #37050; the bundled models/driving_tinygrad.pkl
 BUILTIN_MODEL_VERSION = "v16"
 ACTIVE_BIG_MODEL_PARAM = "ActiveBigModel"
 ACTIVE_BIG_MODEL_NAME_PARAM = "ActiveBigModelName"
@@ -840,7 +841,10 @@ class ModelManager:
     return list(discovered.values())
 
   def update_model_params(self, model_info: list[dict], manifest_version: str):
-    model_info = list(model_info) + self._discover_local_models()
+    # The built-in key's catalog entry describes an older bundled model; list what is actually bundled instead
+    model_info = [{**model, "name": BUILTIN_MODEL_NAME, "version": BUILTIN_MODEL_VERSION, "series": "Comma", "released": BUILTIN_MODEL_RELEASED}
+                  if is_builtin_model_key(str(model.get("id") or "")) else model for model in model_info]
+    model_info = model_info + self._discover_local_models()
     self.available_models = [str(model.get("id") or "").strip() for model in model_info]
     self.available_model_names = [_clean_model_name(model.get("name")) for model in model_info]
     self.model_versions = [str(model.get("version") or "").strip() for model in model_info]

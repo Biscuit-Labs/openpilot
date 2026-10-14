@@ -11531,6 +11531,8 @@ cannot collect on this Apple-silicon host because the checkout contains the comm
 
 ## 261. CR-V A220 PTM firmware-inversion controller support (D-122, 2026-10-13).
 
+Implementation and tested source: `33b0a1947767341a7af19f3e791716e3d750e462`.
+
 `[CONFIRMED by content hashes, checksum validation, static decode and unit tests]` The supplied
 RWD `8f175250…` matches the previously reviewed Honda-repository A220 PTM, application
 `3c6019fd…`, and is now retained in `docs/firmware_evidence/a220/` with its source review.

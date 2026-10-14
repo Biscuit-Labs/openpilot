@@ -131,6 +131,9 @@ def _load_persistent_oob(source, opcodes: bytes, device: str | None):
 
 
 def load_oob(source, device: str | None = None):
+  if not source.seekable():
+    # chunked artifacts (common/file_chunker ChunkStream) stream forward only; the weight arena needs its size up front
+    source = io.BytesIO(source.read())
   header = source.read(8)
   if len(header) != 8:
     raise EOFError("truncated out-of-band pickle header")

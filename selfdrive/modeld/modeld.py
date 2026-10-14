@@ -124,12 +124,43 @@ def _should_publish_model_output(model_output, vipc_dropped_frames: int, externa
   return model_output is not None
 
 
+NAN_CAPTURE_DIR = "/data/media/0/modeld_nan"
+NAN_CAPTURE_KEEP = 10
+
+
+def _save_nan_capture(model, model_output: np.ndarray) -> None:
+  """Everything needed to replay the frame that went non-finite, offline on the same artifact. The used image and desire
+  histories are the post-run state buffers (next_state = the queue the model read); the feature history is the pre-run
+  one, rebuilt from the host ring of hidden outputs. Best effort: a failed capture never changes the fallback."""
+  try:
+    st = time.monotonic()
+    os.makedirs(NAN_CAPTURE_DIR, exist_ok=True)
+    old = sorted(f for f in os.listdir(NAN_CAPTURE_DIR) if f.endswith(".npz"))
+    for f in old[:max(0, len(old) - NAN_CAPTURE_KEEP + 1)]:
+      os.remove(os.path.join(NAN_CAPTURE_DIR, f))
+    arrays = {"outputs": model_output, "packed_input": model.packed_input.copy(),
+              "nonfinite_idx": np.flatnonzero(~np.isfinite(model_output)).astype(np.int32)}
+    for name in model.state_pairs:
+      if name != "state_feat_q":
+        arrays[f"used_{name}"] = model.input_queues[name].numpy()
+    if getattr(model, "hidden_ring", None) is not None:
+      order = (model.hidden_ring_pos + np.arange(len(model.hidden_ring))) % len(model.hidden_ring)
+      arrays["pre_state_feat_q"] = model.hidden_ring[order][:, None, :]
+    for name, value in model.npy.items():
+      arrays[f"npy_{name}"] = value.copy()
+    path = os.path.join(NAN_CAPTURE_DIR, f"nan_{time.strftime('%Y%m%d_%H%M%S')}_{getattr(model, 'model_id', 'model')}.npz")
+    np.savez(path, **arrays)
+    first = arrays["nonfinite_idx"][:8].tolist()
+    n_bad = len(arrays["nonfinite_idx"])
+    cloudlog.error(f"saved NaN capture {path} in {time.monotonic() - st:.1f}s: {n_bad} non-finite outputs, first at {first}")
+  except Exception:
+    cloudlog.exception("NaN capture failed")
+
+
 def drop_chestnut() -> None:
-  # comma master a0d47bcd08: every device that touched Chestnut memory waits on the Chestnut's timeline in synchronize(),
-  # so after a Chestnut failure the small model's syncs wait on a dead GPU. Forget those pending waits on fallback.
-  if "AMD" in Device._opened_devices:
-    for d in Device._opened_devices:
-      Device[d].pending.pop(Device["AMD"], None)
+  # comma a0d47bcd08 dropped the other devices' pending waits on the Chestnut here; comma's tinygrad bump d05c2d971b
+  # (tinygrad d3f09c9b, the pin this branch now runs) removed it: devices no longer keep a pending-wait table.
+  pass
 
 
 # A big model slower than the camera hands back to the small model before selfdrived's modeldLagging would see it
@@ -188,8 +219,8 @@ class CameraPath:
 
 
 def _input_view(buffer: Buffer, shape: tuple[int, ...], dtype: DType, offset: int) -> Tensor:
-  view = buffer.view(math.prod(shape), dtype, offset).ensure_allocated()
-  return Tensor(UOp.from_buffer(view)).reshape(shape)
+  view = buffer.view(math.prod(shape) * dtype.itemsize, offset).ensure_allocated()
+  return Tensor(UOp.from_buffer(view, dtype)).reshape(shape)
 
 
 def _upstream_precompiled_warp_path(cam_w: int, cam_h: int, external_gpu: bool, model_id: str = "") -> Path:
@@ -202,12 +233,11 @@ def _upstream_precompiled_warp_path(cam_w: int, cam_h: int, external_gpu: bool, 
 
 
 def _set_hcq_wait_timeout(timeout_ms: int) -> None:
-  """Update tinygrad's cached HCQ timeout for the external-GPU load/run phase."""
-  os.environ["HCQDEV_WAIT_TIMEOUT_MS"] = str(timeout_ms)
-  # tinygrad.getenv is cached. Updating os.environ alone leaves the first value
-  # in effect for the lifetime of modeld.
-  from tinygrad.helpers import getenv
-  getenv.cache_clear()
+  """Update tinygrad's HCQ signal-wait timeout for the external-GPU load/run phase."""
+  # tinygrad d3f09c9b reads Compiled.wait_timeout_ms (comma master sets AMDDevice.wait_timeout_ms); the old
+  # HCQDEV_WAIT_TIMEOUT_MS env var is gone.
+  from tinygrad.runtime.ops_amd import AMDDevice
+  AMDDevice.wait_timeout_ms = timeout_ms
 
 
 def _validate_external_gpu_outputs(outputs: list[np.ndarray]) -> None:
@@ -800,6 +830,14 @@ class ModelState:
     for name, next_name in self.state_pairs.items():
       state = self.input_queues[name]
       self.model_outputs[next_name] = _input_view(state._buffer(), state.shape, state.dtype, 0)
+    # Host mirror of state_feat_q for NaN captures: the model reads the oldest entry before the in-place update drops it,
+    # so the pre-run feature history can only be rebuilt from the hidden outputs modeld already downloads every frame.
+    self.hidden_ring = None
+    if "state_feat_q" in self.state_pairs and "hidden_state" in self.output_slices:
+      n, _, width = self.input_shapes["state_feat_q"][0]
+      hs = self.output_slices["hidden_state"]
+      if hs.stop - hs.start == width:
+        self.hidden_ring, self.hidden_ring_pos = np.zeros((n, width), dtype=np.float32), 0
 
     warp_path = _upstream_precompiled_warp_path(cam_w, cam_h, self.uses_external_gpu, getattr(self, "model_id", ""))
     if not warp_path.is_file():
@@ -1066,6 +1104,9 @@ class ModelState:
     if getattr(self, "precompiled", False):
       for name in self.state_pairs:
         self.input_queues[name].assign(0).realize()
+      if getattr(self, "hidden_ring", None) is not None:
+        self.hidden_ring.fill(0)
+        self.hidden_ring_pos = 0
       self.packed_input.fill(0)
       self.prev_desire.fill(0)
       self.prev_blinker_on = False
@@ -1141,10 +1182,9 @@ class ModelState:
     for i, key in enumerate(self.vision_input_names):
       self.npy["tfm"][i] = transforms[key]
 
-    blinker_released = self.prev_blinker_on and not blinker_on
+    # A desire is a rising-edge pulse; the model keeps its own history and decides when the action is complete, as
+    # upstream (no flush on blinker release: that was a workaround for older models).
     self.prev_blinker_on = blinker_on
-    if blinker_released and "state_desire_q" in self.input_queues:
-      self.input_queues["state_desire_q"].assign(0).realize()
 
     desire = np.asarray(inputs[self.desire_key], dtype=np.float32)
     self.numpy_inputs[self.desire_key].fill(0)
@@ -1166,8 +1206,14 @@ class ModelState:
     if after_enqueue is not None:
       after_enqueue()
     model_output = self.model_outputs["outputs"].numpy().reshape(-1)
+    if self.uses_external_gpu and (not np.all(np.isfinite(model_output)) or getattr(self, "capture_next_frame", False)):
+      self.capture_next_frame = False   # set by tools/tests to capture a finite frame and check that it replays exactly
+      _save_nan_capture(self, model_output)
     if self.uses_external_gpu:
       _validate_external_gpu_outputs([model_output])
+    if getattr(self, "hidden_ring", None) is not None:
+      self.hidden_ring[self.hidden_ring_pos] = model_output[self.output_slices["hidden_state"]]
+      self.hidden_ring_pos = (self.hidden_ring_pos + 1) % len(self.hidden_ring)
 
     parsed = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
     if SEND_RAW_PRED:
@@ -1204,15 +1250,9 @@ class ModelState:
           )
         frames[key] = self._blob_cache[cache_key]
 
-    # A desire is edge-triggered into the model input, but the compiled policy keeps
-    # roughly five seconds of desire history in ``desire_q`` and max-pools it. When
-    # the blinker cancels, old turn/lane-change pulses would otherwise remain
-    # actionable until that history ages out. Flush only on the blinker falling edge;
-    # the caller keeps this asserted during an in-flight lane change.
-    blinker_released = getattr(self, "prev_blinker_on", False) and not blinker_on
+    # A desire is a rising-edge pulse; the model keeps its own history and decides when the action is complete, as
+    # upstream (no flush on blinker release: that was a workaround for older models).
     self.prev_blinker_on = blinker_on
-    if blinker_released and "desire_q" in self.input_queues:
-      self.input_queues["desire_q"].assign(0)
 
     inputs[self.desire_key][0] = 0
     self.numpy_inputs[self.desire_key].fill(0)
@@ -1524,8 +1564,23 @@ def _runner_frame_args(model: ModelState, buf_main, buf_extra,
   return bufs, transforms, inputs
 
 
+def _enable_fault_log() -> None:
+  # A native crash (SIGSEGV) in modeld leaves no Python trace in the logs; write one where it survives a reboot.
+  if os.path.isdir("/data/media/0"):
+    import faulthandler
+    global _FAULT_LOG
+    _FAULT_LOG = open("/data/media/0/modeld_faults.log", "a")
+    _FAULT_LOG.write(f"=== modeld start {time.strftime('%Y-%m-%d %H:%M:%S')} pid {os.getpid()}\n")
+    _FAULT_LOG.flush()
+    faulthandler.enable(file=_FAULT_LOG, all_threads=True)
+
+
+_FAULT_LOG = None
+
+
 def main(demo=False):
   cloudlog.warning("modeld init")
+  _enable_fault_log()
 
   sentry.set_tag("daemon", PROCESS_NAME)
   cloudlog.bind(daemon=PROCESS_NAME)

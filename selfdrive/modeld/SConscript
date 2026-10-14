@@ -49,18 +49,15 @@ if build_dm_artifacts and not skip_dm_tinygrad_pkl:
     f'python3 selfdrive/modeld/get_model_metadata.py {dm_rel_path}.onnx',
   )
 
-  flags = (
-    'DEV=QCOM FLOAT16=1 NOLOCALS=1 IMAGE=2 JIT_BATCH_SIZE=0 DEBUG=0'
-    if arch == 'larch64'
-    else 'DEV=CPU IMAGE=0 NOLOCALS=1 DEBUG=0 HOME=/tmp'
-  )
+  # tinygrad d3f09c9b: comma master's DM recipe (compile_onnx.py; compile3.py no longer exists)
+  flags = ('DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1' if arch == 'larch64' else 'DEV=CPU:LLVM HOME=/tmp')
   pythonpath_string = 'PYTHONPATH="${PYTHONPATH}:tinygrad_repo"'
-  compile_script = "#tinygrad_repo/examples/openpilot/compile3.py"
+  compile_script = "#tinygrad_repo/examples/openpilot/compile_onnx.py"
   lenv.Command(
     dm_node_path + "_tinygrad.pkl",
     [dm_node_path + ".onnx"] + tinygrad_files + [compile_script],
-    f'{pythonpath_string} {flags} python3 tinygrad_repo/examples/openpilot/compile3.py '
-    f'{dm_rel_path}.onnx {dm_rel_path}_tinygrad.pkl',
+    f'{pythonpath_string} {flags} python3 tinygrad_repo/examples/openpilot/compile_onnx.py '
+    f'{dm_rel_path}.onnx {dm_rel_path}_tinygrad.pkl --out-of-band --benchmark-runs 1',
   )
 else:
   print("Using prebuilt unified driving and driver-monitoring artifacts")
@@ -73,7 +70,7 @@ if arch == "larch64":
   camera_configs = [(camera.width, camera.height) for camera in (_ar_ox_fisheye, _os_fisheye)]
   compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
   taskset = 'taskset -c 7 '
-  qcom_flags = 'DEBUG=1 DEV=QCOM FRAME_DEV=CPU FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2 TC_MIN_GLOBALS=32'
+  qcom_flags = 'DEBUG=1 DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'  # comma master's QCOM recipe
   qcom_lock = File('models/.qcom-small-warp.lock').abspath
   model_w, model_h = MEDMODEL_INPUT_SIZE
   warp_deps = [File('#openpilot/system/camerad/cameras/nv12_info.py')]
@@ -104,7 +101,7 @@ if usbgpu_present():
   camera_configs = [(camera.width, camera.height) for camera in (_ar_ox_fisheye, _os_fisheye)]
   compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
   taskset = 'taskset -c 7 ' if arch == 'larch64' else ''
-  chestnut_flags = 'DEBUG=1 DEV=USB+AMD:LLVM FRAME_DEV=CPU FLOAT16=1 JIT_BATCH_SIZE=0 GMMU=0 TC_OPT=2 TC_MIN_GLOBALS=32'
+  chestnut_flags = 'DEBUG=1 DEV=USB+AMD:LLVM GMMU=0'  # upstream recipe: compile_warp/compile_onnx set their own TC context
   chestnut_lock = File('models/.chestnut.lock').abspath
 
   def chestnut_action(command):

@@ -11557,3 +11557,8 @@ rows 0/1; A220's live row selection and the effect of its A280 attenuation modif
 not been measured. No route replay, A220 bench/road test, telemetry patch, firmware flashing,
 or comma deployment was performed. Static support is not closed-loop validation.
 STATUS 260 remains reserved for the unmerged resource-pressure test branch.
+
+Owner clarification: stock reports `39990-TLA-A220` (hyphen), already in the firmware
+database; PTM reports `39990-TLA,A220` (comma), newly added. An additional regression test
+checks the real Honda interface keeps `EPS_MODIFIED` clear for stock while assigning A220
+VGR. The complete Honda suite now passes **429 tests**; changed-file ruff passes.

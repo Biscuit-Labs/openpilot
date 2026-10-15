@@ -129,17 +129,19 @@ NAN_CAPTURE_DIR = "/data/media/0/modeld_nan"
 NAN_CAPTURE_KEEP = 10
 
 
-def _snapshot_nan_capture(model, model_output: np.ndarray) -> dict[str, np.ndarray] | None:
+def _snapshot_nan_capture(model, model_output: np.ndarray, download_queues: bool) -> dict[str, np.ndarray] | None:
   """Everything needed to replay the frame that went non-finite, offline on the same artifact, copied into memory this
   function owns: the used image and desire histories are the post-run state buffers (next_state = the queue the model
   read, small device downloads); the feature history is the pre-run one, rebuilt from the host ring of hidden outputs.
   Also the last frames' Chestnut telemetry markers. Writing the file is left to _write_nan_capture, off the inference
-  path, so the fallback is not delayed by disk I/O. Best effort: a failed capture never changes the fallback."""
+  path, so the fallback is not delayed by disk I/O. The queue downloads are slow over USB (~2.7 s for the G1b image and
+  desire queues), so a road NaN skips them and the fallback is not held up: the replay check is done, and a diagnostic
+  build carries its first-bad-stage values in `outputs`. Best effort: a failed capture never changes the fallback."""
   try:
     st = time.monotonic()
     arrays = {"outputs": model_output.copy(), "packed_input": model.packed_input.copy(),
               "nonfinite_idx": np.flatnonzero(~np.isfinite(model_output)).astype(np.int32)}
-    for name in model.state_pairs:
+    for name in model.state_pairs if download_queues else ():
       if name != "state_feat_q":
         arrays[f"used_{name}"] = model.input_queues[name].numpy()
     if getattr(model, "hidden_ring", None) is not None:
@@ -1237,8 +1239,9 @@ class ModelState:
                                   *((marks["smu"], marks["ina_amd"], marks["ltssm"]) if marks else (False, False, False))))
     model_output = self.model_outputs["outputs"].numpy().reshape(-1)
     if self.uses_external_gpu and (not np.all(np.isfinite(model_output)) or getattr(self, "capture_next_frame", False)):
+      requested = getattr(self, "capture_next_frame", False)
       self.capture_next_frame = False   # set by tools/tests to capture a finite frame and check that it replays exactly
-      snapshot = _snapshot_nan_capture(self, model_output)
+      snapshot = _snapshot_nan_capture(self, model_output, download_queues=requested)
       if snapshot is not None:   # the file is written off the inference path; the fallback below is not delayed by it
         threading.Thread(target=_write_nan_capture, args=(snapshot, getattr(self, "model_id", "model")), daemon=True).start()
     if self.uses_external_gpu:

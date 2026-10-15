@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import base64
+from collections import deque
 from collections.abc import Callable
 import ctypes
 from dataclasses import dataclass
@@ -128,17 +129,15 @@ NAN_CAPTURE_DIR = "/data/media/0/modeld_nan"
 NAN_CAPTURE_KEEP = 10
 
 
-def _save_nan_capture(model, model_output: np.ndarray) -> None:
-  """Everything needed to replay the frame that went non-finite, offline on the same artifact. The used image and desire
-  histories are the post-run state buffers (next_state = the queue the model read); the feature history is the pre-run
-  one, rebuilt from the host ring of hidden outputs. Best effort: a failed capture never changes the fallback."""
+def _snapshot_nan_capture(model, model_output: np.ndarray) -> dict[str, np.ndarray] | None:
+  """Everything needed to replay the frame that went non-finite, offline on the same artifact, copied into memory this
+  function owns: the used image and desire histories are the post-run state buffers (next_state = the queue the model
+  read, small device downloads); the feature history is the pre-run one, rebuilt from the host ring of hidden outputs.
+  Also the last frames' Chestnut telemetry markers. Writing the file is left to _write_nan_capture, off the inference
+  path, so the fallback is not delayed by disk I/O. Best effort: a failed capture never changes the fallback."""
   try:
     st = time.monotonic()
-    os.makedirs(NAN_CAPTURE_DIR, exist_ok=True)
-    old = sorted(f for f in os.listdir(NAN_CAPTURE_DIR) if f.endswith(".npz"))
-    for f in old[:max(0, len(old) - NAN_CAPTURE_KEEP + 1)]:
-      os.remove(os.path.join(NAN_CAPTURE_DIR, f))
-    arrays = {"outputs": model_output, "packed_input": model.packed_input.copy(),
+    arrays = {"outputs": model_output.copy(), "packed_input": model.packed_input.copy(),
               "nonfinite_idx": np.flatnonzero(~np.isfinite(model_output)).astype(np.int32)}
     for name in model.state_pairs:
       if name != "state_feat_q":
@@ -148,13 +147,31 @@ def _save_nan_capture(model, model_output: np.ndarray) -> None:
       arrays["pre_state_feat_q"] = model.hidden_ring[order][:, None, :]
     for name, value in model.npy.items():
       arrays[f"npy_{name}"] = value.copy()
-    path = os.path.join(NAN_CAPTURE_DIR, f"nan_{time.strftime('%Y%m%d_%H%M%S')}_{getattr(model, 'model_id', 'model')}.npz")
+    if getattr(model, "telemetry_ring", None) is not None:
+      # columns: model run index, monotonic time, telemetry ran, SMU metrics read, INA read via the AMD link, LTSSM read
+      arrays["telemetry_ring"] = np.array(list(model.telemetry_ring), dtype=np.float64).reshape(-1, 6)
+    arrays["snapshot_ms"] = np.array([(time.monotonic() - st) * 1e3])
+    return arrays
+  except Exception:
+    cloudlog.exception("NaN capture snapshot failed")
+    return None
+
+
+def _write_nan_capture(arrays: dict[str, np.ndarray], model_id: str) -> None:
+  """Persist a snapshot from _snapshot_nan_capture (host arrays only, no device access): safe on a background thread."""
+  try:
+    st = time.monotonic()
+    os.makedirs(NAN_CAPTURE_DIR, exist_ok=True)
+    old = sorted(f for f in os.listdir(NAN_CAPTURE_DIR) if f.endswith(".npz"))
+    for f in old[:max(0, len(old) - NAN_CAPTURE_KEEP + 1)]:
+      os.remove(os.path.join(NAN_CAPTURE_DIR, f))
+    path = os.path.join(NAN_CAPTURE_DIR, f"nan_{time.strftime('%Y%m%d_%H%M%S')}_{model_id}.npz")
     np.savez(path, **arrays)
     first = arrays["nonfinite_idx"][:8].tolist()
-    n_bad = len(arrays["nonfinite_idx"])
-    cloudlog.error(f"saved NaN capture {path} in {time.monotonic() - st:.1f}s: {n_bad} non-finite outputs, first at {first}")
+    cloudlog.error(f"saved NaN capture {path} (snapshot {float(arrays['snapshot_ms'][0]):.0f} ms, write {time.monotonic() - st:.1f} s): "
+                   f"{len(arrays['nonfinite_idx'])} non-finite outputs, first at {first}")
   except Exception:
-    cloudlog.exception("NaN capture failed")
+    cloudlog.exception("NaN capture write failed")
 
 
 def drop_chestnut() -> None:
@@ -365,6 +382,8 @@ class ChestnutState:
   def _read_ina(self) -> tuple[int, int, bool]:
     if "AMD" in Device._opened_devices and self._asm_usb is None:
       try:
+        if getattr(self, "last_send", None) is not None:
+          self.last_send["ina_amd"] = True
         raw = Device["AMD"].iface.pci_dev.usb.usb.control_read(0xC0, 5)
         return struct.unpack("<Hh?", bytes(raw))
       except Exception:
@@ -389,6 +408,8 @@ class ChestnutState:
     msg = messaging.new_message("chestnutState")
     state = msg.chestnutState
     self.sends += 1
+    # per-call markers for modeld's NaN capture: which USB/SMU traffic ran between enqueue and readback this frame
+    self.last_send = {"smu": False, "ina_amd": False, "ltssm": False}
 
     # SMU metrics are relatively expensive, so update them at 0.1 Hz while
     # publishing the cached values with the 10 Hz ASM link telemetry.
@@ -396,6 +417,7 @@ class ChestnutState:
       try:
         smu = Device["AMD"].iface.dev_impl.smu
         metrics_t = smu.smu_mod.SmuMetricsExternal_t
+        self.last_send["smu"] = True
         smu._send_msg(smu.smu_mod.PPSMC_MSG_TransferTableSmu2Dram, smu.smu_mod.TABLE_SMU_METRICS, timeout=100)
         metrics_buf = bytearray(smu.adev.vram.view(smu.driver_table_paddr, ctypes.sizeof(metrics_t))[:])
         metrics = metrics_t.from_buffer(metrics_buf).SmuMetrics
@@ -427,6 +449,7 @@ class ChestnutState:
       pass
     if "AMD" in Device._opened_devices:
       try:
+        self.last_send["ltssm"] = True
         state.pcieLtssm = Device["AMD"].iface.pci_dev.usb.read(0xB450, 1)[0]
       except Exception:
         pass
@@ -1205,10 +1228,19 @@ class ModelState:
     # The model is enqueued, not finished: the Chestnut telemetry's USB reads overlap its GPU work (comma #38704)
     if after_enqueue is not None:
       after_enqueue()
+    self.run_index = getattr(self, "run_index", 0) + 1
+    if self.uses_external_gpu:
+      if getattr(self, "telemetry_ring", None) is None:
+        self.telemetry_ring = deque(maxlen=200)
+      marks = getattr(getattr(after_enqueue, "__self__", None), "last_send", None) if after_enqueue is not None else None
+      self.telemetry_ring.append((self.run_index, time.monotonic(), after_enqueue is not None,
+                                  *((marks["smu"], marks["ina_amd"], marks["ltssm"]) if marks else (False, False, False))))
     model_output = self.model_outputs["outputs"].numpy().reshape(-1)
     if self.uses_external_gpu and (not np.all(np.isfinite(model_output)) or getattr(self, "capture_next_frame", False)):
       self.capture_next_frame = False   # set by tools/tests to capture a finite frame and check that it replays exactly
-      _save_nan_capture(self, model_output)
+      snapshot = _snapshot_nan_capture(self, model_output)
+      if snapshot is not None:   # the file is written off the inference path; the fallback below is not delayed by it
+        threading.Thread(target=_write_nan_capture, args=(snapshot, getattr(self, "model_id", "model")), daemon=True).start()
     if self.uses_external_gpu:
       _validate_external_gpu_outputs([model_output])
     if getattr(self, "hidden_ring", None) is not None:

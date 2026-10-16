@@ -19,12 +19,13 @@ def _eps(version: bytes):
   return [SimpleNamespace(ecu="eps", fwVersion=version)]
 
 
-@pytest.mark.parametrize("version", [b"39990-TLA-A040\0\0", b"39990-TLA,A040\0\0"])
+@pytest.mark.parametrize("version", [b"39990-TLA-A040\0\0", b"39990-TLA,A040\0\0", b"39990-TLA-A220\0\0", b"39990-TLA,A220\0\0"])
 def test_crv_5g_a040_selects_exact_firmware_profile(version):
+  # the A220's position tables are byte-identical to the A040's
   assert get_honda_vgr_profile(_eps(version)) == HONDA_VGR_CRV_TLA_A040
 
 
-@pytest.mark.parametrize("version", [b"39990-TLA-A030\0\0", b"39990-TLA-A110\0\0", b"39990-TLA-A220\0\0"])
+@pytest.mark.parametrize("version", [b"39990-TLA-A030\0\0", b"39990-TLA-A110\0\0"])
 def test_other_crv_firmware_does_not_reuse_a040_table(version):
   assert get_honda_vgr_profile(_eps(version)) is None
 

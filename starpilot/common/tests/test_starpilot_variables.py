@@ -329,3 +329,17 @@ def test_speed_limit_controller_available_on_openpilot_longitudinal_or_redneck()
   assert spv.speed_limit_controller_available(openpilot_longitudinal=True, redneck_cruise=False) is True
   assert spv.speed_limit_controller_available(openpilot_longitudinal=False, redneck_cruise=True) is True
   assert spv.speed_limit_controller_available(openpilot_longitudinal=False, redneck_cruise=False) is False
+
+
+def test_device_identity_keys_never_leave_the_device_in_settings_backups():
+  # Toggle backups, profiles and device sync carry every PERSISTENT, non-DONT_LOG key that has a default and is not
+  # excluded. A dongle ID among them makes a device that restores someone else's backup upload as that device.
+  import re
+  from pathlib import Path
+
+  header = (Path(__file__).resolve().parents[3] / "common" / "params_keys.h").read_text()
+  carried = {key for key, flags, has_default in re.findall(r'\{"(\w+)",\s*\{([^,}]+),\s*\w+(,)?', header)
+             if "PERSISTENT" in flags and "DONT_LOG" not in flags and has_default}
+  identity = {key for key in carried if key.endswith("DongleId")}
+  assert identity >= {"KonikDongleId", "StockDongleId"}
+  assert identity <= spv.EXCLUDED_KEYS

@@ -271,6 +271,7 @@ EXCLUDED_KEYS = {
   "FLMTrialApplied",
   "InstallDate",
   "StarPilotCarParamsPersistent",
+  "KonikDongleId",  # device identity: a shared backup would make the receiver upload as the sharer
   "KonikMinutes",
   "LastUpdateTime",
   "MapBoxRequests",
@@ -286,6 +287,7 @@ EXCLUDED_KEYS = {
   "PersistedCEStatus",
   "SpeedLimits",
   "SpeedLimitsFiltered",
+  "StockDongleId",  # device identity
   "UpdateFailedCount",
   "UpdaterAvailableBranches",
   "UpdaterCurrentDescription",

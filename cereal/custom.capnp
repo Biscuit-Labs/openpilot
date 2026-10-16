@@ -310,14 +310,17 @@ struct StarPilotLateralState @0xc2243c65e0340384 {
   lowSpeedFactor @6 :Float32;
   unwindDetected @7 :Bool;
 
-  # nrdr: Clarity modified-EPS controller (selfdrive/controls/lib/latcontrol_clarity_eps.py). The feedforward
-  # inverts the EPS firmware law; see selfdrive/controls/lib/nrdr_eps_firmware_ff.py.
+  # Modified-EPS firmware controller (selfdrive/controls/lib/latcontrol_honda_eps.py). The feedforward
+  # inverts the EPS firmware law; see selfdrive/controls/lib/honda_eps_firmware_ff.py.
   epsFfActive @8 :Bool;
   epsFfFeedforward @9 :Float32;   # lateral output ([-1, 1]) of the feedforward at full weight
   epsFfR5 @10 :Float32;           # EPS firmware target counts it asks for
   epsFfLoad @11 :Float32;         # firmware output counts the column load model says the motion needs
   epsFfDesiredRate @12 :Float32;  # deg/s, filtered desired steering-wheel rate it used
   epsFfWeight @13 :Float32;       # 0..1 fade-in; the command carries epsFfWeight * epsFfFeedforward
+  epsCalibration @14 :Text;        # the EPS image calibration it steers with (EpsFirmwareCalibration.name)
+  epsCommandDelay @15 :Float32;    # s, command delay applied this frame (the calibration's, faded with speed)
+  epsModelDelay @16 :Float32;      # s, lateral delay controlsd handed over (the delay told to the model + smoothing)
 }
 
 struct ReprojectState @0x9ccdc8676701b412 {

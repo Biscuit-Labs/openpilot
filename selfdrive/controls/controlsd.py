@@ -26,8 +26,8 @@ from openpilot.selfdrive.controls.lib.drive_helpers import (
 from openpilot.selfdrive.controls.lib.lane_centering import LaneCenteringController
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
-from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, clarity_lateral_delay, get_clarity_rack_map, \
-  use_honda_eps_controller
+from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, eps_firmware_calibration, \
+  get_rack_map, lateral_delay_schedule, scheduled_lateral_delay
 from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle, STEER_ANGLE_SATURATION_THRESHOLD
 from openpilot.selfdrive.controls.lib.latcontrol_curvature import LatControlCurvature
 from openpilot.selfdrive.controls.lib.latcontrol_torque import (
@@ -171,7 +171,7 @@ CURVATURE_HOLD_OPPOSITE_RELEASE = 0.01  # 1/m
 # already bounds the captured floor in that band.
 CURVATURE_HOLD_CONFIRM_MIN = 0.003  # 1/m (~7 deg) of wound curvature before capture
 CURVATURE_HOLD_CONFIRM_SWEPT = 0.6  # rad of heading swept this blinker cycle; past this the push is exit-shaping, not initiation
-# nrdr: turn shaping for controllers that track the target closely (the Clarity's firmware-inversion
+# nrdr: turn shaping for controllers that track the target closely (the EPS-firmware inversion
 # controller). The hold and the turn lead enter the command as steps: the plan ratchet below the
 # plan-source speed jumps a model frame at a time, opposite-release and handoff drop the floor in one
 # frame, and at a stop the every-frame done reset re-arms the pre-wind the frame after
@@ -443,17 +443,18 @@ class Controls:
       self.LaC = LatControlAngle(self.CP, self.CI, DT_CTRL)
     elif self.CP.steerControlType == car.CarParams.SteerControlType.curvatureDEPRECATED:
       self.LaC = LatControlCurvature(self.CP, self.CI, DT_CTRL)
-    elif use_honda_eps_controller(self.CP):
-      self.LaC = LatControlHondaEps(self.CP, self.CI, DT_CTRL)
+    elif (eps_profile := eps_firmware_calibration(self.CP)) is not None:
+      self.LaC = LatControlHondaEps(self.CP, self.CI, DT_CTRL, eps_profile)
     elif self.CP.lateralTuning.which() == 'pid':
       self.LaC = LatControlPID(self.CP, self.CI, DT_CTRL)
     elif self.CP.lateralTuning.which() == 'torque':
       self.LaC = LatControlTorque(self.CP, self.CI, DT_CTRL)
 
-    self.honda_eps_controller = use_honda_eps_controller(self.CP)
-    self.clarity_rack_map = get_clarity_rack_map(self.CP)
+    eps_fw = isinstance(self.LaC, LatControlHondaEps)
+    self.lat_delay_schedule = lateral_delay_schedule(self.CP) if eps_fw else None
+    self.rack_map = get_rack_map(self.CP, self.LaC.calibration) if eps_fw else None
     # see TURN_SHAPING_TAU
-    self.turn_shaping = self.honda_eps_controller
+    self.turn_shaping = isinstance(self.LaC, LatControlHondaEps)
 
     self.sm = self.sm.extend(['liveDelay', 'starpilotCarState', 'starpilotPlan'])
 
@@ -728,9 +729,9 @@ class Controls:
 
     angle_offset = lp.angleOffsetDeg if self.learn_angle_offset else 0.0
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - angle_offset)
-    if self.clarity_rack_map is not None:
+    if self.rack_map is not None:
       # the same map the controller steers through, so a held or seeded curvature comes back as the same wheel angle
-      self.curvature = self.clarity_rack_map.curvature_from_angle(CS.steeringAngleDeg - angle_offset, CS.vEgo, lp.roll)
+      self.curvature = self.rack_map.curvature_from_angle(CS.steeringAngleDeg - angle_offset, CS.vEgo, lp.roll)
     else:
       self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
 
@@ -864,7 +865,7 @@ class Controls:
     # Measured on route 00000276 under 15 mph: each model frame steps the desired wheel angle by
     # 2.0 deg at p50 and 6.9 deg at p90, half of those steps are smaller than the angle-rate clip
     # and so pass it untouched. Target smoothing is deliberately not used here; modified-EPS
-    # torque is filtered once, after output shaping, in LatControlPID (LatControlHondaEps on the Clarity).
+    # torque is filtered once, after output shaping, in LatControlPID (LatControlHondaEps on the cars that run it).
     #
     # Ramp toward each new action across the model frame instead. Starting the ramp from the value
     # currently being commanded keeps the target continuous by construction -- there is no step
@@ -939,7 +940,8 @@ class Controls:
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll,
                                                                jerk_factor)
     lat_smooth_seconds = get_control_lateral_smooth_seconds(self.CP.brand, CS.vEgo, self.CP.lateralSmoothSeconds)
-    lateral_delay = clarity_lateral_delay(CS.vEgo) if self.honda_eps_controller else self.sm["liveDelay"].lateralDelay
+    lateral_delay = scheduled_lateral_delay(self.lat_delay_schedule, CS.vEgo) if self.lat_delay_schedule else \
+      self.sm["liveDelay"].lateralDelay
     lat_delay = lateral_delay + lat_smooth_seconds
 
     actuators.curvature = self.desired_curvature

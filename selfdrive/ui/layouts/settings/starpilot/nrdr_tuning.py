@@ -52,7 +52,7 @@ class NRDRManagerView(AetherSettingsView):
 
     self._grid.add_tile(HubTile(
       title=tr("NRDR Lateral"),
-      desc=tr("Configure Clarity EPS behavior, speed-banded PID gains, driver override, filters, and online tuning."),
+      desc=tr("Configure modified-EPS behavior, speed-banded PID gains, driver override, filters, and online tuning."),
       icon_key="steering",
       on_click=lambda: controller._navigate_to("lateral"),
       bg_color="#8B5CF6",
@@ -255,18 +255,21 @@ class NRDRTuningLayout(_SettingsPage):
     ]
 
     filter_rows = [
-      toggle("NrdrLatUseFirmwareVgr", "Use Firmware VGR Table",
-             "Convert curvature with the EPS firmware's A (position) table on top of the learned steer "
-             "ratio, instead of the road-measured effective-ratio curve. Changes centre gain and taper."),
+      toggle("HondaEpsController", "Honda EPS Controller",
+             "Steer a PTM-flashed Civic, Insight or CR-V with the controller that inverts the EPS firmware's own "
+             "control law. The Clarity always uses it. Takes effect the next time you start the car."),
+      toggle("HondaEpsFirmwareVgr", "Use Firmware VGR Table",
+             "For a car without a yaw-fitted rack map: convert curvature with the EPS firmware's A (position) "
+             "table instead of the road-measured ratio curve. Cars with a rack map always use it."),
       toggle("NrdrLatModelActionInterp", "Model Action Interpolation",
              "Ramp the model's 20 Hz steering action across the model frame instead of holding it. "
              "Removes the 20 Hz staircase in the target that the smoothing filter otherwise has to hide."),
       value(
-        "NrdrLatAngleRateLimit", "Desired Angle Rate Limit",
+        "HondaEpsAngleRateLimit", "Desired Angle Rate Limit",
         "Ceiling on how fast the desired steering angle may move. Backstops the curvature jerk limit, "
         "which does not bind below about 20 mph. 0 disables.",
-        lambda: f"{p.get_int('NrdrLatAngleRateLimit')} deg/s",
-        lambda: self._show_slider("NrdrLatAngleRateLimit", 0, 2000, unit=" deg/s", title="Desired Angle Rate Limit"),
+        lambda: f"{p.get_int('HondaEpsAngleRateLimit')} deg/s",
+        lambda: self._show_slider("HondaEpsAngleRateLimit", 0, 2000, unit=" deg/s", title="Desired Angle Rate Limit"),
       ),
       toggle("HondaTorqueOutputLowPassFilter", "Honda Torque Output LPF", "Smooth the final modified-EPS torque command using speed-banded time constants."),
       value(
@@ -389,7 +392,7 @@ class NRDRTuningLayout(_SettingsPage):
       self,
       lateral_sections,
       header_title=tr_noop("NRDR Lateral"),
-      header_subtitle=tr_noop("Clarity EPS tuning, driver override, filtering, and online learning."),
+      header_subtitle=tr_noop("Modified-EPS tuning, driver override, filtering, and online learning."),
       panel_style=PANEL_STYLE,
     )
     self._sub_panels["longitudinal"] = AetherSettingsView(

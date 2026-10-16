@@ -111,9 +111,11 @@ def notify_sentry_low_voltage(power_monitor: PowerMonitoring) -> bool:
 
 
 class Chestnut:
-  """Keep the ASM2464PD dock on the firmware expected by the GPU runtime."""
+  """Keep the ASM2464PD dock on the firmware expected by the GPU runtime, flashing before going onroad (comma #39078):
+  the onroad start waits up to STARTUP_TIMEOUT for a running flash, so modeld never opens the dock mid-flash."""
   MAX_ATTEMPTS = 3
   RETRY_INTERVAL = 20.0
+  STARTUP_TIMEOUT = 30.
 
   def __init__(self):
     self.thread: threading.Thread | None = None
@@ -121,6 +123,10 @@ class Chestnut:
     self.last_attempt = 0.0
     self.flashed = False
     self.mismatch = False
+
+  @property
+  def flashing(self) -> bool:
+    return self.thread is not None and self.thread.is_alive() and time.monotonic() - self.last_attempt < self.STARTUP_TIMEOUT
 
   @property
   def failed(self) -> bool:
@@ -151,7 +157,7 @@ class Chestnut:
       return
     if self.thread is not None and self.thread.is_alive():
       return
-    if time.monotonic() - self.last_attempt < self.RETRY_INTERVAL:
+    if self.attempts > 0 and time.monotonic() - self.last_attempt < self.RETRY_INTERVAL:
       return
 
     self.attempts += 1
@@ -327,7 +333,7 @@ def hardware_thread(end_event, hw_queue) -> None:
     network_strength=NetworkStrength.unknown,
     network_stats={'wwanTx': -1, 'wwanRx': -1},
     modem_temps=[],
-    usb_state=[],
+    usb_state=get_usb_state(),
   )
 
   all_temp_filter = FirstOrderFilter(0., TEMP_TAU, DT_HW, initialized=False)
@@ -507,6 +513,8 @@ def hardware_thread(end_event, hw_queue) -> None:
 
     # must be at an engageable thermal band to go onroad
     startup_conditions["device_temp_engageable"] = thermal_status < ThermalStatus.overheated
+
+    startup_conditions["not_flashing_chestnut"] = chestnut is None or not chestnut.flashing
 
     # ensure device is fully booted
     startup_conditions["device_booted"] = startup_conditions.get("device_booted", False) or HARDWARE.booted()

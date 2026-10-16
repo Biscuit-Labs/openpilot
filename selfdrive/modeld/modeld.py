@@ -2,6 +2,7 @@
 import base64
 from collections import deque
 from collections.abc import Callable
+import contextlib
 import ctypes
 from dataclasses import dataclass
 from functools import cached_property
@@ -13,6 +14,10 @@ import threading
 import usb1
 from openpilot.system.hardware import HARDWARE, TICI
 os.environ['GMMU'] = '0'
+# comma 082c43da39: cap the Chestnut at 100 W. With a power limit tinygrad's AM driver leaves the clocks under the SMU's
+# own management (AM_PERF_LEVEL defaults to auto) instead of pinning every domain at max; at pinned max clocks our G1b
+# graph's summarizer matmuls intermittently write one wrong element (the action NaN), reproduced on the bench.
+os.environ.setdefault('AM_POWER_LIMIT', '100')
 os.environ['DEV'] = 'QCOM' if TICI else 'LLVM'
 from tinygrad.device import Buffer, Device
 from tinygrad.engine.realize import lower_and_compile
@@ -1402,6 +1407,46 @@ def _load_model_state(cam_w: int, cam_h: int, selected_model: str, external_gpu_
     )
 
 
+def _pin_chestnut_gfxclk() -> None:
+  """With AM_POWER_LIMIT the AM driver leaves every clock to the SMU (auto), which costs ~6 ms/frame on our graph; with no
+  limit it pins every domain at max, and pinned max memory/fabric clocks make our summarizer matmuls intermittently write
+  a wrong element (the action NaN; bench: 76/800 frames). Pin only the core clock at max: 0/800, +0.8 ms vs all-max."""
+  if os.getenv("CHESTNUT_PIN_GFXCLK", "1") != "1" or "AMD" not in Device._opened_devices:
+    return
+  try:
+    smu = Device["AMD"].iface.dev_impl.smu
+    clk = smu.smu_mod.PPCLK_GFXCLK
+    freq = smu.read_clocks((clk,))[clk][-1]
+    smu._send_msg(smu.smu_mod.PPSMC_MSG_SetSoftMinByFreq, clk << 16 | freq, timeout=20)
+    smu._send_msg(smu.smu_mod.PPSMC_MSG_SetSoftMaxByFreq, clk << 16 | freq)
+    cloudlog.info(f"chestnut: GFXCLK pinned at {freq} MHz, memory/fabric clocks left to the SMU")
+  except Exception:
+    cloudlog.exception("chestnut: pinning GFXCLK failed, clocks stay under the SMU")
+
+
+CHESTNUT_RETRY_MARKER = "/dev/shm/modeld_chestnut_retry"
+CHESTNUT_RETRY_WINDOW_S = 600.
+
+
+def _request_big_model_retry(params) -> bool:
+  """comma #39086: a failed big model load (e.g. the Chestnut re-enumerating during a flash, or a crank cutting its power)
+  is retried once with an onroad cycle. comma latches the retry in a ChestnutRetry param; this fork keeps it in a /dev/shm
+  marker (no params_keys.h change, no params rebuild): at most one retry per 10 minutes, cleared by a successful load."""
+  try:
+    if time.time() - os.path.getmtime(CHESTNUT_RETRY_MARKER) < CHESTNUT_RETRY_WINDOW_S:
+      return False
+  except OSError:
+    pass
+  try:
+    with open(CHESTNUT_RETRY_MARKER, "w") as f:
+      f.write(str(time.time()))
+  except OSError:
+    return False
+  cloudlog.error("big model load failed, cycling onroad to retry")
+  params.put_bool("OnroadCycleRequested", True)
+  return True
+
+
 def _load_external_gpu_model(cam_w: int, cam_h: int, selected_model: str, model_version: str = "",
                              CP=None, demo: bool = False) -> ModelState | None:
   """Load and warm the USB-GPU model without running another tinygrad model concurrently."""
@@ -1421,6 +1466,7 @@ def _load_external_gpu_model(cam_w: int, cam_h: int, selected_model: str, model_
     )
     if not candidate.uses_external_gpu:
       raise RuntimeError("external GPU model resolved to the builtin model")
+    _pin_chestnut_gfxclk()
     candidate.warmup()
     return candidate
   except Exception:
@@ -1764,6 +1810,11 @@ def main(demo=False):
     )
     if big_model is None:
       drop_chestnut()   # as comma master: a failed load must not leave the small model waiting on the Chestnut
+      if not demo:
+        _request_big_model_retry(params)
+    else:
+      with contextlib.suppress(OSError):
+        os.remove(CHESTNUT_RETRY_MARKER)
     model = big_model if big_model is not None else small_model
     camera_path.validate_model(model)
     if big_model is not None:

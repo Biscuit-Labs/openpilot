@@ -118,6 +118,13 @@ class HondaFlags(IntFlag):
   EPS_MODIFIED = 8192
   GAS_INTERCEPTOR = 16384
 
+  # NRDR: exact EPS firmware profiles with traced variable-gear-ratio tables (same bits as nrdr vfn).
+  VGR_CLARITY_TRW_A020 = 32768
+  VGR_CIVIC_TBA_C020 = 65536
+  VGR_INSIGHT_TXM_A040 = 131072
+  VGR_CRV_TLA_A040 = 262144
+  VGR_CIVIC_TBA_C120 = 524288
+
 
 # Car button codes
 class CruiseButtons:

@@ -14,6 +14,24 @@ VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 
 
+def get_eps_modified_steering_pressed(
+  raw_pressed: bool, steering_torque: float, torque_cmd: float, filter_s: float, previous_pressed: bool
+) -> tuple[float, bool]:
+  # NRDR: on a modified EPS the column torque the EPS itself produces trips steeringPressed. A press that pushes
+  # against the command, or one with almost no command, is the driver at once; one that agrees with the command must
+  # hold for 0.28 s first.
+  if not raw_pressed:
+    return 0.0, False
+
+  torque_product = float(steering_torque) * float(torque_cmd)
+  torque_cmd_abs = abs(float(torque_cmd))
+  if previous_pressed or torque_cmd_abs < 0.10 or torque_product < 0.0:
+    return 1.0, True
+
+  filter_s = min(1.0, filter_s + DT_CTRL)
+  return filter_s, filter_s >= 0.28
+
+
 def compute_gb_honda_bosch(accel, speed):
   # TODO returns 0s, is unused
   return 0.0, 0.0

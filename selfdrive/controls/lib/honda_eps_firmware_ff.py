@@ -409,21 +409,28 @@ CRV_TLA_A040 = EpsFirmwareCalibration(
   r6_per_deg_s=CRV_TLA_A040_R6_CENTRE, r6_angle_bp=R6_GAIN_BP, r6_angle_gain=CRV_TLA_A040_R6_GAIN,
   load=CRV_TLA_A040_LOAD, p_scale=CRV_TLA_A040_P_SCALE, i_scale=CRV_TLA_A040_I_SCALE,
 )
-# CR-V 5G 39990-TLA-A220 (2020+), the 10-06 A280Flat PTM build (full image sha256 5f706dd6, RWD 8f175250) on stock
-# df85f988: TargetMap-D, P117..265, D737, KFF45, Norm1650, Trk3200, clamps 7373/1774/9000, speed clamp 0. The
+# CR-V 5G 39990-TLA-A220 (2020+), the CORRECTED PTM build of 2026-10-16 (full image sha256 bead3bd4, RWD d62490b3; KB
+# A220_PTM_FIX_20261016) on stock df85f988: command map and P table Clarity-equivalent, D737, KFF45, Norm1650, Trk3200,
+# clamps 7373/1774/9000, speed clamp 0, row 6 stock.
+# It replaces the 10-06 build (RWD 8f175250), which pasted the A040 PTM's TargetMap-D Y and P117..265 Y onto the A220's
+# own, much more compressed axes: 0.71x the Clarity below key 161 and up to 1.76x above it, a 4.1x incremental-gain kink
+# at output ~0.09, where highway lane keeping sits (p90 key 169 on the owner's routes 0x30A-0x30D). Both builds report
+# 39990-TLA,A220, so a car still on the 10-06 build must be reflashed: on this calibration it would get ~0.7x on the
+# highway and ~2x in turns. The corrected rows: at each row's own stock X knots, Y = the Clarity's row 0 at key x
+# 3840/4096 (the A220 takes E4 0..4096 per unit output, the Clarity 0..3840), so firmware output per unit output is
+# within 0.7% of the Clarity's from 0.05 to 0.94. The
 # controller block is the A040's shifted -0x448 (only RAM literals differ), every calibration literal resolves to the
 # SAME table address, and the PTM edits left the command axes, P axis, envelope and VGR tables stock. Read from THIS
 # image: the command-map key axis (rows 0-3 at 0x11AE0 + 18*row), the P axis (0x11E2E), the speed envelope (values
 # 0x119AE + 18*row, axis 0x11930), the key clamp (header word 0x11ADE, 1774), the A/B VGR tables, E4 scale (opendbc
 # gives every modified HONDA_CRV_5G [0, 4096]).
-# What differs from the A040 is the COMMAND AXIS: rows 0-3 are [0,161,222,322,409,534,696,998|1050,1663], so the same
-# key asks ~2.5x the R5 (key 443: 13094 vs 4938; key 887: 24449 vs 12036) and the map saturates at 30000 by key 1663.
-# Kp is still keyed on the same P axis, so its P pieces sit at different R5.
+# What differs from the A040 is the COMMAND AXIS: rows 0-3 are [0,161,222,322,409,534,696,998|1050,1663] (rows 4-5 are
+# the A040-like [0,222,437,..,1774]; the corrected build resamples each row on its own axis). The P axis is the A040's.
 # Live row is VARIANT-DEPENDENT but barely: the ROM record table at 0xECF7 (91-byte records, enable byte 0x0E, row byte
 # 0x0F, same layout as the A040's, where it reproduces TLBA2 -> 1) selects row 0 for TLAA3/TLAY2/TLAY8/TLBL1 and, with
 # the enable byte 0, TLAY6/TLAY7/TLBK6/TLDY6; row 1 for TLAA4 (identical to row 0); row 2 for TLBA4; row 3 for TLBA5.
 # Rows 2-3 differ from row 0 only at the 7th knot (1050, not 998: up to 1001 counts of R5 at key 998); the PTM's target
-# map, P and D rows are identical in all of rows 0-3. Row 0 is taken. The car's variant cannot be read from openpilot.
+# map, P and D rows are Clarity-equivalent in all of rows 0-5. Row 0 is taken. The car's variant cannot be read from openpilot.
 # Envelope: unlike the A040's flat table, row 0 caps |key| at 1330 from 150 km/h (1774 up to 125 km/h); rows 1 and 2-3
 # differ only above 150 km/h (row 1: 1108 from 175 km/h), so the row choice does not matter below 150 km/h.
 # Carried over, NOT read from this image: load = CRV_TLA_A040_LOAD and the P/I trims (the CR-V's, see CRV_TLA_A040). R6 is PREDICTED,
@@ -432,9 +439,9 @@ CRV_TLA_A040 = EpsFirmwareCalibration(
 # the A040's measured R6 (route 82bb at norm 1450, scaled to 1650).
 CRV_TLA_A220 = EpsFirmwareCalibration(
   name="crv_tla_a220", e4_per_output=4096.0,
-  r5_key_bp=(0, 161, 222, 322, 409, 534, 696, 998, 1663), r5_v=TARGET_MAP_D_R5, key_clamp=1774,
+  r5_key_bp=(0, 161, 222, 322, 409, 534, 696, 998, 1663), r5_v=(0, 2720, 3750, 5439, 6917, 9038, 11775, 16880, 28127), key_clamp=1774,
   envelope_bp=(0, 50, 100, 150, 200, 250, 300, 350, 400), envelope_v=(1774, 1774, 1774, 1774, 1774, 1774, 1330, 1330, 1330),
-  kp_key_bp=CRV_TLA_A040.kp_key_bp, kp_v=P_ROW_PMINUS5,
+  kp_key_bp=CRV_TLA_A040.kp_key_bp, kp_v=(117, 131, 154, 190, 230, 253, 261, 264, 265),
   r6_per_deg_s=CRV_TLA_A040.r6_per_deg_s, r6_angle_bp=CRV_TLA_A040.r6_angle_bp, r6_angle_gain=CRV_TLA_A040.r6_angle_gain,
   load=CRV_TLA_A040_LOAD, p_scale=CRV_TLA_A040_P_SCALE, i_scale=CRV_TLA_A040_I_SCALE,
 )
@@ -541,9 +548,10 @@ CALIBRATION_PROVENANCE = {
     "model_delay": "default: the Clarity's schedule", "rack": "none",
   },
   "crv_tla_a220": {
-    "row": "firmware", "kp_axis": "firmware", "key_clamp": "firmware", "envelope": "firmware",
+    "row": "firmware: rows 0-5 all Clarity-equivalent in the corrected build, so the untraced variant row does not matter",
+    "kp_axis": "firmware", "key_clamp": "firmware", "envelope": "firmware",
     "r6": "inferred: the A040's (its A table not checked)",
-    "load": "inferred: the A040 owner's",
+    "load": "inferred: the A040 owner's (the A220 drives 0x30A-0x30D ran the 10-06 build: refit after the reflash)",
     "trims": "inferred: the A040 owner's",
     "cmd_delay": "default", "model_delay": "default: the Clarity's schedule", "rack": "none",
   },

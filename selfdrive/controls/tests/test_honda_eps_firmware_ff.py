@@ -1,3 +1,4 @@
+import dataclasses
 import math
 from types import SimpleNamespace
 
@@ -520,20 +521,35 @@ def test_crv_a220_reads_its_own_command_axis_and_predicts_r6_from_the_a040():
   # selected by the fw string in either spelling, and not on another car
   assert eps_ff.select_eps_firmware_calibration("HONDA_CRV_5G", "39990-TLA-A220") is a220
   assert eps_ff.select_eps_firmware_calibration("HONDA_CIVIC", "39990-TLA-A220") is None
-  # command axis read from the A220 image (row 0, 0x11AE0): ~2.5x the A040's R5 at the same key
+  # command axis read from the A220 image (row 0, 0x11AE0), much more compressed than the A040's
   assert a220.r5_key_bp == (0, 161, 222, 322, 409, 534, 696, 998, 1663) and a220.key_clamp == 1774
-  assert abs(eps_ff.r5_from_output(1.0, 20.0, a220)) == 30000          # full output saturates the map below 150 km/h
-  assert abs(eps_ff.r5_from_output(1.0, 160 / 3.6, a220)) == pytest.approx(28475, abs=2)   # key 1330 envelope
-  assert float(np.interp(443, a220.r5_key_bp, a220.r5_v)) == pytest.approx(13094, abs=1)
-  assert float(np.interp(443, a040.r5_key_bp, a040.r5_v)) == pytest.approx(4938, abs=1)
-  # P axis and table are the A040's; the envelope is the A220's own (1330 from 150 km/h, not flat)
-  assert a220.kp_key_bp == a040.kp_key_bp and a220.kp_v == a040.kp_v
+  # the corrected build's values are the Clarity's curve on that axis: the Clarity's R5 at key x 3840/4096
+  clarity = eps_ff.CLARITY_TRW_A020
+  for key, r5 in zip(a220.r5_key_bp, a220.r5_v, strict=True):
+    assert r5 == round(float(np.interp(key * 3840 / 4096, clarity.r5_key_bp, clarity.r5_v)))
+  for key, kp in zip(a220.kp_key_bp, a220.kp_v, strict=True):
+    assert kp == round(float(np.interp(key * 3840 / 4096, clarity.kp_key_bp, clarity.kp_v)))
+  # P axis is the A040's (the values are not); the envelope is the A220's own (1330 from 150 km/h, not flat)
+  assert a220.kp_key_bp == a040.kp_key_bp and a220.kp_v != a040.kp_v
   assert a220.key_ceiling(120 / 3.6) == 1774 and a220.key_ceiling(160 / 3.6) == 1330
   assert a040.key_ceiling(160 / 3.6) == 1774
   # R6 is predicted from the A040 (shared 3121 / A-centre 16783 / NORM 1650), not measured; load is the CR-V's
   assert a220.r6_per_deg_s == a040.r6_per_deg_s == eps_ff.CRV_TLA_A040_R6_CENTRE and a220.r6_angle_gain == a040.r6_angle_gain
   assert a220.load is eps_ff.CRV_TLA_A040_LOAD and a220.e4_per_output == 4096.0
   assert (a220.p_scale, a220.i_scale) == (a040.p_scale, a040.i_scale) == (eps_ff.CRV_TLA_A040_P_SCALE, eps_ff.CRV_TLA_A040_I_SCALE) == ((1.0,) * 3,) * 2
+
+
+
+def test_crv_a220_firmware_output_matches_the_clarity():
+  # the point of the corrected build: same firmware output per unit output as the Clarity, everywhere. The 10-06 build
+  # (TargetMap-D pasted onto this axis) ran 0.71x below output ~0.09 and up to 1.98x above it.
+  a220, clarity = eps_ff.CRV_TLA_A220, eps_ff.CLARITY_TRW_A020
+  def out(cal, u):
+    return abs(eps_ff.firmware_output(eps_ff.r5_from_output(u, 10.0, cal), 0.0, cal))
+  for u in (0.03, 0.05, 0.1, 0.15, 0.2, 0.3, 0.45, 0.6, 0.8):
+    assert out(a220, u) / out(clarity, u) == pytest.approx(1.0, abs=0.03), u
+  pasted = dataclasses.replace(a220, r5_v=eps_ff.TARGET_MAP_D_R5, kp_v=eps_ff.P_ROW_PMINUS5)
+  assert out(pasted, 0.05) / out(clarity, 0.05) < 0.8 and out(pasted, 0.3) / out(clarity, 0.3) > 1.7
 
 
 def test_command_delay_hands_over_the_value_issued_that_long_ago():

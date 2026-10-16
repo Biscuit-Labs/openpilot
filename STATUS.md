@@ -11703,6 +11703,44 @@ constant R6 transfer; VFN's corrected firmware has the same ID and is not select
 No firmware was flashed. The source install rebuilds native schemas/params because
 the tracked prebuilt marker is removed; local host binaries are excluded.
 
-Implementation SHA and final validation are recorded below after the merge commit.
+Implementation: `22aa0fcac20cdf80ffeafbb60a2f38c54b0913f5`. The following checks
+ran on the same runtime source tree (the final follow-up only corrects UI explanatory
+text and records evidence):
+
+- Native build: `scons -j8 msgq_repo/ cereal/ opendbc_repo/ common/ selfdrive/`, successful
+  on Apple-silicon macOS in `.venv-codex`. Renamed/new controller keys are accepted by
+  the rebuilt Params library. No tracked .so/.a/.os differs from pre-sync `37e484755`.
+- Complete Honda suite: **441 passed**.
+- Required Bosch-A radard/lead/following/turn suites plus planner, QP retry, brake-onset,
+  stock-stop, lead-switch and navigation-desire tests: **900 passed**.
+- Broad controls suite, excluding process-replay `test_leads.py`: **2,407 passed, 2 failed**.
+  Failures are the unchanged Bolt low-speed-center and Palisade center-taper assertions.
+  Direct evaluation of the original `37e484755` tuning module reproduces the same
+  0.8768080716037345 / 0.8222980111882578 values, against assertions >0.98 / >0.87.
+  Both test and tuning source files are unchanged. They are not Honda regressions.
+- Model/model-pipeline/simulator group: **58 passed**.
+- Settings, variables, release pipeline, parameter migrations and local PID integration
+  group: **87 passed**.
+- Final native-warp/controller/A220/Honda/C3X/C4 icon smoke group: **490 passed**.
+  These groups overlap; counts are not additive.
+- JetLink upstream openpilot, comma-owner, registry and queue suites: **606 passed,
+  60 subtests passed**.
+- Tinygrad CPU dtype/JIT: **57 passed, 8 skipped, 20 subtests passed** serially. The
+  instructed -n12 run hit pytest-subtests/xdist serialization of DType; serial execution
+  passed. Runtime-package ruff is clean; mypy: **212 source files**, no issues.
+- Root lint checked 84 changed Python files: 258 inherited/imported findings, with no
+  per-file/rule count increases over the local/VFN source baselines. Honda full lint
+  reports 20 existing/imported style/unused-import findings. No fatal Python findings;
+  adapter/PID lint and staged whitespace checks are clean.
+- Negative controls: suppressing actual warp replay fails the native CPU-frame test;
+  bypassing scheduled gain use fails the returned-command test; selecting A040 for the
+  A220 firmware ID fails the artifact-bound selection test. Mutations were restored and
+  bytecode regenerated before the final 490-pass run.
+- The C++ pytest collector was disabled for the Python release-pipeline group because
+  it treats scripts/test_all.sh as an executable test and invokes the host-cache runner.
+  It was stopped; all project implementation remained in the main working directory.
+
+`docs/upstream_sync_review.md` records the four upstream PR dispositions. The owner's
+fork has no open PRs; no separate PR merge, external repo write or duplicate PR was needed.
 No route replay, live radar/fusion timing, QCOM hardware validation, live JetLink
 handoff, closed-loop vehicle test, device installation or road validation occurred.

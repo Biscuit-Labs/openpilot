@@ -232,11 +232,10 @@ class NRDRTuningLayout(_SettingsPage):
       ]))
 
     controller_rows = [
-      toggle("HondaEpsController", "EPS Firmware Feedforward",
-             "On: steer with James's modified-EPS controller, a feedforward that inverts the EPS firmware's own "
-             "control law plus a PID on fixed per-band trims. Checked on road drives against the NRDR PID on "
-             "both cars (Clarity routes 352-361, Civic routes 286-298). Off: steer with the NRDR PID, set up under "
-             "NRDR PID Control. Takes effect on the next drive. Off, James's feedforward is only logged."),
+      toggle("HondaEpsController", "Honda EPS Controller",
+             "Use the firmware-inversion controller for supported PTM-flashed Civics, Insights and CR-Vs. "
+             "The Clarity always uses it. Off selects NRDR PID on the other supported cars. "
+             "Takes effect on the next drive."),
       toggle("NrdrLatVfnOverride", "VFN Steering Override",
              "Driver override from vfn-yaw-trim, written for James's EPS Firmware Feedforward controller: every "
              "press goes through the same 0.28 s filter that controller uses, with no debounce, release hold or "
@@ -433,7 +432,7 @@ class NRDRTuningLayout(_SettingsPage):
         SettingSection(title=tr_noop("Steering Target Smoothing"), rows=pid_smoothing_rows),
       ],
       header_title=tr_noop("NRDR PID Control"),
-      header_subtitle=tr_noop("Only used while EPS Firmware Feedforward (James's controller) is off."),
+      header_subtitle=tr_noop("Only used while the NRDR PID controller is selected."),
       panel_style=PANEL_STYLE,
     )
     self._sub_panels["longitudinal"] = AetherSettingsView(

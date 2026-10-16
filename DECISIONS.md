@@ -1852,10 +1852,11 @@ Recorded 2026-10-07, owner decision (Peter, in chat): "fix the internal code to 
 Civic and CR-V, and remove the toggle completely." **Static evidence only; not road-measured.**
 
 dRel = `raw/16 + bosch_a_range_offset_m(fingerprint)`:
-- Civic (36802TBA A160): config word 0, so n0 = 335 (the literal fallback); offset −335/128 = −2.6171875 m.
+- Civic (36802TBA A160): config 5530, so n0 = trunc(5530/16 + 0.5) = 346; offset −346/128 = −2.703125 m.
+  (Corrected 2026-10-16; see the amendment below. It was config 0 → 335 literal fallback → −2.6171875 m.)
 - CR-V (36802TLA A070): config 5448, so n0 = trunc(5448/16 + 0.5) = 341; offset −341/128 = −2.6640625 m.
 
-Against the old −3.0, Civic dRel reads 0.383 m longer and CR-V 0.336 m longer. Scale, vRel, U11, azimuth and gates
+Against the old −3.0, Civic dRel reads 0.297 m longer (0.383 m at 335) and CR-V 0.336 m longer. Scale, vRel, U11, azimuth and gates
 are unchanged, and range differences cancel the offset.
 
 Removed: the `BoschARangeOffsetFallback` param, its UI rows and the CAN 0x669 runtime addend (Gemini, `04b3374034`,
@@ -1871,6 +1872,15 @@ Removed: the `BoschARangeOffsetFallback` param, its UI rows and the CAN 0x669 ru
 - NvM overrides of the config word, since Peter's radar runs A150 and no image of it is available.
 
 Why it is still a choice and not a proof: n0 is a ROM default. A longer dRel is the less conservative direction.
+
+**Amendment 2026-10-16 (Civic 335 → 346; Jason's static trace, Peter asked for the change; static only).** The Civic
+config word is not 0. At startup the radar copies a ROM record into its RAM config struct S = 0x40039A64
+(memcpy(S+3, rec+3, 241) at 0xB732E, fallback copy at 0xB7386) and reads cfg at S+0xD6 (0xDB998, 0xDC03C). The TBA A160
+record table at ROM 0x15BC94 (stride 244) holds cfg 0x159A = 5530 at +0xD6 in all 26 records, so n0 = 346. Positive
+control: the same method gives CR-V (TLA A070) 5448 → 341, unchanged. Every Civic dRel now reads 0.0859 m shorter (the
+more conservative direction); vRel, U11 and range differences are unchanged. Still open: A150 image (346 is A160);
+runtime NvM overwrite of cfg (TBA writer 0xB60A8, store to S+0xD6 at 0xB61F2); whether the −0xC0 addend applies; no
+tape/laser measurement.
 
 Not done: the offline tools (`bosch_a_scenarios.py`, `bosch_a_dropout_census.py`, `bosch_a_sweep_trace.py`) take
 `BOSCH_A_RANGE_OFFSET_M`, so they now use the Civic value. The larch64 `params_pyx.so`/`libcommon.a` still list the
@@ -2696,3 +2706,311 @@ openpilot `49e6610d08373bb8512ccce38d2f75c61656325e`), explicitly as an inferenc
 Do not describe this as an A220 load fit, row validation, attenuation model or road result.
 The supplied image has no telemetry patch; controller support does not add one or authorize
 flashing. See `docs/honda_crv_5g_a220_eps_controller.md` for every address and limitation.
+
+## D-123 — A Bosch-A lead's braking reading is floored near a confident camera's (STATUS 262, 2026-10-11, replay only, not driven)
+
+**Problem (owner, 2026-10-10 bookmark):** route 0000031b 14:57, a jolt: the car stabbed to -2.0 within 0.75 s, then let go.
+
+**Cause:** the lead really slowed, 17.5 -> 14 m/s at 35 m. The radar read its braking (aLeadK) at -2.5 while the camera
+read -0.3. aLeadK <= -2.0 latches STOCK_FEEL_EMERGENCY, which bypasses the Stock Brake Feel shaping. That latch fired 50+
+times over 311/319/31b on leads really slowing at -0.5..-1.5. The one real emergency in the set (2f5 10:01) had camera
+accel -1.9.
+
+**Decision:** `CAM_A_BOUND` (radard.py, class `CamABound`, Bosch-A only, default ON). While the camera lead is confident
+(prob > 0.9 for 1 s) and at the radar lead's range (within max(10 m, 20 %)), with dRel >= `CAM_A_BOUND_MIN_D` (15 m),
+aLeadK is raised to at least min(camera accel, 0) - `CAM_A_BOUND_MARGIN` (1.0), on leadOne and on leadTwo / leadOnpath
+when they carry the same track. It runs after SlideBound. vLead / vRel are untouched, so a closing lead still brakes.
+Lift-only, nothing deleted (D-041/D-042).
+
+**Evidence (closed-loop replay, car-matched, 15 windows):** 31b 14:57 -2.00 -> -1.11 with a gentle onset (gap 1.6 m
+shorter, still 27 m; fidelity v RMSE 0.09, corr 0.991); 319 3:31 -2.08 -> -1.54; 319 42:23 -2.43 -> -2.16; 311 8:54
+(real, camera late) -3.45 -> -3.36, gap 0.2 m shorter; 2f5 10:01, 299 s49, stops and 311 41:34 unchanged. Protected
+groups (297a/297b/298/2a6/2f2/311/312a/312b/312c; the 313/305/308 rlogs are no longer on disk): only shallower ticks.
+
+**Accepted cost (owner, 2026-10-11, "if it doesn't make the brake worse I'm ok with sacrificing some distance"):**
+2f2 15:07 is a real hard brake (lead closing ~8 m/s, camera accel lagging). Closed loop, full braking (-3.0) comes
+0.45 s later and the closest gap is 18.0 m instead of 20.0 m. The brake is not deeper: plan -3.51 -> -3.52, sim
+-3.98 -> -3.95. Also shallower: 2f2 7:06 -1.07 -> -0.15 (car -0.47), 312b 13:34 -1.30 -> -0.89 (car -1.66).
+
+**Rejected:** margin 0.5. 311 8:54 lost 3.2 m of gap (12.7 -> 9.5) and 311 54:40 deepened -2.87 -> -3.47.
+
+**Lever:** `CAM_A_BOUND = False` restores the previous behaviour exactly.
+
+## D-124 — A lead switch onto a nearer, slower car is floored at the camera's speed (STATUS 263, 2026-10-11, replay only, not driven)
+
+**Problem (owner, 2026-10-10 bookmark):** route 0000031b 14:34, at night in a pack: the car braked -3.5 down to
+14.6 m/s behind a 17.5 m/s lead. "That was dangerous for a lead following behind me."
+
+**Cause:** track 28 and the camera lead both switched from a car at ~84 m / ~23 m/s to a nearer car at ~17.5 m/s. The
+camera range stepped 66 -> 50 m in ~0.5 s and the radar range slid 60 -> 41 m while U11 vRel said only -6..-8. The
+off-rail range assist read the slide as vRel -13.7, the Doppler blend gave aLeadK -4.2, and STOCK_FEEL_EMERGENCY
+latched past the Stock Brake Feel depth cap. The camera speed was falling, which blocks the D-102 SlideBound entry.
+
+**Decision:** `LEAD_SWITCH` (radard.py, a second SlideBound entry, default ON). Over the last `LEAD_SWITCH_WINDOW_S`
+(1.0 s), the camera range fell >= `LEAD_SWITCH_CAM_EXCESS_M` (10 m) further than the camera's own speed explains
+(that step is held for 1 s, because the radar slide trails it by ~0.4 s), and the same radar track's range fell >=
+`LEAD_SWITCH_RADAR_EXCESS_M` (7 m) further than its U11 vRel explains. The D-102 camera gates still apply (same object,
+prob > 0.9 for 1 s, speed stdev < 1.5, camera >= 3 m/s faster than vLead), and so do D-102's floors (camera speed - 1.0,
+camera accel - 0.5) and hold (4 s). The range assist is untouched: blocking it as well only reached -2.31, and it is
+shared with real far-approach fixes. Nothing deleted (D-041/D-042).
+
+**Evidence (closed-loop replay, car-matched):** 31b 14:34 plan -3.63 -> -2.55, sim accel -4.37 -> -3.67, sim min speed
+15.2 -> ~17 m/s, closest gap 33.4 -> 26.1 m; fidelity v RMSE 1.03, corr 0.955. Same with or without D-123. Fires nowhere
+else in the 15 windows. In the protected groups it never raises a vRel, and with D-123 off 2f2 15:07 is tick-identical.
+Offline screen over 31b/319/311/2f5/299: 31b 14:34 is the only hit. The nearest real brake, 311 86:42, peaks at camera
+excess -7.3 m and radar excess -5.8 m.
+
+**Risk:** one positive example. The floor trusts the camera's speed for the new car, which read ~2.5 m/s fast at 31b. A
+slow cut-in that slides the same radar track while the camera misreads it would be under-braked for up to 4 s.
+
+**Lever:** `LEAD_SWITCH = False` restores the previous behaviour exactly.
+
+## D-125 — An off-ramp whose lane guidance already marks the exit-side edge lane is taken without blinker or wheel nudge (2026-10-11, static + replay trigger timing only, not driven, default off)
+
+**Problem (owner, 2026-10-11, route 0000031d segs 38-44):** already in the right lane, "slight right" to the exit, the car
+did not take the exit on its own. The owner had to use the blinker (41:49, 61 m before the maneuver point).
+
+**Cause (static, from code and rlog; toggle values are not in the rlog):** navInstruction held `off ramp / right`
+from 39:50 and its lane guidance was `[straight] inactive, [straight, slightRight] active` every second 41:15-41:51, so
+`activeLaneDirection = slightRight`. `DesireHelper._get_nav_exit_lane_change_direction` then returns none by design (the
+lane is not a further lane to change into) and defers to the keepLeft/keepRight path. That path needs
+`NavLanePositioningAllowed` (default 0), `_nav_keep_is_imminent`, and `_nav_torque_applied` (a wheel nudge toward the
+exit). No `preLaneChange` happened before 41:49, matching the log. The lane-width gate is not the blocker:
+`LaneDetectionWidth` defaults to 0.0 (right width on the approach was 0.00-2.2 m, unstable).
+
+**Decision:** behind the new default-off `NavExitAutoKeep` toggle (`desire_helper._nav_exit_auto_keep`), when `off ramp`, the active lane's direction is
+the exit side, the distance is inside the existing `_nav_keep_is_imminent` window, vEgo is at least 8 m/s, no blinker
+is on, the exit-side blind spot is clear, and `lane_change_state == off`, issue keepLeft/keepRight without the torque
+requirement. Off ramps only, never forks. Any driver steering input withdraws it; the nudge path still works. Unit tests
+(`test_navigation_desires.py`, 40 pass) cover default-off, each gate and the withdrawal. Not wired to safe mode
+(`safe_mode.py` left alone). Still open: a minimum distance to finish the move, and a closed-loop lateral replay.
+
+**Provenance:** an independent design; no IQ.Pilot code is used. IQ.Pilot's actual exit logic is closed source (the
+compiled `navd/nav_turn_signals` .so, which turns on the real blinker). Its readable `NavExitLaneChangeController` is
+never called, and it has no lane-guidance or shared-lane handling. Read statically by John on the Mac at 762eaa1; nothing
+was run.
+
+**Evidence (replay trigger only):** `tools/replay/nav_exit_autotake_proto.py` on 31d segs 40-41: all gates pass first
+at 41:46, 142 m before the maneuver point at 27.1 m/s, about 5 s ahead of the owner's blinker (41:49, 61 m). Before that
+only the distance window blocked it. This checks trigger timing only; it does not show the model would follow the
+desire, and no closed-loop lateral replay was run.
+
+Not road-validated.
+
+## D-126 — Stock Brake Feel's lead-stop law skips a lead more than 20 s from stopping (STATUS 264, 2026-10-13, replay only, not driven)
+
+**Problem (owner, route 00000324):** early, firm brakes for far highway leads (bookmark 67:40, and 28:00, 41:50).
+Peter: nausea from speed swings, brakes that come too early or too hard.
+
+**Cause:** the radar was right that the leads were slowing, but the brakes reached -1.2 to -1.4 at 60-80 m where about
+-0.8 matched the physics. D-123 floors an overread aLeadK at the camera's accel minus 1.0. With the camera at about 0 that
+is exactly -1.0, which is `STOCK_FEEL_LEAD_STOP_A`, so the lead-stop law (D-086) planned a stop behind a 25-28 m/s lead
+that would need 25+ s to stop. Its need (~1.2) beat the TTC table (~-1.1) and returns before the table cap, so the MPC's
+-1.2 to -1.4 passed through. The 2f2 stops the law was written for had leads at 8-15 m/s braking -1.5 to -4, 2-9 s from
+stopping.
+
+**Decision:** `STOCK_FEEL_LEAD_STOP_MAX_T = 20.0` (longitudinal_planner.py, default ON). In the cap law, a lead whose
+vLead / -aLeadK exceeds 20 s is skipped and the TTC table applies. The emergency latch still counts every lead. Radar
+data is untouched (D-041/D-042). This is not the removed far-lead limit (D-060): the table and D-085's floor are as before.
+
+**Evidence (closed-loop replay, Stock Brake Feel on, car-matched; fidelity cmd corr 0.98-0.995):**
+- 324 seg 28: peak plan -1.42 -> -1.20, gap unchanged.
+- 324 seg 41: -1.29 -> -1.16, gap 54.4 -> 54.1 m.
+- 324 seg 67 (bookmark): -1.00 -> -0.83, gap 62.0 -> 61.4 m.
+- 324 segs 5, 16, 22, 46, 85: unchanged.
+- Open-loop protected groups:
+  - 297a, 297b, 298, 2a6, 2f2 (to 16:03, including 15:07) and 311 are identical.
+  - 312c 22:27, the same pattern on a 24 m/s lead drifting out of lane, goes from -1.33 to -1.09.
+  - Other 312 changes are under 0.1.
+- 2f2 18:08 and 24:33 (the lead-stop law's own stops), closed-loop: identical.
+
+Rejected variants:
+- A 12 s limit delayed a real slowing lead (324 seg 46, 14 m/s at -1.1, 12.8 s), which then braked 0.07 harder.
+- Capping far-lead brakes at the physics need (1.0x / 1.2x) braked harder later on 324 seg 85: -1.10 -> -1.43, gap
+  22 -> 17 m.
+
+**Risk:** a lead truly braking at -1.0 from highway speed is met at the table depth (about -1.1 at TTC 11) until it slows
+below 20 s from stopping or the emergency latch fires. 2f5 10:01 was not re-run (its log is not on this machine). That
+event's aLeadK of -2.46 latches the emergency, which this change does not touch.
+
+**Lever:** `STOCK_FEEL_LEAD_STOP_MAX_T = 0` restores the previous behaviour exactly.
+
+## D-127 — Chill's close-lead cap eases in when a far lead slows for a moment (STATUS 265, 2026-10-14, replay only, not driven)
+
+**Problem (owner, routes 00000327 / 00000328):** sudden -1.0 brakes on the highway at 328 14:06 / 14:10, 24:14 / 24:19
+and 327 34:55. Peter: nausea from speed swings, brakes that come too suddenly.
+
+**Cause:** the close-lead brake cap (`get_close_lead_brake_cap`), not Stock Brake Feel or D-126. A lead 40-70 m ahead
+slowed by 3-7 m/s for about a second. The radar range fell as fast as the radar speed said, and the camera range agreed,
+so the leads were real (the camera's own speed under-read the change). The cap's 0.7 * aLeadK share pushed it past the
+chill comfort floor, so it clipped at -1.00. The target stepped from -0.25..-0.7 to -1.00 in about 0.15 s, held 0.5-1.0 s
+and released. Logged `closeLeadBrakeCap` -1.00 in every case.
+
+**Decision:** in chill, the aLeadK share of the close-lead cap may deepen at most `CHILL_CLOSE_LEAD_RATE = 1.0` m/s^3
+below where the target already is. This is D-073's Experimental Mode mechanism moved to the comfort floor, via the
+shared `rate_limit_lead_brake_share`. What the closing speed alone demands still applies at once, so a stopped car
+ahead gets the full cap on the first frame. Not rate limited: a lead braking harder than `CHILL_CLOSE_LEAD_MAX_BRAKE =
+2.0`, a cap already built below the comfort floor, fast-closing leads, and Experimental Mode (D-073 as before). Radar
+data is untouched (D-041/D-042). Default ON.
+
+**Evidence (closed-loop replay, acl2s with the fitted plant; car long path 1aec23886, logged toggles):**
+- Fidelity: open-loop replay against the logged plan, mean |d| 0.008 / 0.017 / 0.003, every -1.00 reproduced.
+  Sim car min -1.27 / -1.22 / -1.40 against logged aEgo -1.27 / -1.25 / -1.39.
+- Biggest 0.25 s target drop: 0.54 / 0.89 / 1.38 -> 0.26 / 0.26 / 0.61.
+- Sim peak: -1.27 / -1.22 / -1.40 -> -1.25 / -1.04 / -1.26.
+- Closest gap: 0.4 / 1.3 / 1.2 m nearer.
+- 324 chill set (Stock Brake Feel on):
+  - Unchanged: segs 5, 16, 22, 28, 41, 67, 85 and the f18 / f24 hard stops (target -3.31 / -2.65).
+  - e85b: drop 0.78 -> 0.28, 0.9 m nearer.
+  - e46 (a lead that kept slowing): drop 0.97 -> 0.72, but its later peak is 0.11 deeper (-1.47 -> -1.58, sim -1.82 ->
+    -1.93), gap unchanged.
+- Open-loop protected groups 297a, 297b, 298, 2a6, 2f2, 311, 312a, 312b, 312c: identical. Most are Experimental Mode;
+  on 312c the limiter ran 425 ticks and never bound.
+- 1.5 m/s^3 kept about half the softening (drops 0.38 / 0.39 / 0.73).
+
+**Risk:** a lead that keeps braking at up to 2 m/s^2 is met about 0.2-0.7 s later, then slightly deeper (e46). Above 2
+m/s^2, or once the closing speed alone needs the brake, nothing changes.
+
+**Lever:** `CHILL_CLOSE_LEAD_RATE` large (e.g. 100) restores the instant cap; `CHILL_CLOSE_LEAD_MAX_BRAKE = 0` turns
+the limiter off.
+
+## D-128 — Experimental Mode's close-lead cap eases in too (STATUS 266, 2026-10-14, replay only, not driven)
+
+**Problem (owner):** Peter drives mostly in Experimental Mode. D-127 only covers chill: the three brakes it was built on
+(328 14:06, 328 24:14, 327 34:55) were all chill for the whole window. In Experimental Mode, D-073 still let the
+close-lead cap step straight to chill's floor (about -1.0) and only rate limited it below that. 327 21:47 (newest
+Experimental Mode drive): logged `closeLeadBrakeCap` 0.00 -> -1.00 in one step with the lead at aLeadK -1.29.
+
+**Decision:** in Experimental Mode, for a lead braking no harder than `CHILL_CLOSE_LEAD_MAX_BRAKE` (2.0), the floor of
+the aLeadK share starts where the target already is and deepens at `EXP_CLOSE_LEAD_FLOOR_RATE` (1.5 m/s^3, D-073's
+rate) all the way (`ease_close_lead_floor`, state `exp_close_lead_ease`). D-073's floor only starts deepening below
+chill's floor once the eased floor has reached it. Unchanged: the closing-speed demand applies at once; fast-closing
+leads; and once any lead brakes harder than 2.0, D-073 as before (its floor starts at chill's and deepens at once).
+Radar data is untouched (D-041/D-042). Default ON.
+
+**Evidence (closed-loop replay, acl2s with the fitted plant, logged toggles; 2a4 / 2a6 / 2f2 logs predate D-073, so
+"before" is the current code replayed):**
+- Fidelity: sim vs logged aEgo mean |d| <= 0.094 and target vs logged <= 0.010 over each window's first 2 s.
+- Biggest 0.25 s target drop / closest gap:
+  - 327 21:47: 0.51 -> 0.44, 19.6 -> 19.5 m.
+  - 2f2 17:23 (highway slow-down): 1.58 -> 1.28, target min -1.75 -> -1.45, sim min -1.47 -> -1.15, 15.6 -> 15.4 m.
+  - 2a6 4:08 (into a stop): 1.19 -> 0.70, sim peak -1.68 -> -1.70, 6.9 -> 6.6 m.
+  - 2a6 15:08 (D-073's close case): 0.80 -> 0.40, sim peak -2.74 -> -2.54, 16.2 -> 15.6 m.
+  - 2f2 15:45 and 2a4 22:00 (hard brake, target -3.26): unchanged within 0.1 m.
+- 1.0 m/s^3 softened about as much and cost up to 0.9 m of gap.
+- Open-loop protected groups 297a, 297b, 298, 2a6, 2f2, 311, 312a, 312b, 312c: only softer onsets (2a6, 2f2, 312c),
+  except 312a 10:16, where the same -1.82 brake comes one frame sooner (-0.40 -> -1.52 -> -1.82, against a one-frame
+  -0.40 -> -1.82 now), and 311 41:35, softer onset (-1.00 -> -0.71) then up to 0.25 deeper while it catches up.
+
+**Risk:** a lead braking up to 2 m/s^2 is met up to about 0.5 s later, then a little deeper (311, 2a6 4:08); gap cost
+up to 0.6 m in these replays.
+
+**Lever:** `CHILL_CLOSE_LEAD_MAX_BRAKE = 0` sends every braking Experimental Mode lead back to D-073 (and turns D-127 off).
+
+## D-129 — Earlier, gentler start toward a stopping or braking lead; three jerk fixes (STATUS 267, 2026-10-15, replay only, not driven)
+
+**Problem (owner bookmarks, 332 and 329):** both hard brakes on 332 were late starts, not over-deep brakes.
+- 332 4:09 (Experimental Mode): a camera lead 60-100 m ahead was stopping. The geometry need was 0.8 m/s^2 from 6 s
+  before and 1.6 at 2.5 s before, while the MPC source stayed "cruise" and e2e gave -0.4..-1.1. Then the MPC jumped to -3.5.
+- 332 19:02: the camera saw the lead braking at -1.2..-1.45 for 0.7 s while ego still commanded +0.66 -> +0.15. Stock
+  Brake Feel's TTC table (TTC about 40 s) held -0.35. Radar aLeadK then reached -2.7, tripped the emergency latch, and the
+  planner's -3.2 passed through within 0.15 s.
+- 329 5:25: a one-frame radar range glitch at creep (7.95 -> 6.27 m, vRel -3.75 at 1.6 m/s) read the stopped lead as
+  backing at -2.15 m/s. The close-lead cap jabbed -0.76 -> -1.50.
+- 329 8:02: the closing speed fell under STOCK_FEEL_MIN_CLOSING, TTC went to inf, and Stock Brake Feel's outside path
+  stepped -0.35 -> -0.73 in one frame.
+
+**Decision (all default ON):**
+- `EXP_EARLY_ONSET` (Experimental Mode): when the model is already slowing (e2e <= -0.2) and a lead closes faster than
+  2 m/s with a geometry need of at least 0.5, floor the target at -min(need, 1.5). The floor deepens from the current
+  target at 0.8 m/s^3.
+- `EXP_CAM_LEAD_BRAKE` (Experimental Mode): for a lead within 3 s of gap where a camera lead with prob >= 0.9 sits at the
+  same range, and the camera's 0.5 s mean accel is -0.5 or harder, floor at that accel (at most -2.0, at 1.5 m/s^3).
+  It does not apply if the radar aLeadK is more than 1.5 above the camera. It is applied after Stock Brake Feel. Both
+  floors release at 1.0 m/s^3.
+- `CLOSE_LEAD_CAP_VLEAD_FLOOR`: the close-lead cap reads vLead no lower than -0.5 m/s. The radar lead itself is
+  unchanged (D-041/D-042).
+- `STOCK_FEEL_SOFT_EXIT`: within 2 s of the fitted law applying, a lost closing speed deepens at 0.6 m/s^3, not 5.
+  This does not apply when a lead brakes at STOCK_FEEL_LEAD_STOP_A or harder, or in an emergency.
+
+**Evidence (closed-loop replay, acl2s/alpha_closed_loop_replay, car's commit dc8a42150 + toggles; off -> on; min
+target, biggest 0.25 s drop, closest gap; fidelity is the off arm's target vs the logged command):**
+- The bookmarked events:
+  - 332 4:09: -3.46 -> -2.21, 0.74 -> 0.69, gap 5.4 -> 4.2 m (sim speed RMSE 1.21, r 0.967).
+  - 332 19:02: -3.19 -> -2.20, 2.48 -> 2.30 (r 0.747; the sim diverges after the brake in both arms).
+  - 329 5:25: -1.62 -> -1.06, 0.93 -> 0.28, gap 4.3 -> 3.2 m (r 0.907).
+  - 329 8:02: the step became -0.35 -> -0.44 -> -0.53 -> -0.62, then followed the lead's real braking to -1.32 vs -1.12
+    (r 0.968).
+- Protected closed-loop windows (15 /tmp/rv/ct windows + 6 D-128 Experimental Mode windows):
+  - Softer: t54 -3.05 -> -2.14 (gap +1.7 m), t65 -3.50 -> -2.83, t08 -3.37 -> -3.10, b02 -2.38 -> -1.93,
+    n42 drop 0.94 -> 0.37, b21 -3.26 -> -2.93.
+  - Earlier but deeper start: bk2 -1.06 -> -1.34 (car -2.03), n03 -1.58 -> -1.73, n30 -2.66 -> -2.88 (gap 23.8 -> 29.2).
+  - a15 and a4: 0.07 deeper.
+  - The rest unchanged. Closest gap never more than 0.4 m nearer.
+- Open-loop protected groups:
+  - 298, 312b, 312c identical.
+  - 297a, 297b, 2f2 15:44, 311: earlier onset, shallower peak.
+  - 312a 10:16: the D-128 one-frame jab (-0.40 -> -1.52 -> -1.82 on a vRel -12 glitch) becomes a ramp; peak -2.17 -> -1.99.
+
+**Risk:**
+- In Experimental Mode the car starts slowing 1-2 s earlier for stopping or braking leads (up to -1.5 / -2.0), and on
+  some events the start is deeper than before.
+- The early-onset geometry need assumes a constant lead speed.
+- Gaps on the bookmarked stops are about 1 m nearer, because the late jab no longer sheds the speed.
+
+**Lever:** each fix has its own constant (`EXP_EARLY_ONSET`, `EXP_CAM_LEAD_BRAKE`, `CLOSE_LEAD_CAP_VLEAD_FLOOR`,
+`STOCK_FEEL_SOFT_EXIT`).
+
+## D-130 — Re-solve the long MPC once when its QP stops at the iteration cap (STATUS 268, 2026-10-15, open-loop replay only, not driven)
+
+**Problem:** a 1.1 m/s^2 brake with nothing to brake for (327 42:43, lead 35 m ahead and pulling away, e2e +0.25).
+It showed up in the D-129 replay, but D-129 was only the trigger. A +1e-7 nudge to a_desired 3.5 s earlier, with all
+D-129 code off, gave the same drop; the logged car command stayed at -0.12 or above.
+
+**Cause:** HPIPM is capped at `qp_solver_iter_max = 10`. When it stops there, acados SQP_RTI still returns status 0
+(qp_stat 2, ACADOS_MAXITER), and the unconverged answer is published. At 2563.694, the params, x0 and yref were equal
+to 1e-12. The frame sat on the a_max = 0.0 slack (LIMIT_COST 1e6) with x0 a ~ 0. The capped solve returned asol[1]
+-1.51, while the converged one returns -0.005.
+
+**Decision:** `MPC_QP_CAP_RESOLVE` (long_mpc.py, default ON). If the solve returns status 0 with `statistics[1, -1] == 2`,
+call `solve()` once more from that iterate. If the second solve also caps, its answer is published. The planner's
+on-path shadow MPC gets the guard too. `solve_time` is the sum of both solves.
+
+**Evidence (open loop, whole routes 327 + 332, continuous from seg 0, Long Sim (Job)):**
+- 327 42:43: min out -1.10 -> -0.26. The capped first solve gave -1.49; the re-solve gave -0.006 in 3 iterations.
+- 47 cap frames on the unguarded arm (33 on 327, 14 on 332):
+  - No output deeper by more than 0.25.
+  - Two outputs shallower: 327 1871.126 -4.94 -> -2.20 and 1871.727 -3.61 -> -2.77.
+    - There, get_accel_from_plan extrapolated a capped asol -3.46 from a_now -1.0.
+    - The geometry need was -2.17 / -2.12 (lead 12.8 m, v 6.6, vLead 1.2).
+    - A constant decel keeping a 2 m gap is -1.81 / -1.64.
+    - The re-solve (-1.90) matches the neighbouring converged frames. The car's own aTarget went to -4.94 on that frame.
+- One new difference elsewhere: 332 899.7, car stopped. A -1.25 hold now releases 0.4 s later, closer to the logged
+  -0.71 command.
+- Fidelity is unchanged:
+  - 327: r(out, cmd) 0.898, RMSE 0.271.
+  - 332: r 0.901, RMSE 0.296.
+- Re-solves: 27 of 53863 frames on 327, 13 of 28846 on 332.
+
+**Risk:**
+- Any of these frames can now run a second solve. This was timed on x86 under load only, not on the comma.
+- A converged solve can differ from a capped one in either direction. Hard brakes from capped solves (the 1871 kind) get
+  shallower but stay at or below the geometry need.
+- Not checked closed loop. There is no closed-loop gap result for 1871.
+
+**Lever:** `MPC_QP_CAP_RESOLVE`.
+
+## D-131 — Integrate Trung while retaining the local evidence ledger (2026-10-16)
+
+[CONFIRMED, static merge review] Import `trung791997/openpilot:ns-bosch-radar-testing`
+`217688cc8` into `ns-bosch-updated`, retaining local A220 and JetLink UI changes. Incoming
+D-105/106/107/120/123/124/125/126 are D-123 through D-130 here; incoming STATUS
+241–247 are 262–268. Source SHA remains authoritative for imported replay claims.
+Discarding either ledger or replaying the changes as undocumented local tuning is rejected.
+The previous Civic offset comment, "cfg word 0 -> n0 = 335 (literal fallback)", is
+superseded by `217688cc8`'s static A160 ROM trace: cfg 5530 in all 26 records,
+n0 = 346, with CR-V cfg 5448 as positive control. No route measurement is claimed;
+NvM overrides, A150 applicability, and physical range origin remain unverified.
+The incoming camera bounds publish a degraded bound rather than deleting points; they can
+soften or delay braking when camera acceleration is wrong. Imported replay costs remain in
+D-123/D-124. Navigation exit auto-take defaults off. No road validation in this integration.

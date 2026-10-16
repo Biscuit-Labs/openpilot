@@ -1,6 +1,6 @@
 # Status
 
-**As of: 2026-10-13**
+**As of: 2026-10-16**
 
 Update the date above whenever this file changes. If it is stale, trust `git log` over this
 file.
@@ -11,7 +11,8 @@ Repo: StarPilot / openpilot fork `openpilot-radar`. Working branch
 2026-09-30 and survives as tag `archive/claude/radar-testing-state-88vt2t`.) Branches deleted in that
 cleanup are cited below as their `archive/<name>` tags. For the current tip, trust `git log`, not this line.
 
-**Latest work (2026-10-13), start here:** item 261 (A220 PTM controller calibration and
+**Latest work (2026-10-16), start here:** Trung integration in progress through
+`217688cc8` (items 262–268, imported upstream replay/static evidence). Prior local work: item 261 (A220 PTM controller calibration and
 firmware VGR support, static/unit tests only). Then item 259 (bind the JetLink icon to live per-frame
 big-model telemetry). Then item 258 (comma 3X JetLink onroad status icon).
 Then item 257 (synced Trung through
@@ -36,7 +37,7 @@ here. Where the two touch — the CR-V lateral profile, the steering-ratio curve
 `extract_drives.py` lineage — that is recorded below as a cross-reference only.
 
 **Open topics to revisit** (parked by decision, not closed):
-- **Range offset: D-076 ACCEPTED 2026-10-07, fixed per car, no toggle.** Firmware ROM default −335/128 = −2.617 m (Civic) and −341/128 = −2.664 m (CR-V), replacing −3.0. The `BoschARangeOffsetFallback` toggle and the CAN 0x669 addend are removed. Static only; the true range origin is unmeasured, and the laser range check settles it.
+- **Range offset: D-076 ACCEPTED 2026-10-07, fixed per car, no toggle.** Firmware ROM default −346/128 = −2.703 m (Civic, static A160 ROM correction in `217688cc8`) and −341/128 = −2.664 m (CR-V), replacing −3.0. The `BoschARangeOffsetFallback` toggle and the CAN 0x669 addend are removed. Static only; the true range origin is unmeasured, and the laser range check settles it.
 - **Newborn radar points: D-075, built in ON since 2026-10-03 (the `BoschANewbornLeads` toggle is removed).** Replay and static only, limited road evidence from Peter's drives with the toggle on. Publishes young closing radar points earlier and lets one lead only once its own range closes.
 - **U11 scale 1/72: D-074 ACCEPTED (owner, 2026-10-02), built in; the 1/64 switch back was removed 2026-10-03.**
   Static and replay only, not driven. Rails ±12.0 m/s; every closing speed published is 64/72 of the old 1/64 reading (−11.1 %), the D-041 danger
@@ -11562,3 +11563,95 @@ Owner clarification: stock reports `39990-TLA-A220` (hyphen), already in the fir
 database; PTM reports `39990-TLA,A220` (comma), newly added. An additional regression test
 checks the real Honda interface keeps `EPS_MODIFIED` clear for stock while assigning A220
 VGR. The complete Honda suite now passes **429 tests**; changed-file ruff passes.
+
+## 262. A Bosch-A lead's braking reading is floored near a confident camera's (D-123). Replay + static only, not driven.
+
+31b 14:57 (bookmark, jolt): the radar read a real lead's braking at -2.5 vs camera -0.3, latching the Stock Brake Feel
+emergency path. aLeadK is now floored at min(camera accel, 0) - 1.0 while a confident camera lead sits at the radar
+lead's range. Closed-loop replay: 14:57 -2.00 -> -1.11, 319 3:31 -2.08 -> -1.54, 319 42:23 -2.43 -> -2.16. Accepted cost:
+2f2 15:07 (real hard brake) reaches full braking 0.45 s later, min gap 20.0 -> 18.0 m, peak unchanged (-3.51 -> -3.52).
+
+## 263. A lead switch onto a nearer, slower car is floored at the camera's speed (D-124). Replay + static only, not driven.
+
+31b 14:34 (bookmark): both sensors switched to a nearer car; the range slide read as closing -13.7 m/s and braking -4.2,
+and the car braked -3.5 below the lead's speed. A SlideBound entry now catches the range drop that neither sensor's speed
+explains. Closed-loop replay: plan -3.63 -> -2.55, sim -4.37 -> -3.67, min gap 33.4 -> 26.1 m. Only hit in an offline
+screen over 31b/319/311/2f5/299. Tests: 10 new in `test_radard_lead_switch.py`; radard tests 153 pass. Lint clean.
+
+## 264. Stock Brake Feel's lead-stop law skips a lead more than 20 s from stopping (D-126). Replay + static only, not driven.
+
+324 (bookmark 67:40, 28:00, 41:50): the camera-bounded aLeadK of exactly -1.0 on 25-28 m/s leads triggered the lead-stop
+law, so the planner's -1.2 to -1.4 passed the depth cap at 60-80 m. Closed-loop replay: peaks -1.42 -> -1.20,
+-1.29 -> -1.16, -1.00 -> -0.83, gap cost <= 0.6 m. 2f2 15:07, 18:08 and 24:33 unchanged. Tests: 3 new in
+`test_stock_feel_stop.py`; Stock Brake Feel stop and emergency tests 19 pass. Lint clean on changed lines.
+
+## 265. Chill's close-lead cap eases in when a far lead slows for a moment (D-127). Replay + static only, not driven.
+
+327 34:55 and 328 14:06 / 24:14: a lead 40-70 m ahead really slowed for about a second. The close-lead cap's aLeadK
+share stepped the target to the -1.00 comfort floor in about 0.15 s. That share now deepens at most 1.0 m/s^3 below the
+current target; the closing-speed demand still applies at once. Closed-loop replay, fidelity mean |d| <= 0.017:
+biggest 0.25 s drop 0.54 / 0.89 / 1.38 -> 0.26 / 0.26 / 0.61, gap cost <= 1.3 m. 324 chill set: 8 of 11 unchanged,
+including the f18 / f24 hard stops. e46 is 0.11 deeper later. Tests: 5 new in `test_longitudinal_planner.py`; the
+controls suite passes except the 2 pre-existing latcontrol failures. py39 compat passes; no new lint.
+
+## 266. Experimental Mode's close-lead cap eases in too (D-128). Replay + static only, not driven.
+
+Peter drives mostly in Experimental Mode, where D-127 never ran: there the close-lead cap still stepped straight to about
+-1.0 (327 21:47: 0.00 -> -1.00 in one step, lead at -1.29). For a lead braking no harder than 2 m/s^2 the floor now
+eases from the current target at 1.5 m/s^3 (D-073's rate) and hands over to D-073 below chill's floor. Closed-loop
+replay on 6 Experimental Mode brakes (fidelity sim vs log aEgo <= 0.094): biggest 0.25 s drop 0.51 / 1.58 / 1.19 / 0.80
+-> 0.44 / 1.28 / 0.70 / 0.40, closest gap at most 0.6 m nearer, hard brakes unchanged. Protected set: softer onsets;
+312a 10:16 reaches the same -1.82 one frame sooner, 311 41:35 up to 0.25 deeper after a softer onset. Tests: 2 new in
+`test_longitudinal_planner.py`, 655 pass; the controls suite passes except the 2 pre-existing latcontrol failures. py39
+compat passes; no new lint.
+
+## 267. Earlier, gentler brake start toward stopping or braking leads, plus three jerk fixes (D-129). Replay + static only, not driven.
+
+Both hard brakes on 332 were late starts. At 4:09 the lead was stopping 60-100 m ahead while the MPC stayed on cruise.
+At 19:02 the camera saw the lead braking while Stock Brake Feel held -0.35, until its emergency latch let -3.2 through.
+In Experimental Mode the planner now:
+- starts toward the geometry need (at most -1.5, 0.8 m/s^3);
+- follows a confident camera lead's braking (0.5 s mean, at most -2.0, applied after Stock Brake Feel).
+
+Two jerks on 329 are also fixed:
+- 5:25: a radar range glitch read the lead as reversing. The close-lead cap now floors vLead at -0.5.
+- 8:02: Stock Brake Feel stepped -0.35 -> -0.73 when the closing speed ended. It now deepens at 0.6 m/s^3 for 2 s after
+  the law applied.
+
+Closed-loop replay, off -> on:
+- 332 4:09: -3.46 -> -2.21.
+- 332 19:02: -3.19 -> -2.20 (weak fidelity, r 0.747).
+- 329 5:25: biggest 0.25 s drop 0.93 -> 0.28.
+- 329 8:02: a 0.09-per-frame ramp instead of the step.
+
+Protected set (21 closed-loop windows, 9 open-loop groups):
+- Mostly softer peaks (t54 -3.05 -> -2.14, t65 -3.50 -> -2.83).
+- Earlier, deeper starts on bk2, n03 and n30, up to 0.3 deeper.
+- Closest gap at most 0.4 m nearer; the bookmarked stops are about 1 m nearer.
+
+Tests: 10 new (`test_longitudinal_planner.py`, `test_brake_onset.py`). The controls suite gives 2194 passed, 2 failed;
+both failures are the pre-existing latcontrol ones. py39 compat passes; no new lint.
+
+## 268. The long MPC re-solves once when its QP stops at the iteration cap (D-130). Open-loop replay + static only, not driven.
+
+327 42:43 braked to -1.1 in replay with a lead 35 m ahead pulling away; the car did not. The cause was HPIPM stopping at
+10 iterations: acados still reports status 0, and the unconverged answer was published. A 1e-7 change upstream picked
+which branch; D-129 was one such change. The MPC now calls `solve()` once more when the QP hit the cap
+(`MPC_QP_CAP_RESOLVE`).
+
+Open loop, whole 327 + 332:
+- 42:43: -1.10 -> -0.26.
+- On cap frames, no output got deeper by more than 0.25.
+- Two capped hard-brake frames, 327 1871.1 and 1871.7, went -4.94 -> -2.20 and -3.61 -> -2.77. The geometry need there
+  was -2.17 / -2.12.
+- 332 899.7 (stopped): a -1.25 hold releases 0.4 s later.
+- Fidelity is unchanged: 327 r 0.898, 332 r 0.901.
+- The second solve ran on about 0.05% of frames.
+
+Not run closed loop or timed on the comma.
+
+Tests:
+- 5 new in `test_long_mpc_qp_cap.py`.
+- `test_exp_close_lead_cap_deepens_past_chill_floor_at_bounded_rate`: the cap may now step past 0.25 only while it follows
+  a target that is already deeper (D-128). The cold first solve converges deeper.
+- The controls suite gives 2200 passed, 2 failed; both failures are the pre-existing latcontrol ones.

@@ -803,3 +803,45 @@ def test_nav_exit_second_lane_needs_nudge_with_blinker():
   assert helper.lane_change_state == LaneChangeState.preLaneChange
   helper.update(make_car_state(vEgo=25.0, rightBlinker=True, steeringPressed=True, steeringTorque=-1.5), True, 0.0, make_plan(), toggles)
   assert helper.lane_change_state == LaneChangeState.laneChangeStarting
+
+
+def _exit_state(**overrides):
+  state = {"valid": True, "maneuverType": "off ramp", "maneuverModifier": "right", "maneuverDistance": 80.0,
+           "activeLaneDirection": "slightRight", "laneCount": 2, "sameSideLaneCount": 1,
+           "activeLaneAtRoadEdge": True, "hasSharedSameSideLane": True}
+  state.update(overrides)
+  return state
+
+
+def _exit_desire(car=None, toggles=None, state=None, plan=None):
+  helper = DesireHelper()
+  helper._update_nav_params = lambda: None
+  helper._nav_instruction_state = state or _exit_state()
+  helper.update(make_car_state(**(car or {})), True, 0.0, plan or make_plan(laneWidthRight=0.0),
+                make_toggles(**{"nav_lane_positioning_allowed": False, "lane_detection_width": 0.0, **(toggles or {})}))
+  return helper.desire
+
+
+def test_nav_exit_auto_keep_takes_same_side_exit_without_nudge_or_blinker():
+  assert _exit_desire(toggles={"nav_exit_auto_keep": True}) == log.Desire.keepRight
+
+
+def test_nav_exit_auto_keep_is_off_by_default():
+  assert _exit_desire() == log.Desire.none
+  assert _exit_desire(toggles={"nav_exit_auto_keep": False}) == log.Desire.none
+
+
+def test_nav_exit_auto_keep_gates():
+  on = {"nav_exit_auto_keep": True}
+  assert _exit_desire(car={"rightBlindspot": True}, toggles=on) == log.Desire.none
+  assert _exit_desire(car={"leftBlinker": True}, toggles=on) == log.Desire.none
+  assert _exit_desire(car={"vEgo": 5.0}, toggles=on) == log.Desire.none
+  assert _exit_desire(state=_exit_state(maneuverDistance=300.0), toggles=on) == log.Desire.none
+  assert _exit_desire(state=_exit_state(maneuverType="fork"), toggles=on) == log.Desire.none
+
+
+def test_nav_exit_auto_keep_withdrawn_by_driver_steering():
+  on = {"nav_exit_auto_keep": True}
+  assert _exit_desire(car={"steeringPressed": True, "steeringTorque": 1.0}, toggles=on) == log.Desire.none
+  assert _exit_desire(car={"steeringPressed": True, "steeringTorque": -1.0},
+                      toggles={**on, "nav_lane_positioning_allowed": True}) == log.Desire.keepRight

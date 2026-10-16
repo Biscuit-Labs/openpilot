@@ -18,6 +18,8 @@ LANE_CHANGE_SPEED_MIN = 20 * CV.MPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 LANE_CHANGE_NUDGE_TORQUE_THRESHOLD = 1200
 NAV_EXIT_COMMIT_DISTANCE = 500.0
+# D-125: lowest speed at which NavExitAutoKeep applies the exit keep without a wheel nudge
+NAV_EXIT_AUTO_KEEP_MIN_SPEED = 8.0
 NAV_TURN_DISTANCE_SPEED_BREAKPOINTS = [0.0, 5.0, 10.0]
 NAV_TURN_DISTANCE_BREAKPOINTS = [20.0, 25.0, 30.0]
 NAV_KEEP_DISTANCE_SPEED_BREAKPOINTS = [0.0, 15.0, 30.0]
@@ -168,6 +170,17 @@ class DesireHelper:
     )
 
   @staticmethod
+  def _nav_exit_auto_keep(carstate, starpilot_toggles, maneuver_type):
+    # D-125: an off-ramp whose lane guidance already marks the exit-side lane is kept without a nudge. Off ramps only,
+    # never forks. Any steering input from the driver withdraws it (the nudge path below still works).
+    return (
+      bool(getattr(starpilot_toggles, "nav_exit_auto_keep", False)) and
+      maneuver_type == "off ramp" and
+      carstate.vEgo >= NAV_EXIT_AUTO_KEEP_MIN_SPEED and
+      not carstate.steeringPressed
+    )
+
+  @staticmethod
   def _nav_turn_is_imminent(carstate, maneuver_distance):
     try:
       distance = float(maneuver_distance)
@@ -267,21 +280,23 @@ class DesireHelper:
       return log.Desire.none
 
     v_asm_enabled = bool(getattr(starpilot_toggles, "v_asm_enabled", False))
+    maneuver_type = str(self._nav_instruction_state.get("maneuverType", ""))
+    auto_keep = self._nav_exit_auto_keep(carstate, starpilot_toggles, maneuver_type)
     if modifier == "slightLeft":
-      if not self.nav_lane_positioning_allowed:
+      if not (self.nav_lane_positioning_allowed or auto_keep):
         return log.Desire.none
       lane_change_direction = LaneChangeDirection.left
       desired_lane_width = starpilotPlan.laneWidthLeft
       if not carstate.rightBlinker and self._nav_keep_direction_is_clear(carstate, lane_change_direction, self.params_memory, v_asm_enabled):
-        if desired_lane_width >= starpilot_toggles.lane_detection_width and self._nav_torque_applied(carstate, lane_change_direction):
+        if desired_lane_width >= starpilot_toggles.lane_detection_width and (auto_keep or self._nav_torque_applied(carstate, lane_change_direction)):
           return log.Desire.keepLeft
     elif modifier == "slightRight":
-      if not self.nav_lane_positioning_allowed:
+      if not (self.nav_lane_positioning_allowed or auto_keep):
         return log.Desire.none
       lane_change_direction = LaneChangeDirection.right
       desired_lane_width = starpilotPlan.laneWidthRight
       if not carstate.leftBlinker and self._nav_keep_direction_is_clear(carstate, lane_change_direction, self.params_memory, v_asm_enabled):
-        if desired_lane_width >= starpilot_toggles.lane_detection_width and self._nav_torque_applied(carstate, lane_change_direction):
+        if desired_lane_width >= starpilot_toggles.lane_detection_width and (auto_keep or self._nav_torque_applied(carstate, lane_change_direction)):
           return log.Desire.keepRight
     elif modifier in ("left", "sharpLeft"):
       left_blocked = self._get_combined_blindspot(carstate, LaneChangeDirection.left, v_asm_enabled)

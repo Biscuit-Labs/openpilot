@@ -39,6 +39,10 @@ YAW_RATE_CALIBRATION = {
   # Insight: owner's konik route 0000001e, 70k straight-to-straight GPS pairs (tools/lateral/fit_yaw_scale.py):
   # 0.2428 deg/s per count + 0.157 clockwise (heading rms 0.72 deg against 1.09 for one scale); stopped mean 511.75.
   CAR.HONDA_INSIGHT: (0.243, 512.0, 0.16),
+  # Civic (Nidec) TEG-A010: the owner's 11 routes 0000012d-00000139 (2026-10-14/15, dongle d7cee79a4d45d4cf), 0x94 on
+  # bus 0, 359k straight-to-straight GPS pairs (tools/lateral/fit_yaw_scale.py): 0.2414 deg/s per count + 0.098 clockwise
+  # (heading rms 2.10 deg against 2.24 for one scale 0.2428; per-route scales 0.2417-0.2458); stopped means 511.9-512.8.
+  CAR.HONDA_CIVIC: (0.241, 512.0, 0.10),
 }
 RIGHT_LOSS_BP = (3.0, 5.0)  # counts from zero over which the clockwise under-read comes in
 

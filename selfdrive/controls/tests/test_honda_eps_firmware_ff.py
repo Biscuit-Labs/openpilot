@@ -439,16 +439,23 @@ def test_clarity_trw_a020_profile_is_the_validated_build():
 
 
 def test_nidec_civics_carry_the_teg_measurements():
-  # the column load measured on the TEG-A010 telemetry drive and R6 from their own A table; tables stay the C020's
+  # both Nidec images take the column load measured on the TEG-A010 telemetry routes and R6's shape from their A table
   for cal in (eps_ff.CIVIC_TBA_A030, eps_ff.CIVIC_TEG_A010):
-    assert cal.r6_per_deg_s == eps_ff.CIVIC_TBA_C120_R6_CENTRE and cal.r6_angle_gain == eps_ff.CIVIC_TBA_C120_R6_GAIN and cal.load == eps_ff.CIVIC_TEG_A010_LOAD
-    assert (cal.r5_key_bp, cal.kp_key_bp, cal.e4_per_output) == (eps_ff.CIVIC_TBA_C020.r5_key_bp, eps_ff.CIVIC_TBA_C020.kp_key_bp, 3840.0)
-  # the Nidec column asks for more than the C020's at every speed it was measured over
-  for v in (3.0, 8.0, 15.0):
-    for load in (eps_ff.CIVIC_TEG_A010_LOAD, eps_ff.CIVIC_TBA_C020_LOAD):
+    assert cal.r6_angle_gain == eps_ff.CIVIC_TBA_C120_R6_GAIN and cal.load == eps_ff.CIVIC_TEG_A010_LOAD and cal.e4_per_output == 3840.0
+  # the A030's row is not read: it keeps the C020's row 1 and R6 computed from the A table
+  a030 = eps_ff.CIVIC_TBA_A030
+  assert (a030.r5_key_bp, a030.kp_key_bp, a030.r6_per_deg_s) == (eps_ff.CIVIC_TBA_C020.r5_key_bp, eps_ff.CIVIC_TBA_C020.kp_key_bp,
+                                                                  eps_ff.CIVIC_TBA_C120_R6_CENTRE)
+  # the TEG owner's car runs row 3 (TEGA2), measured on its telemetry, with that row's P axis and its own R6
+  teg = eps_ff.CIVIC_TEG_A010
+  assert teg.r5_key_bp == (0, 222, 333, 495, 656, 887, 1108, 1552, 1774) and teg.kp_key_bp == eps_ff.CIVIC_TBA_C120_P_KEYS
+  assert teg.r6_per_deg_s == eps_ff.CIVIC_TEG_A010_R6_CENTRE and teg.rack is eps_ff.CIVIC_TEG_A010_RACK
+  # the Nidec column is stiffer than the C020's at low speed (1.29x at 3 m/s, 1.07x at 8) and alike by 15 m/s
+  teg, c020 = eps_ff.CIVIC_TEG_A010_LOAD, eps_ff.CIVIC_TBA_C020_LOAD
+  for v, lo, hi in ((3.0, 1.2, 1.4), (8.0, 1.0, 1.15), (15.0, 0.9, 1.1)):
+    for load in (teg, c020):
       assert load.k0 + load.k1 * v ** 2 < 0.0
-    teg, c020 = eps_ff.CIVIC_TEG_A010_LOAD, eps_ff.CIVIC_TBA_C020_LOAD
-    assert teg.k0 + teg.k1 * v ** 2 < 1.4 * (c020.k0 + c020.k1 * v ** 2)
+    assert lo < (teg.k0 + teg.k1 * v ** 2) / (c020.k0 + c020.k1 * v ** 2) < hi
 
 
 @pytest.mark.parametrize("cal", ALL_PROFILES, ids=[p.name for p in ALL_PROFILES])
@@ -548,7 +555,7 @@ def test_command_delay_is_for_town_speeds_only():
 
 def test_every_vehicle_has_its_own_command_delay():
   delays = {cal.name: cal.cmd_delay_s for _, cal in eps_ff.EPS_FIRMWARE_CALIBRATIONS.values()}
-  measured = {"clarity_trw_a020": 0.12, "civic_tba_c020": 0.15}
+  measured = {"clarity_trw_a020": 0.12, "civic_tba_c020": 0.15, "civic_teg_a010": 0.15}
   same_chassis_as_c020 = {"civic_tba_c120": 0.15, "civic_tgg_a120": 0.15}
   inferred = {"insight_txm_a040": 0.15}
   for name, delay in delays.items():
@@ -602,8 +609,7 @@ def test_the_civic_c020_and_insight_have_their_own_yaw_fitted_rack_maps(candidat
       assert rack_map.angle_from_curvature(rack_map.curvature_from_angle(angle, v, 0.01), v, 0.01) == pytest.approx(angle, abs=1e-3)
 
 
-@pytest.mark.parametrize("candidate,fw", [(CAR.HONDA_CIVIC, b'39990-TEG,A010\x00\x00'),
-                                          (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C120\x00\x00'),
+@pytest.mark.parametrize("candidate,fw", [(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C120\x00\x00'),
                                           (CAR.HONDA_CRV_5G, b'39990-TLA,A040\x00\x00')])
 def test_cars_without_a_yaw_fit_have_no_rack_map(candidate, fw):
   CP, cal = _ptm_cp(candidate, fw)

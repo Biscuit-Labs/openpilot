@@ -34,8 +34,8 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from opendbc.car.honda.steer_ratio import CLARITY_TRW_A020_VGR_ANGLE_BP, CLARITY_TRW_A020_VGR_LINEAR_BP
-from openpilot.selfdrive.controls.lib.honda_eps_rack_map import CIVIC_TBA_C020_RACK, CLARITY_TRW_A020_RACK, INSIGHT_TXM_A040_RACK, \
-  RackMapTable
+from openpilot.selfdrive.controls.lib.honda_eps_rack_map import CIVIC_TBA_C020_RACK, CIVIC_TEG_A010_RACK, CLARITY_TRW_A020_RACK, \
+  INSIGHT_TXM_A040_RACK, RackMapTable
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.pid import PIDController
 
@@ -187,7 +187,13 @@ CIVIC_TBA_C020_LOAD = ColumnLoadModel(k0=-5.574, k1=-0.1831, c=-4.540, friction=
 # Held out a minute at a time, R^2 0.74 against 0.61 for CIVIC_TBA_C020_LOAD and 0.68 for the Clarity's. Bias and roll could
 # not be told apart on this drive (fitting them gains 0.005 R^2), so they stay the C020's. k1 is fitted below 15 m/s
 # only; the highway is an extrapolation.
-CIVIC_TEG_A010_LOAD = ColumnLoadModel(k0=-9.205, k1=-0.3252, c=-9.039, friction=-550.7, bias=-83.6, kroll=-3.185)
+# TEG-A010 column, the standard recipe (tools/lateral/fit_column_load.py --source teg: target 0x6A3 w0 = P + D +
+# KFF*R5/1024 exactly, row-independent) on the owner's 11 telemetry routes 0000012d-00000139 (2026-10-14/15, 81 min of
+# frames): R^2 0.735, held out by route 0.39-0.78 against -0.73-0.74 for the 08-18 fit it replaces
+# (k0 -9.205 k1 -0.3252 c -9.039 friction -550.7 bias -83.6 kroll -3.185). By regime on routes 134/139 after fitting
+# 133/137: hold 15+ m/s RMS 255 vs 866, turn-in 9-15 306 vs 430, unwind 15+ 142 vs 714; straights similar. Few
+# turns below 9 m/s in these drives, so the crawl regimes are untested.
+CIVIC_TEG_A010_LOAD = ColumnLoadModel(k0=-7.833, k1=-0.169, c=-8.29, friction=-311.2, bias=59.18, kroll=-4.457)
 # CR-V 5G column (HONDA_CRV_5G, 39990-TLA-A040), fitted on the owner's route 00000006--82bb552a2c (native V5 telemetry,
 # 40,193 hands-off active groups; RiskyBiscuit-arc/openpilot STATUS 225 / D-092, tools/lateral/fit_crv_eps_load.py) in
 # this model's own units: m/s, angle with the liveParameters offset removed, liveParameters roll. R^2 0.843, alternating
@@ -261,6 +267,9 @@ CIVIC_TBA_C020_R6_BP = (0.0, 22.5, 45.0, 80.0, 125.0, 175.0, 250.0)
 CIVIC_TBA_C020_R6_GAIN = (1.0, 0.99347, 1.01175, 1.05875, 1.09269, 1.10248, 1.10248)
 # C120 / A030 / TEG-A010 A table (centre divisor 20972), computed
 CIVIC_TBA_C120_R6_CENTRE = -156.16
+# TEG-A010 measured: its telemetry R6 (0x6A1 w1) on steeringRateDeg, hands off, route 00000139: -152.5 at 0 lag
+# (R^2 0.943; -143 at 20 ms). The C120 A table's angle shape is kept.
+CIVIC_TEG_A010_R6_CENTRE = -152.5
 CIVIC_TBA_C120_R6_GAIN = (1.0, 0.9838, 0.9927, 1.0254, 1.0699, 1.097, 1.1244, 1.1465, 1.1099, 1.1222, 1.1905, 1.257, 1.1758,
                 1.1618, 1.1702, 1.1787, 1.196, 1.2137, 1.2317)
 # Insight TXM-A040 A table (centre divisor 17613), computed
@@ -311,9 +320,9 @@ CIVIC_TBA_C020 = EpsFirmwareCalibration(
 )
 # Civic 39990-TBA-A030 (Nidec), 09-12 TEGLatestCalMatch Trk3200 (bin sha256 1de38bcb) and TEG-A010, 08-26
 # Tracker1-3200 (bin sha256 60f42ecc): both carry the C020's command axes, P axis and envelope byte for byte, so
-# they take the C020's row 1. E4 = -3840 * u (HONDA_CIVIC torque map). R6 and load are the TEG owner's, measured on
-# the 08-12 telemetry build (E4 -> R5 -> P + KFF law exact there; Kp keyed on |command key|); the A030 shares the
-# fingerprint and the TEG calibration, so it takes them too (not measured on an A030).
+# they take the C020's row 1. E4 = -3840 * u (HONDA_CIVIC torque map). The load is the TEG owner's (CIVIC_TEG_A010_LOAD,
+# measured on their 10-14/15 telemetry routes; E4 -> R5 -> P + KFF law exact there; Kp keyed on |command key|); the A030
+# shares the fingerprint, so it takes it too (not measured on an A030). The TEG's own row (3) is measured, see below.
 # The live row is VARIANT-DEPENDENT here, and it matters: rows 0 and 1 agree within 8%, but A030 TBCA1 / TEG TEGA1
 # select row 2 (R5 1.28-1.30x row 1 at mid command) and A030 TBCA2 / TEG TEGA2 row 3 (0.48-0.70x at low command).
 # Every other variant (A030 TBAA0-3, TBAC0, TBCA0; TEG TEGA0, TBCA3) is row 0 or 1. The car's variant cannot be
@@ -325,8 +334,19 @@ CIVIC_TBA_A030 = EpsFirmwareCalibration(**{**{k: getattr(CIVIC_TBA_C020, k) for 
                                    "r6_angle_gain": CIVIC_TBA_C120_R6_GAIN, "load": CIVIC_TEG_A010_LOAD,
                                    "cmd_delay_s": CMD_DELAY_DEFAULT_S,  # Nidec Civic: not measured
                                    "rack": None})  # its own A table, not identified
+# TEG-A010: the owner's car runs ROW 3 (TEGA2), measured on its telemetry (tools/lateral/live_row_fit.py teg, routes
+# 0000012f and 00000139: median |R5 - row 3| 9 counts, rows 0-2 1046-1325). Row 3's command axis and its P axis
+# (= the C120's P keys); Kp values, D, clamps and envelope are those of every row.
 CIVIC_TEG_A010 = EpsFirmwareCalibration(**{**{k: getattr(CIVIC_TBA_A030, k) for k in CIVIC_TBA_A030.__dataclass_fields__
-                                          if k != "kp_pieces"}, "name": "civic_teg_a010"})
+                                          if k != "kp_pieces"}, "name": "civic_teg_a010",
+                                       "r5_key_bp": (0, 222, 333, 495, 656, 887, 1108, 1552, 1774),
+                                       "kp_key_bp": CIVIC_TBA_C120_P_KEYS,
+                                       "r6_per_deg_s": CIVIC_TEG_A010_R6_CENTRE,
+                                       # plan_timing on routes 12e/134/137/139 with nrdr's 0.145 s low-speed delay
+                                       # active: -0.05 s weighted (+0.02/-0.06/-0.06/-0.08), so ~0.19 s in all;
+                                       # 0.15 stays below it (the C020 family's value). Mostly highway drives.
+                                       "cmd_delay_s": 0.15,
+                                       "rack": CIVIC_TEG_A010_RACK})
 # Civic Bosch 39990-TBA-C120, 08-11 C020Profile Trk4250 (bin sha256 3d88d5ea). Its variants select rows 0-4, all
 # within 5% of each other in R5, so the row does not matter; row 1 (= row 2) is taken, as the C020's. Flat envelope.
 # E4 = -3840 * u: opendbc gives the C120 image its own [0, 3840] map, unlike the C020's 4096. Not measured: R6, load.
@@ -474,12 +494,14 @@ CALIBRATION_PROVENANCE = {
     "cmd_delay": "default", "model_delay": "default: the Clarity's schedule", "rack": "none",
   },
   "civic_teg_a010": {
-    "row": "inferred: the C020's row 1; a steering TEG is TEGA1 (row 2) or TEGA2 (row 3), not yet read",
+    "row": "measured: row 3 (TEGA2), telemetry R5 vs E4 on routes 0000012f/00000139 (live_row_fit.py teg)",
     "kp_axis": "firmware", "key_clamp": "firmware", "envelope": "firmware",
-    "r6": "firmware: computed from its A table; telemetry fit -161 at its 08-12 build",
-    "load": "measured: the owner's 08-18 telemetry drive (P+KFF rebuild, hands off, below 15 m/s)",
+    "r6": "measured: telemetry -152.5 per deg/s on route 00000139 (angle shape from its A table)",
+    "load": "measured: the owner's 11 telemetry routes 0000012d-00000139 (fit_column_load.py --source teg)",
     "trims": "inferred: the C020 owner's",
-    "cmd_delay": "default", "model_delay": "default: the Clarity's schedule", "rack": "none",
+    "cmd_delay": "measured: plan_timing on routes 12e/134/137/139, sized below the ~0.19 s measured",
+    "model_delay": "default: the Clarity's schedule",
+    "rack": "measured: VSA yaw (GPS-checked scale), routes 0000012d-00000139",
   },
   "civic_tba_c120": {
     "row": "firmware: its variants' rows 0-4 agree within 5%",

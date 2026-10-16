@@ -59,6 +59,16 @@ INSIGHT_TXM_A040_RACK = RackMapTable(
   slip_factor=-0.00066,
 )
 
+# Civic (Nidec) TEG-A010, through the C120 A table it shares: the same method on its VSA yaw (0x94 bus 0, 0.241 deg/s
+# per count + 0.10 clockwise, opendbc honda/yaw_rate.py) over the owner's 11 routes 0000012d-00000139 (2026-10-14/15,
+# 3,800 s moving at >= 3 deg). Held out route by route it predicts the measured curvature within ~1-3 % in most
+# bands (small-angle crawl bands 0.93-1.08 on the short routes). Thin past 150 deg: 24-74 s per band.
+CIVIC_TEG_A010_RACK = RackMapTable(
+  ratio_bp=(5.1, 13.5, 26.2, 55.2, 86.6, 120.2, 175.8, 221.6, 293.1),
+  ratio_v=(14.16, 14.16, 14.18, 14.09, 14.08, 14.01, 13.94, 13.86, 13.78),
+  slip_factor=-0.00067,
+)
+
 
 class HondaEpsRackMap:
   """Physical wheel angle (deg, left-positive) <-> curvature (1/m, openpilot's right-positive) for one RackMapTable."""

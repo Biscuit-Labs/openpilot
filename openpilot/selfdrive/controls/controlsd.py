@@ -20,6 +20,7 @@ from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_angle import STEER_ANGLE_SATURATION_THRESHOLD
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
+from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, write_eps_state
 from openpilot.selfdrive.controls.lib.longcontrol import LongControl
 from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
@@ -481,6 +482,8 @@ class Controls:
         feedback = learning_feedback
       except Exception:
         self._discard_global_learning()
+    if isinstance(self.LaC, LatControlHondaEps):
+      write_eps_state(feedback.starpilotLateralState, self.LaC.starpilot_lateral_state)
     self.pm.send('starpilotLateralState', feedback)
 
   def run(self):

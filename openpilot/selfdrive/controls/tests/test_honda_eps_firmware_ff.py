@@ -13,12 +13,11 @@ import openpilot.selfdrive.controls.lib.latcontrol_honda_eps as honda_eps
 from opendbc.car import structs
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.steer_ratio import get_honda_vgr_inverse, vgr_linear_to_physical, vgr_physical_to_linear
-from opendbc.car.honda.values import CAR, HondaFlags
+from opendbc.car.honda.values import CAR, CarControllerParams, HondaFlags
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_CTRL
 
-TOGGLES = SimpleNamespace(force_torque_controller=False, nnff=False, nnff_lite=False)
 CLARITY_MODIFIED_FW = b'39990-TRW,A020\x00\x00'
 CLARITY_STOCK_FW = b'39990-TRW-A020\x00\x00'
 CLA = eps_ff.CLARITY_TRW_A020  # the reference calibration these law tests were written on
@@ -153,7 +152,7 @@ def test_reset_forgets_the_press():
 def test_controller_logs_its_calibration_and_both_delays(monkeypatch):
   lac, VM, _ = _controller(monkeypatch, {"HondaEpsFirmwareVgr": "1"})
   CS = car.CarState.new_message(vEgo=8.0)
-  params = log.LiveParametersData.new_message(steerRatio=16.0, stiffnessFactor=1.0)
+  params = log.VehicleParameters.new_message(steerRatio=16.0, stiffnessFactor=1.0)
   lac.update(True, CS, VM, params, False, 0.01, False, 0.33, None, None, SimpleNamespace())
   st = lac.starpilot_lateral_state
   assert st.epsCalibration == "clarity_trw_a020"
@@ -272,7 +271,7 @@ def test_output_lpf_setting_is_honoured():
 
 def _params(fw_version, candidate=CAR.HONDA_CLARITY):
   car_fw = [structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, fwVersion=fw_version, address=0x18DA30F1, subAddress=0)]
-  CP = CarInterface.get_params(candidate, {0: {}, 1: {}, 2: {}}, car_fw, False, False, False, TOGGLES)
+  CP = CarInterface.get_params(candidate, {0: {}, 1: {}, 2: {}}, car_fw, False, False, False)  # 7.0: no toggles argument
   # car_helpers.get_car() stores the queried firmware on the CarParams the controllers see
   fw = CP.init("carFw", 1)[0]
   fw.ecu, fw.fwVersion, fw.address, fw.subAddress = "eps", fw_version, 0x18DA30F1, 0
@@ -346,7 +345,7 @@ def test_nrdr_settings_are_read(monkeypatch):
 def _drive(lac, VM, frames=400, v=9.0):
   CS = car.CarState.new_message()
   CS.vEgo = v
-  params = log.LiveParametersData.new_message()
+  params = log.VehicleParameters.new_message()
   params.steerRatio, params.stiffnessFactor = 16.0, 1.0
   outs = []
   for k in range(frames):
@@ -368,7 +367,7 @@ def test_controller_steers_logs_and_rests(monkeypatch):
   assert state.epsFfActive and state.epsFfWeight == 1.0 and state.epsFfR5 != 0.0
   msg = log.Event.new_message(starpilotLateralState=state)   # what controlsd publishes
   assert msg.starpilotLateralState.epsFfWeight == 1.0
-  lac.update(False, car.CarState.new_message(), VM, log.LiveParametersData.new_message(), False, 0.0, False, 0.2,
+  lac.update(False, car.CarState.new_message(), VM, log.VehicleParameters.new_message(), False, 0.0, False, 0.2,
              None, None, SimpleNamespace())
   assert lac.core.ff_weight == 0.0 and lac.core.output == 0.0
 
@@ -401,7 +400,9 @@ ON = {"HondaEpsController": "1"}
 @pytest.mark.parametrize("candidate,fw,cal", CALIBRATION_CARS, ids=[p.name for _, _, p in CALIBRATION_CARS])
 def test_calibration_matches_the_cars_torque_map_and_is_selected_only_when_enabled(candidate, fw, cal):
   CP = _params(fw, candidate)
-  assert list(CP.lateralParams.torqueBP) == [0, cal.e4_per_output] == list(CP.lateralParams.torqueV)
+  # 7.0 keeps the command map in CarControllerParams, not CP.lateralParams
+  ccp = CarControllerParams(CP)
+  assert list(ccp.STEER_LOOKUP) == [-cal.e4_per_output, 0, cal.e4_per_output] == list(ccp.STEER_LOOKUP_V)
   assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is cal
   if candidate != CAR.HONDA_CLARITY:
     assert honda_eps.eps_firmware_calibration(CP, _Params()) is None
@@ -424,9 +425,15 @@ def test_cars_without_a_matching_profile_keep_latcontrol_pid(candidate, fw):
   assert honda_eps.eps_firmware_calibration(_params(fw, candidate), _Params(ON)) is None
 
 
-def test_a_torque_map_the_profile_does_not_expect_keeps_latcontrol_pid():
+def test_a_torque_map_the_profile_does_not_expect_keeps_latcontrol_pid(monkeypatch):
   CP = _params(b'39990-TBA,C020\x00\x00', CAR.HONDA_CIVIC_BOSCH)
-  CP.lateralParams.torqueV = [0, 3840]
+  assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is not None
+
+  class _OtherMap(CarControllerParams):
+    def __init__(self, CP):
+      super().__init__(CP)
+      self.STEER_LOOKUP_V = [-3840, 0, 3840]
+  monkeypatch.setattr(honda_eps, "CarControllerParams", _OtherMap)
   assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is None
 
 
@@ -587,7 +594,7 @@ def test_target_follows_the_curvature_one_command_delay_late(monkeypatch, v, lat
   lac, VM, _ = _controller(monkeypatch, {"HondaEpsFirmwareVgr": "1"})
   CS = car.CarState.new_message()
   CS.vEgo = v
-  params = log.LiveParametersData.new_message()
+  params = log.VehicleParameters.new_message()
   params.steerRatio, params.stiffnessFactor = 16.0, 1.0
   targets = []
   for k in range(100):

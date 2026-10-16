@@ -3,6 +3,7 @@
 from opendbc.car import structs
 from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from openpilot.selfdrive.controls.lib.latcontrol_curvature import LatControlCurvature
+from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, eps_firmware_calibration
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 
@@ -12,6 +13,9 @@ def create_lateral_controller(cp, ci, dt, *, mode, turn_assist=False):
     return LatControlAngle(cp, ci, dt)
   if cp.steerControlType == structs.CarParams.SteerControlType.curvature:
     return LatControlCurvature(cp, ci, dt)
+  # NRDR: a modified-EPS Honda with a matching EPS firmware calibration steers through its firmware inversion
+  if (eps_calibration := eps_firmware_calibration(cp)) is not None:
+    return LatControlHondaEps(cp, ci, dt, eps_calibration)
   if cp.lateralTuning.which() == 'pid':
     return LatControlPID(cp, ci, dt)
   if cp.lateralTuning.which() == 'torque':

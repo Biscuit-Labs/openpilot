@@ -48,7 +48,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/controls/lib/honda_eps_firmware_ff.py` | bosch+vfn | 810 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1) |
 | `selfdrive/controls/tests/test_honda_eps_firmware_ff.py` | bosch+vfn | 733 | new | **gone** | PORT - plug into lateral_controller_factory | wip (slice 1; 66 tests wait on slices 2-3) |
 | `selfdrive/controls/lib/latcontrol_pid.py` | bosch+vfn | 333 | mod | `openpilot/selfdrive/controls/lib/latcontrol_pid.py` | PORT - plug into lateral_controller_factory | todo |
-| `selfdrive/controls/lib/latcontrol_honda_eps.py` | bosch+vfn | 239 | new | **gone** | PORT - plug into lateral_controller_factory | wip (copied in slice 1; factory hook + telemetry are slice 2) |
+| `selfdrive/controls/lib/latcontrol_honda_eps.py` | bosch+vfn | 239 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 2) |
 | `selfdrive/controls/lib/tests/test_latcontrol_pid_eps_modified.py` | bosch+vfn | 224 | new | **gone** | PORT - plug into lateral_controller_factory | todo |
 | `selfdrive/controls/lib/honda_lateral_common.py` | bosch+vfn | 191 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1) |
 | `selfdrive/controls/tests/test_latcontrol_pid_override_fade.py` | bosch+vfn | 99 | new | **gone** | PORT - plug into lateral_controller_factory | todo |
@@ -148,13 +148,13 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | bosch+vfn | 327 | mod | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/steer_ratio.py` | bosch+vfn | 292 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
 | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | bosch+vfn | 194 | mod | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | PORT onto 7.0 refactored Honda | todo |
-| `opendbc_repo/opendbc/car/honda/interface.py` | bosch+vfn | 139 | mod | `opendbc_repo/opendbc/car/honda/interface.py` | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/interface.py` | bosch+vfn | 139 | mod | `opendbc_repo/opendbc/car/honda/interface.py` | PORT onto 7.0 refactored Honda | wip (slice 2 lateral done; Bosch-A radar default, vEgoStopping, Nidec hybrid safety still todo) |
 | `opendbc_repo/opendbc/car/honda/yaw_rate.py` | bosch+vfn | 87 | new | **gone** | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/tests/test_steer_ratio.py` | bosch+vfn | 74 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
 | `opendbc_repo/opendbc/car/honda/carstate.py` | bosch+vfn | 29 | mod | `opendbc_repo/opendbc/car/honda/carstate.py` | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/hondacan.py` | bosch+vfn | 16 | mod | `opendbc_repo/opendbc/car/honda/hondacan.py` | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/values.py` | bosch+vfn | 14 | mod | `opendbc_repo/opendbc/car/honda/values.py` | PORT onto 7.0 refactored Honda | wip (VGR flags done; safety flags: see README) |
-| `opendbc_repo/opendbc/car/honda/fingerprints.py` | bosch+vfn | 2 | mod | `opendbc_repo/opendbc/car/honda/fingerprints.py` | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/fingerprints.py` | bosch+vfn | 2 | mod | `opendbc_repo/opendbc/car/honda/fingerprints.py` | PORT onto 7.0 refactored Honda | done (slice 2) |
 
 ### longitudinal
 
@@ -288,7 +288,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/controls/controlsd.py` | bosch+vfn | 294 | mod | `openpilot/selfdrive/controls/controlsd.py` | PORT hooks into rewritten controlsd | todo |
+| `selfdrive/controls/controlsd.py` | bosch+vfn | 294 | mod | `openpilot/selfdrive/controls/controlsd.py` | PORT hooks into rewritten controlsd | wip (factory hook + eps telemetry done in slice 2; hooks are slice 5) |
 | `selfdrive/controls/tests/test_controlsd.py` | bosch+vfn | 120 | new | **gone** | PORT hooks into rewritten controlsd | todo |
 | `selfdrive/selfdrived/selfdrived.py` | bosch+vfn | 37 | mod | `openpilot/selfdrive/selfdrived/selfdrived.py` | PORT hooks into rewritten controlsd | todo |
 | `selfdrive/selfdrived/events.py` | bosch+vfn | 27 | mod | `openpilot/selfdrive/selfdrived/events.py` | PORT hooks into rewritten controlsd | todo |
@@ -320,8 +320,8 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `common/params_keys.h` | bosch+vfn | 71 | mod | `openpilot/common/params_keys.h` | PORT keys into 7.0 contracts; rebuild | todo |
-| `cereal/custom.capnp` | bosch+vfn | 53 | mod | `openpilot/cereal/custom.capnp` | PORT keys into 7.0 contracts; rebuild | todo |
+| `common/params_keys.h` | bosch+vfn | 71 | mod | `openpilot/common/params_keys.h` | PORT keys into 7.0 contracts; rebuild | wip (Honda EPS keys done in slice 2; rest todo) |
+| `cereal/custom.capnp` | bosch+vfn | 53 | mod | `openpilot/cereal/custom.capnp` | PORT keys into 7.0 contracts; rebuild | wip (eps* done in slice 2, @11-@19) |
 | `cereal/log.capnp` | bosch+vfn | 15 | mod | `openpilot/cereal/log.capnp` | PORT keys into 7.0 contracts; rebuild | todo |
 | `cereal/services.py` | vfn | 2 | mod | `openpilot/cereal/services.py` | PORT keys into 7.0 contracts; rebuild | todo |
 

@@ -72,14 +72,23 @@ class CarControllerParams:
     from opendbc.car.honda.parameter_profiles import apply_steering_profile
     apply_steering_profile(self, CP)
     if CP.flags & HondaFlags.EPS_MODIFIED:
-      if CP.carFingerprint == CAR.HONDA_CIVIC:
-        self.STEER_MAX = 8000
-        self.STEER_LOOKUP = [-8000, -2560, 0, 2560, 8000]
-        self.STEER_LOOKUP_V = [-3840, -2560, 0, 2560, 3840]
-      elif CP.carFingerprint == CAR.HONDA_CRV_5G:
-        self.STEER_MAX = 10000
-        self.STEER_LOOKUP = [-10000, -2560, 0, 2560, 10000]
-        self.STEER_LOOKUP_V = [-3840, -2560, 0, 2560, 3840]
+      # NRDR modified-EPS command maps (nrdr vfn interface.py torqueBP/torqueV). The linear-max images ramp straight
+      # to the firmware cap, so the stock piecewise breakpoints collapse to one segment.
+      eps_map = None
+      if CP.carFingerprint in (CAR.HONDA_CIVIC, CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT, CAR.HONDA_NBOX_2G):
+        eps_map = ([0, 3840], [0, 3840])
+      elif CP.carFingerprint in (CAR.HONDA_CRV_5G, CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR):
+        eps_map = ([0, 4096], [0, 4096])
+      elif CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL):
+        # C020 keeps its native 4096 range and rack model; only the C120 image is linear-max to the 3840 cap
+        eps_map = ([0, 3840], [0, 3840]) if CP.flags & HondaFlags.VGR_CIVIC_TBA_C120 else ([0, 4096], [0, 4096])
+      elif CP.carFingerprint == CAR.HONDA_CIVIC_2022:
+        eps_map = ([0, 2564, 8000], [0, 2564, 3840])
+      if eps_map is not None:
+        bp, values = eps_map
+        self.STEER_MAX = bp[-1]
+        self.STEER_LOOKUP = [-x for x in reversed(bp[1:])] + list(bp)
+        self.STEER_LOOKUP_V = [-x for x in reversed(values[1:])] + list(values)
 
 
 class HondaSafetyFlags(IntFlag):
@@ -501,10 +510,16 @@ class CAR(Platforms):
 
 MODIFIED_EPS_FW = {
   CAR.HONDA_CLARITY: (b'39990-TRW,A020\x00\x00',),
-  CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00',),
+  # NRDR: TEG-A010 shares the Civic fingerprint (its own measured calibration lives in honda_eps_firmware_ff)
+  CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00'),
   CAR.HONDA_ACCORD: (b'39990-TVA,A150\x00\x00',),
-  CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00'),
-  CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00',),
+  # NRDR: C020 and C120 are modified Civic Bosch images with their own calibrations
+  CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00', b'39990-TBA,C020\x00\x00', b'39990-TBA,C120\x00\x00'),
+  CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00'),
+  # NRDR: modified-EPS fleet beyond 7.0's list
+  CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00',),
+  CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00',),  # PTM; stock A220 accepts every RDX 3G image as a source
+  CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00',),
 }
 
 MANUAL_TRANS_CARS = frozenset((CAR.HONDA_ACCORD, CAR.HONDA_CIVIC_2022))

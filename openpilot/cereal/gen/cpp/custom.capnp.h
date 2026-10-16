@@ -1117,7 +1117,7 @@ struct StarPilotLateralState {
   struct LaneCentering;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(c2243c65e0340384, 4, 3)
+    CAPNP_DECLARE_STRUCT_HEADER(c2243c65e0340384, 7, 4)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -7544,6 +7544,25 @@ public:
   inline bool hasLearningApplication() const;
   inline  ::cereal::LearningApplication::Reader getLearningApplication() const;
 
+  inline bool getEpsFfActive() const;
+
+  inline float getEpsFfFeedforward() const;
+
+  inline float getEpsFfR5() const;
+
+  inline float getEpsFfLoad() const;
+
+  inline float getEpsFfDesiredRate() const;
+
+  inline float getEpsFfWeight() const;
+
+  inline bool hasEpsCalibration() const;
+  inline  ::capnp::Text::Reader getEpsCalibration() const;
+
+  inline float getEpsCommandDelay() const;
+
+  inline float getEpsModelDelay() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -7616,6 +7635,37 @@ public:
   inline  ::cereal::LearningApplication::Builder initLearningApplication();
   inline void adoptLearningApplication(::capnp::Orphan< ::cereal::LearningApplication>&& value);
   inline ::capnp::Orphan< ::cereal::LearningApplication> disownLearningApplication();
+
+  inline bool getEpsFfActive();
+  inline void setEpsFfActive(bool value);
+
+  inline float getEpsFfFeedforward();
+  inline void setEpsFfFeedforward(float value);
+
+  inline float getEpsFfR5();
+  inline void setEpsFfR5(float value);
+
+  inline float getEpsFfLoad();
+  inline void setEpsFfLoad(float value);
+
+  inline float getEpsFfDesiredRate();
+  inline void setEpsFfDesiredRate(float value);
+
+  inline float getEpsFfWeight();
+  inline void setEpsFfWeight(float value);
+
+  inline bool hasEpsCalibration();
+  inline  ::capnp::Text::Builder getEpsCalibration();
+  inline void setEpsCalibration( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initEpsCalibration(unsigned int size);
+  inline void adoptEpsCalibration(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownEpsCalibration();
+
+  inline float getEpsCommandDelay();
+  inline void setEpsCommandDelay(float value);
+
+  inline float getEpsModelDelay();
+  inline void setEpsModelDelay(float value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -21410,6 +21460,152 @@ inline void StarPilotLateralState::Builder::adoptLearningApplication(
 inline ::capnp::Orphan< ::cereal::LearningApplication> StarPilotLateralState::Builder::disownLearningApplication() {
   return ::capnp::_::PointerHelpers< ::cereal::LearningApplication>::disown(_builder.getPointerField(
       ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotLateralState::Reader::getEpsFfActive() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotLateralState::Builder::getEpsFfActive() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsFfActive(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotLateralState::Reader::getEpsFfFeedforward() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsFfFeedforward() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsFfFeedforward(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotLateralState::Reader::getEpsFfR5() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsFfR5() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsFfR5(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<8>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotLateralState::Reader::getEpsFfLoad() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsFfLoad() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsFfLoad(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<9>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotLateralState::Reader::getEpsFfDesiredRate() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsFfDesiredRate() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsFfDesiredRate(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<10>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotLateralState::Reader::getEpsFfWeight() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsFfWeight() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsFfWeight(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<11>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotLateralState::Reader::hasEpsCalibration() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotLateralState::Builder::hasEpsCalibration() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader StarPilotLateralState::Reader::getEpsCalibration() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder StarPilotLateralState::Builder::getEpsCalibration() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline void StarPilotLateralState::Builder::setEpsCalibration( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder StarPilotLateralState::Builder::initEpsCalibration(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotLateralState::Builder::adoptEpsCalibration(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> StarPilotLateralState::Builder::disownEpsCalibration() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+
+inline float StarPilotLateralState::Reader::getEpsCommandDelay() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<12>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsCommandDelay() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<12>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsCommandDelay(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<12>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotLateralState::Reader::getEpsModelDelay() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<13>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotLateralState::Builder::getEpsModelDelay() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<13>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLateralState::Builder::setEpsModelDelay(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<13>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t StarPilotLateralState::LaneCentering::Reader::getVersion() const {

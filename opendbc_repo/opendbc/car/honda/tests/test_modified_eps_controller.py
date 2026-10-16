@@ -2,11 +2,11 @@ import pytest
 
 from opendbc.car import structs
 from opendbc.car.honda.interface import CarInterface
-from opendbc.car.honda.tests.test_modified_eps import KNOWN_CASES, eps, params
+from opendbc.car.honda.tests.test_modified_eps import KNOWN_CASES, NRDR_CASES, eps, params
 from opendbc.car.honda.values import CAR
 
 
-@pytest.mark.parametrize("identity,firmware", KNOWN_CASES)
+@pytest.mark.parametrize("identity,firmware", KNOWN_CASES + NRDR_CASES)
 def test_actual_modified_factory_controller_consumes_separate_lookup(identity, firmware):
   cp = params(identity, [eps(firmware)])
   ci = CarInterface(cp)
@@ -18,7 +18,7 @@ def test_actual_modified_factory_controller_consumes_separate_lookup(identity, f
     actuators, frames = ci.apply(cc.as_reader(), 1_000_000_000 + tick * 10_000_000)
     assert frames
     emitted.append(actuators.torqueOutputCan)
-  expected_max = 3840 if identity in (CAR.HONDA_CIVIC, CAR.HONDA_CRV_5G) else ci.CC.params.STEER_MAX
+  expected_max = ci.CC.params.STEER_LOOKUP_V[-1]  # NRDR: the map's output cap (linear-max maps have no 3840 knee)
   assert max(abs(value) for value in emitted) <= expected_max
   assert abs(emitted[-1]) >= expected_max - 1
   assert (ci.CC.modified_civic_steering is not None) == (identity == CAR.HONDA_CIVIC_BOSCH)

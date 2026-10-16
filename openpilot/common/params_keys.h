@@ -354,4 +354,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"JetlinkProgress", {CLEAR_ON_MANAGER_START | DONT_LOG, JSON}},
     {"JetlinkRuntime", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | DONT_LOG, JSON}},
     {"Version", {PERSISTENT, STRING}},
+
+    // NRDR Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
+    {"HondaEpsController", {PERSISTENT, BOOL, "0"}},  // steer the PTM EPS cars without default_on with LatControlHondaEps (read when controlsd starts)
+    {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
+    {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.5"}},
+    {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "0"}},
+    {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.1"}},
+    {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1"}},
+    {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.1"}},
 };

@@ -33,7 +33,7 @@ import numpy as np
 from openpilot.cereal import custom, log
 from opendbc.car.honda.carcontroller import get_eps_modified_steering_pressed
 from opendbc.car.honda.steer_ratio import get_honda_vgr_inverse, normalize_honda_eps_fw, vgr_linear_to_physical
-from opendbc.car.honda.values import HondaFlags
+from opendbc.car.honda.values import CarControllerParams, HondaFlags
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import (
@@ -95,9 +95,11 @@ def eps_firmware_calibration(CP, params=None) -> EpsFirmwareCalibration | None:
   calibration = select_eps_firmware_calibration(str(CP.carFingerprint), eps_fw)
   if calibration is None:
     return None
-  # The inversion assumes 0xE4 = -output * e4_per_output, i.e. the car's linear modified-EPS torque map
-  cap = calibration.e4_per_output
-  if [float(x) for x in CP.lateralParams.torqueBP] != [0.0, cap] or [float(x) for x in CP.lateralParams.torqueV] != [0.0, cap]:
+  # The inversion assumes 0xE4 = -output * e4_per_output, i.e. the car's linear modified-EPS torque map. StarPilot 7.0
+  # keeps that map in CarControllerParams (STEER_LOOKUP) rather than CP.lateralParams.
+  cap = float(calibration.e4_per_output)
+  ccp = CarControllerParams(CP)
+  if [float(x) for x in ccp.STEER_LOOKUP] != [-cap, 0.0, cap] or [float(x) for x in ccp.STEER_LOOKUP_V] != [-cap, 0.0, cap]:
     return None
   if not calibration.default_on and not _get_param_bool(params, "HondaEpsController", False):
     return None
@@ -124,6 +126,16 @@ def get_rack_map(CP, calibration: EpsFirmwareCalibration | None) -> HondaEpsRack
   if calibration is None or calibration.rack is None or vgr_inverse is None:
     return None
   return HondaEpsRackMap(CP.wheelbase, vgr_inverse, calibration.rack)
+
+
+EPS_STATE_FIELDS = ("epsFfActive", "epsFfFeedforward", "epsFfR5", "epsFfLoad", "epsFfDesiredRate", "epsFfWeight",
+                    "epsCalibration", "epsCommandDelay", "epsModelDelay")
+
+
+def write_eps_state(dst, src) -> None:
+  """StarPilot 7.0's controlsd builds starpilotLateralState itself; copy this controller's eps* telemetry into it."""
+  for name in EPS_STATE_FIELDS:
+    setattr(dst, name, getattr(src, name))
 
 
 class LatControlHondaEps(LatControl):

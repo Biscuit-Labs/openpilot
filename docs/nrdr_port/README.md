@@ -41,6 +41,14 @@ regression target built.
 | 10-16 | `HondaFlags.VGR_*` keep their vfn bits (32768–524288) | Free in 7.0 |
 | 10-16 | `StarPilotLateralState.eps*` fields must move from @8–@16 to @11–@19 | 7.0 uses @8–@10 (laneCentering, learningEvidence, learningApplication). Tools read by name; old routes keep old ordinals |
 | 10-16 | `HondaFlags` bits differ: 7.0 has 1024=`HAS_BSM`, 16384=`GAS_INTERCEPTOR` | Our `ALLOW_MANUAL_TRANS` (1024) and `HYBRID_ALT_BRAKEHOLD` (16384) need new bits when the Honda layer is ported |
+| 10-16 | Keep 7.0's exact-image `MODIFIED_EPS_FW` allow-list (unknown comma image → dashcam) and add our fleet: Civic `TEG,A010`; Civic Bosch `TBA,C020`, `TBA,C120`; CR-V 5G `TLA,A220`; Insight `TXM,A040`; RDX 3G / MMR `TJB,A220` | Safer than vfn's "any comma = modified"; without these entries 7.0 makes those cars dashcam-only. Fingerprints gain `TBA,C120` and `TLA,A220` as on vfn |
+| 10-16 | Modified-EPS command maps live in `CarControllerParams` (7.0 has no `CP.lateralParams` for Honda); ours replace 7.0's piecewise Civic (8000 knee) and CR-V (10000 knee) maps with vfn's linear-max ones | `eps_firmware_calibration` now checks `CarControllerParams(CP).STEER_LOOKUP`; the old `lateralParams` check would have silently never engaged |
+| 10-16 | Modified-EPS PID tune: one `_nrdr_modified_eps_tune` helper (four-point 25 mph handoff) for Clarity, Civic, Civic Bosch, CR-V 5G, Insight, PTM RDX | Same values and same override order as vfn (autoResumeSng/minEnableSpeed are recomputed at the end, as on vfn) |
+| 10-16 | **Open:** stock (unmodified) RDX 3G keeps 7.0's PID 0.2/0.06 | Our PTM commit 7954615283 moved the stock RDX 3G to the torque controller; that is a change to a non-fleet car, so it was not carried silently |
+| 10-16 | PTM RDX 3G MMR on stock ACC gets 7.0's 70 km/h minSteerSpeed from `apply_factory_profile` | vfn's branch order skipped it; the radar filtering steering below 70 km/h is physical |
+| 10-16 | Every NRDR `HondaFlags` bit must be added to `stock_aol.qualified()`'s detected set | It rejects any flag it does not know; the VGR bits silently disabled AOL on the modified Clarity until added |
+| 10-16 | Fixed a 7.0 bug: `ACURA_RDX_3G_MMR` assigned `dashcamOnly = is_release`, clearing the unrecognized-modified-EPS dashcam | Worth reporting upstream |
+| 10-16 | `liveParameters` is `vehicleParameters` (`log.VehicleParameters`) in 7.0 | Same fields our controller reads |
 | 10-16 | **Open, safety:** `HondaSafetyFlags` allocation | Our `NIDEC_HYBRID=64` collides with 7.0's `BOSCH_CANFD_MVL=64`. 7.0 also has `AOL_BOSCH_LONG` and `GAS_INTERCEPTOR` both at 32. Resolve with the panda safety port, against panda's own flag table |
 
 ## Slices
@@ -48,7 +56,7 @@ regression target built.
 | # | Slice | State |
 |---|---|---|
 | 1 | Honda EPS lateral modules land and their pure tests pass (`honda_eps_firmware_ff`, `honda_eps_rack_map`, `honda_lateral_common`, `latcontrol_honda_eps`, `steer_ratio`, VGR flags, `get_eps_modified_steering_pressed`, `PIDController` integrator scale/reset) | **done**; 309 pass, 66 wait on 2–3 |
-| 2 | Honda interface: EPS image detection → `EPS_MODIFIED` + VGR flags, per-car PID tune, `get_params` toggles; params keys; capnp `eps*`; `create_lateral_controller` hook; controlsd telemetry copy | todo |
+| 2 | Honda interface: EPS image allow-list + VGR flags, per-car PID tune, command maps; params keys; capnp `eps*`; `create_lateral_controller` hook; controlsd telemetry copy | **done** (params lib rebuild pending) |
 | 3 | `latcontrol_pid` modified-EPS path (banded scales, override fade, PTM RDX) on 7.0's stock PID; NNFF (7.0 removed it) | todo |
 | 4 | Panda safety: Clarity Nidec-hybrid brake + safety flag allocation; panda rebuild | todo |
 | 5 | controlsd hooks: rack-map curvature, turn-hold shaping, delay schedule, stopped-model guard | todo |

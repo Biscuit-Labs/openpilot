@@ -7,6 +7,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.values import CarControllerParams, HondaFlags, CAR, HondaSafetyFlags, MANUAL_TRANS_CARS, MODIFIED_EPS_FW, DBC
+from opendbc.car.honda.steer_ratio import get_honda_vgr_profile, HONDA_VGR_PROFILE_FLAGS
 from opendbc.car.honda.carcontroller import CarController
 from opendbc.car.honda.carstate import CarState
 from opendbc.car.honda.radar_interface import RadarInterface
@@ -14,6 +15,19 @@ from opendbc.car.interfaces import CarInterfaceBase
 
 TransmissionType = structs.CarParams.TransmissionType
 RADARLESS_PORTS = frozenset((CAR.HONDA_FIT_4G, CAR.ACURA_INTEGRA, CAR.ACURA_ADX))
+
+
+def _nrdr_modified_eps_tune(ret: structs.CarParams) -> None:
+  # NRDR modified-EPS tune, shared by the Clarity, Civics, Insight, CR-V 5G and PTM RDX 3G: a four-point handoff at
+  # 25 mph (half gains below). The speed banding lives here, not in the runtime LatPScale/LatIScale params, which stay
+  # at 100% as fine trim; do not band in both places. kf is banded in latcontrol_pid; this scalar is its fallback.
+  bp = [0., 25. * CV.MPH_TO_MS - 1e-3, 25. * CV.MPH_TO_MS, 50. * CV.MPH_TO_MS]
+  ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kpV = [bp, [0.018, 0.024, 0.048, 0.060]]
+  ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kiV = [bp, [0.006, 0.008, 0.016, 0.020]]
+  ret.lateralTuning.pid.kf = 3.6e-6
+  # autoResumeSng and minEnableSpeed are recomputed at the end of _get_params, as on nrdr vfn
+  ret.steerAtStandstill, ret.autoResumeSng = True, True
+  ret.minEnableSpeed, ret.minSteerSpeed = -1.0, -1.0
 
 
 class CarInterface(CarInterfaceBase):
@@ -108,11 +122,27 @@ class CarInterface(CarInterfaceBase):
     elif modified_eps:
       ret.dashcamOnly = True
 
+    # NRDR: VGR is selected by the exact EPS image, not by vehicle family. Unknown firmware gets no VGR override and
+    # keeps the normal fixed steer ratio.
+    vgr_profile = get_honda_vgr_profile(car_fw)
+    if vgr_profile is not None:
+      ret.flags |= int(HONDA_VGR_PROFILE_FLAGS[vgr_profile])
+
     if candidate == CAR.HONDA_CIVIC:
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = ([[0.3], [0.1]] if eps_modified else [[1.1], [0.33]])
+      if eps_modified:
+        _nrdr_modified_eps_tune(ret)
+      else:
+        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[1.1], [0.33]]
 
     elif candidate in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL):
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
+      if eps_modified:
+        _nrdr_modified_eps_tune(ret)
+      else:
+        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
+
+    elif candidate == CAR.HONDA_CIVIC_2022 and eps_modified:
+      # NRDR: 2.5x modded EPS (no CIVIC_2022 image is on MODIFIED_EPS_FW yet, so this stays off until one is added)
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.3], [0.09]]
 
     elif candidate in (CAR.HONDA_CIVIC_2022, CAR.HONDA_PRELUDE_6G):
       ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kpV = [[0, 10], [0.05, 0.5]]
@@ -139,7 +169,10 @@ class CarInterface(CarInterfaceBase):
       ret.wheelSpeedFactor = 1.025
 
     elif candidate == CAR.HONDA_CRV_5G:
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = ([[0.21], [0.07]] if eps_modified else [[0.64], [0.192]])
+      if eps_modified:
+        _nrdr_modified_eps_tune(ret)
+      else:
+        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.64], [0.192]]
       ret.wheelSpeedFactor = 1.025
 
     elif candidate == CAR.HONDA_CRV_HYBRID:
@@ -172,11 +205,21 @@ class CarInterface(CarInterfaceBase):
       ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kiV = [[0, 10], [0.0125, 0.125]]
 
     elif candidate == CAR.HONDA_CLARITY:
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
+      if eps_modified:
+        _nrdr_modified_eps_tune(ret)
+      else:
+        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
       ret.stopAccel = 0.0
 
     elif candidate == CAR.ACURA_RDX:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
+
+    elif candidate in (CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR) and eps_modified:
+      # NRDR 39990-TJB,A220 PTM. Its target map X axis runs E4 0..4096 and Route A puts the 30000 top there, level with
+      # the Clarity's 29982 at its 3840 cap, so the Clarity's gains carry over 1:1. No EPS firmware calibration yet, so
+      # it stays on LatControlPID.
+      ret.lateralTuning.init("pid")
+      _nrdr_modified_eps_tune(ret)
 
     elif candidate == CAR.ACURA_RDX_3G:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.2], [0.06]]
@@ -192,6 +235,16 @@ class CarInterface(CarInterfaceBase):
 
     elif candidate == CAR.HONDA_RIDGELINE:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.38], [0.11]]
+
+    elif candidate == CAR.HONDA_INSIGHT and eps_modified:
+      _nrdr_modified_eps_tune(ret)
+
+    elif candidate == CAR.HONDA_NBOX_2G and eps_modified:
+      # NRDR: JDM kei car, unrelated to the modified-EPS fleet; kept on its own pre-split numbers rather than the Clarity's
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.06], [0.02]]
+      ret.lateralTuning.pid.kf = 0.000024
+      ret.steerAtStandstill, ret.autoResumeSng = True, True
+      ret.minEnableSpeed, ret.minSteerSpeed = -1.0, -1.0
 
     elif candidate in (CAR.HONDA_INSIGHT, CAR.HONDA_NBOX_2G):
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.6], [0.18]]
@@ -214,7 +267,9 @@ class CarInterface(CarInterfaceBase):
     apply_factory_profile(ret, candidate)
 
     if candidate == CAR.ACURA_RDX_3G_MMR:
-      ret.dashcamOnly = is_release  # TODO: release from dashcam when there's enough driving data for torqued/paramsd to converge
+      # TODO: release from dashcam when there's enough driving data for torqued/paramsd to converge
+      # NRDR: only ever add dashcam here; a plain assignment cleared the unrecognized-modified-EPS dashcam set above
+      ret.dashcamOnly = ret.dashcamOnly or is_release
 
     # These cars use alternate user brake msg (0x1BE)
     if 0x1BE in fingerprint[CAN.pt] and (candidate in (CAR.HONDA_ACCORD, CAR.HONDA_HRV_3G, CAR.ACURA_RDX_3G, CAR.ACURA_MDX_4G, CAR.ACURA_ADX) or

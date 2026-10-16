@@ -7,7 +7,7 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.steer_ratio import (
   HONDA_VGR_INVERSE_BY_PROFILE,
 )
-from opendbc.car.honda.values import CAR
+from opendbc.car.honda.values import CAR, HondaFlags
 from opendbc.car import structs
 from openpilot.common.pid import PIDController
 from openpilot.selfdrive.controls.lib.latcontrol_pid import (
@@ -34,7 +34,8 @@ STUB_CI = SimpleNamespace(get_steer_feedforward_function=lambda: (lambda angle, 
 
 # Every Honda that can carry a linear-max RWD image. Civic Bosch is included: NRDR keeps modified-EPS
 # cars on the angle-space PID controller, as nrdr-nightly does.
-MODIFIED_EPS_CARS = [CAR.HONDA_CLARITY, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC, CAR.HONDA_CIVIC_BOSCH]
+MODIFIED_EPS_CARS = [CAR.HONDA_CLARITY, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC, CAR.HONDA_CIVIC_BOSCH,
+                     CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR]
 
 
 def _params(candidate, fw_version):
@@ -62,7 +63,9 @@ def test_modified_eps_hondas_get_the_nrdr_live_tune(candidate):
   assert lat.is_eps_modified, f"{candidate} should run the NRDR live tune on a modified EPS"
 
 
-@pytest.mark.parametrize("candidate", MODIFIED_EPS_CARS)
+# A stock RDX 3G (either platform) runs the torque controller, so it has no LatControlPID to build; its stock
+# tune is checked in test_stock_rdx_3g_uses_the_torque_controller.
+@pytest.mark.parametrize("candidate", [c for c in MODIFIED_EPS_CARS if c not in (CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR)])
 def test_stock_eps_hondas_do_not_get_the_nrdr_live_tune(candidate):
   lat = _controller(candidate, STOCK_FW)
   assert not lat.is_eps_modified, f"{candidate} must keep stock behaviour on an unmodified EPS"
@@ -185,3 +188,37 @@ def test_crv_5g_shares_the_clarity_modified_eps_tune():
   assert list(cp.lateralTuning.pid.kpV) == pytest.approx([0.018, 0.024, 0.048, 0.060])
   assert list(cp.lateralTuning.pid.kiBP) == pytest.approx(expected_bp)
   assert list(cp.lateralTuning.pid.kiV) == pytest.approx([0.006, 0.008, 0.016, 0.020])
+
+
+
+@pytest.mark.parametrize("candidate", [CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR])
+def test_rdx_3g_ptm_shares_the_clarity_modified_eps_tune_on_pid(candidate):
+  # Both RDX 3G platforms flash to the same 39990-TJB,A220 PTM image.
+  cp = _params(candidate, b'39990-TJB,A220\x00\x00')
+  clarity = _params(CAR.HONDA_CLARITY, MODIFIED_FW)
+  assert cp.flags & HondaFlags.EPS_MODIFIED
+  assert cp.lateralTuning.which() == "pid"
+  # The PTM target map X axis ends at E4 4096, where Route A matches the Clarity's 3840 top.
+  assert list(cp.lateralParams.torqueBP) == list(cp.lateralParams.torqueV) == [0, 4096]
+  for field in ("kpBP", "kpV", "kiBP", "kiV"):
+    assert list(getattr(cp.lateralTuning.pid, field)) == pytest.approx(list(getattr(clarity.lateralTuning.pid, field)))
+  assert cp.lateralTuning.pid.kf == pytest.approx(clarity.lateralTuning.pid.kf)
+  assert cp.steerAtStandstill and cp.minSteerSpeed == -1.0
+
+  rdx = LatControlPID(cp, STUB_CI, 0.01)
+  assert rdx.is_eps_modified and rdx.is_modified_eps_kf_car
+
+  # No EPS firmware calibration for the TJB rack, so controlsd keeps it on LatControlPID.
+  from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_firmware_calibration
+  assert eps_firmware_calibration(cp, SimpleNamespace(get_bool=lambda *a, **k: True, get=lambda *a, **k: b"1")) is None
+
+
+@pytest.mark.parametrize(("candidate", "fw_version", "cap"), [
+  (CAR.ACURA_RDX_3G, b'39990-TJB-A030\x00\x00', 4095),
+  (CAR.ACURA_RDX_3G_MMR, b'39990-TJB-A220\x00\x00', 3840),
+])
+def test_stock_rdx_3g_uses_the_torque_controller(candidate, fw_version, cap):
+  cp = _params(candidate, fw_version)
+  assert not cp.flags & HondaFlags.EPS_MODIFIED
+  assert cp.lateralTuning.which() == "torque"
+  assert list(cp.lateralParams.torqueBP) == list(cp.lateralParams.torqueV) == [0, cap]

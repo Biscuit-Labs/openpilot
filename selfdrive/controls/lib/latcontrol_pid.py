@@ -42,7 +42,7 @@ from openpilot.selfdrive.controls.lib.honda_lateral_common import (  # noqa: F40
 
 
 
-# NRDR modified-EPS speed-banded feedforward shared by Clarity and Civic Bosch. The
+# NRDR modified-EPS speed-banded feedforward shared by every car in NRDR_MODIFIED_EPS_KF_CARS. The
 # duplicate-near-25 breakpoint preserves the road-tested hard handoff.
 NRDR_MODIFIED_EPS_KF_SPEED_BP = [0.0, 25.0 * 0.44704 - 1e-3, 25.0 * 0.44704, 50.0 * 0.44704]  # m/s
 NRDR_MODIFIED_EPS_KF_V = [2.4e-6, 1.8e-6, 3.6e-6, 6.0e-6]
@@ -56,6 +56,8 @@ NRDR_MODIFIED_EPS_KF_CARS = frozenset({
   "HONDA_CIVIC_BOSCH",
   "HONDA_CRV_5G",
   "HONDA_INSIGHT",
+  "ACURA_RDX_3G",
+  "ACURA_RDX_3G_MMR",
 })
 
 
@@ -218,7 +220,7 @@ class LatControlPID(LatControl):
     self.is_honda_crv_5g = CP.carFingerprint == HONDA.HONDA_CRV_5G
     self.is_subaru_impreza = CP.carFingerprint in SUBARU_IMPREZA_CARS
     # NRDR: every modified-EPS Honda (Civic 39990-TBA, CR-V 5G 39990-TLA, Insight 39990-TXM,
-    # Clarity 39990-TRW) runs the live tune.
+    # Clarity 39990-TRW, RDX 3G/MMR 39990-TJB) runs the live tune.
     self.is_eps_modified = self.is_honda_pid_lateral and bool(CP.flags & HondaFlags.EPS_MODIFIED)
     # A car with a road-measured curve uses it. The firmware position map is a partial
     # correction (rack-to-steering-wheel only) and is the fallback for a mapped rack that

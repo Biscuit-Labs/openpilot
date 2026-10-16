@@ -29,9 +29,12 @@ from openpilot.starpilot import jetlink_adapter
 from openpilot.common.file_chunker import file_chunked_exists, get_existing_chunks, get_manifest_path
 from openpilot.system.hardware.usb import chestnut_firmware_ready
 
-MANIFEST_CANDIDATES = ("v25",)
+MANIFEST_CANDIDATES = ("v26",)
 MODEL_NAMESPACE_SUFFIX = "3"
 DEFAULT_MODEL_KEY = "rdf43"
+BUILTIN_MODEL_NAME = "CD210 (Comma small)"
+BUILTIN_MODEL_RELEASED = "2026-02-04"  # comma #37050; the bundled models/driving_tinygrad.pkl
+BUILTIN_MODEL_VERSION = "v16"
 ACTIVE_BIG_MODEL_PARAM = "ActiveBigModel"
 ACTIVE_BIG_MODEL_NAME_PARAM = "ActiveBigModelName"
 ACTIVE_BIG_MODEL_VERSION_PARAM = "ActiveBigModelVersion"
@@ -53,8 +56,7 @@ MODEL_KEY_CANONICAL_MAP = {
   "napv2": "remove-avgpoolv2",
   "napv3": "remove-avgpoolv3",
   "napv4": "remove-avgpoolv4",
-  # The original bundled RDF key remains valid after the bundled default moves
-  # to the v23 RDF V4 artifact.
+  # Preserve the old RDF key as a stable alias for the bundled small fallback.
   "rdf": DEFAULT_MODEL_KEY,
 }
 LEGACY_DRIVING_PREFIXES = (
@@ -187,8 +189,10 @@ def get_model_profile(params, profile: str) -> tuple[str, str, str]:
   model_name = catalog_name or model_name
   model_version = catalog_version or model_version
   if is_builtin_model_key(model_key):
-    model_name = model_name or "Regret Driven Framework V4"
-    model_version = model_version or "v15"
+    # The stable legacy key now resolves to the bundled Comma v16 artifact.
+    # Ignore stale v15 profile/catalog metadata for this builtin only.
+    model_name = BUILTIN_MODEL_NAME
+    model_version = BUILTIN_MODEL_VERSION
   return model_key, model_name, model_version
 
 
@@ -205,8 +209,13 @@ def set_model_profile(params, profile: str, model_key: str, model_name: str = ""
   catalog_name, catalog_version = _catalog_model_details(params, canonical_key)
   key_param, name_param, version_param = MODEL_PROFILE_PARAMS[profile]
   params.put(key_param, canonical_key)
-  params.put(name_param, model_name or catalog_name or canonical_key)
-  params.put(version_param, model_version or catalog_version or ("v15" if is_builtin_model_key(canonical_key) else ""))
+  if is_builtin_model_key(canonical_key):
+    model_name, model_version = BUILTIN_MODEL_NAME, BUILTIN_MODEL_VERSION
+  else:
+    model_name = model_name or catalog_name or canonical_key
+    model_version = model_version or catalog_version
+  params.put(name_param, model_name)
+  params.put(version_param, model_version)
 
 
 def disable_big_model_profile(params) -> None:
@@ -223,8 +232,8 @@ def set_runtime_model_params(params, model_key: str, model_version: str = "") ->
   model_name = profile_name if profile_key == canonical_key else catalog_name
   resolved_version = model_version or (profile_version if profile_key == canonical_key else catalog_version)
   if is_builtin_model_key(canonical_key):
-    model_name = model_name or "Regret Driven Framework V4"
-    resolved_version = resolved_version or "v15"
+    model_name = BUILTIN_MODEL_NAME
+    resolved_version = BUILTIN_MODEL_VERSION
 
   params.put("Model", canonical_key)
   params.put("DrivingModel", canonical_key)
@@ -266,23 +275,18 @@ def model_accelerator_artifact_installed(model_key: str, accelerator: str = MODE
   )
 
 
-def selected_chestnut_artifacts_ready(params) -> bool:
-  """Return whether the selected Chestnut workload is installed for offroad diagnostics."""
-  big_model_id, _, _ = get_model_profile(params, "big")
-  if big_model_id and file_chunked_exists(MODELS_PATH / driving_artifact_filename(big_model_id)):
+def chestnut_model_installed(params) -> bool:
+  """Whether the selected Chestnut model (or both Model Laboratory runners) is built on disk, decided as modeld decides
+  at start. UsbGpuCompiled only says that once modeld has run, and it is cleared on boot and on every offroad
+  transition, so offroad checks read the disk instead."""
+  big_model = get_model_profile(params, "big")[0]
+  if big_model and model_uses_external_gpu(big_model) and file_chunked_exists(MODELS_PATH / f"{big_model}_driving_tinygrad.pkl"):
     return True
-
   config = load_model_lab_config(params)
-  lateral_model_id = canonical_model_key(config["lateralModel"])
-  longitudinal_model_id = canonical_model_key(config["longitudinalModel"])
-  return bool(
-    config["enabled"] and
-    lateral_model_id and
-    longitudinal_model_id and
-    lateral_model_id != longitudinal_model_id and
-    model_accelerator_artifact_installed(lateral_model_id) and
-    model_accelerator_artifact_installed(longitudinal_model_id)
-  )
+  if config.get("enabled"):
+    roles = [canonical_model_key(config.get(key) or "") for key in ("lateralModel", "longitudinalModel")]
+    return all(roles) and all(model_accelerator_artifact_installed(role) for role in roles)
+  return False
 
 
 def external_gpu_available() -> bool:
@@ -384,7 +388,7 @@ class ModelManager:
     selected_model = self._selected_model()
     current_version = self._resolve_mirrored_param("ModelVersion", "DrivingModelVersion")
     if not current_version:
-      current_version = self._default_param_text("ModelVersion") or self._default_param_text("DrivingModelVersion") or ("v15" if is_builtin_model_key(selected_model) else "v11")
+      current_version = self._default_param_text("ModelVersion") or self._default_param_text("DrivingModelVersion") or (BUILTIN_MODEL_VERSION if is_builtin_model_key(selected_model) else "v11")
 
     selected_name = self._param_text("DrivingModelName")
     if not selected_name and selected_model in self.available_models:
@@ -626,7 +630,7 @@ class ModelManager:
 
       model_version = version_map.get(model_key) or version_map.get(canonical_key) or ""
       if not model_version and is_builtin_model_key(canonical_key):
-        model_version = self._default_param_text("ModelVersion") or self._default_param_text("DrivingModelVersion") or "v15"
+        model_version = self._default_param_text("ModelVersion") or self._default_param_text("DrivingModelVersion") or BUILTIN_MODEL_VERSION
 
       artifact_format = artifact_format_map.get(model_key) or artifact_format_map.get(canonical_key) or ""
       if not self._is_model_downloaded(model_key, artifact_format):
@@ -688,7 +692,7 @@ class ModelManager:
 
     fallback_version = self._resolve_mirrored_param("ModelVersion", "DrivingModelVersion")
     if not fallback_version:
-      fallback_version = self._default_param_text("ModelVersion") or self._default_param_text("DrivingModelVersion") or ("v15" if is_builtin_model_key(selected) else "v11")
+      fallback_version = self._default_param_text("ModelVersion") or self._default_param_text("DrivingModelVersion") or (BUILTIN_MODEL_VERSION if is_builtin_model_key(selected) else "v11")
     self._set_model_param_keys(selected, name_map.get(selected, ""), fallback_version)
 
   @staticmethod
@@ -838,7 +842,10 @@ class ModelManager:
     return list(discovered.values())
 
   def update_model_params(self, model_info: list[dict], manifest_version: str):
-    model_info = list(model_info) + self._discover_local_models()
+    # The built-in key's catalog entry describes an older bundled model; list what is actually bundled instead
+    model_info = [{**model, "name": BUILTIN_MODEL_NAME, "version": BUILTIN_MODEL_VERSION, "series": "Comma", "released": BUILTIN_MODEL_RELEASED}
+                  if is_builtin_model_key(str(model.get("id") or "")) else model for model in model_info]
+    model_info = model_info + self._discover_local_models()
     self.available_models = [str(model.get("id") or "").strip() for model in model_info]
     self.available_model_names = [_clean_model_name(model.get("name")) for model in model_info]
     self.model_versions = [str(model.get("version") or "").strip() for model in model_info]
@@ -913,12 +920,12 @@ class ModelManager:
         default_name = (
           self.available_model_names[default_index]
           if default_index is not None and default_index < len(self.available_model_names)
-          else "Regret Driven Framework V4"
+          else BUILTIN_MODEL_NAME
         )
         default_version = (
           self.model_versions[default_index]
           if default_index is not None and default_index < len(self.model_versions)
-          else "v15"
+          else BUILTIN_MODEL_VERSION
         )
         self._set_model_param_keys(DEFAULT_MODEL_KEY, default_name, default_version)
         self.params_memory.put(DOWNLOAD_PROGRESS_PARAM, "Selected model unavailable; using built-in model.")

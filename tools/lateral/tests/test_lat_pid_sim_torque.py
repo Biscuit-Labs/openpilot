@@ -17,6 +17,9 @@ def _cp_bytes(vgr=True):
   CP = interfaces[HONDA.HONDA_CIVIC_BOSCH].get_non_essential_params(HONDA.HONDA_CIVIC_BOSCH)
   CP.flags |= int(HondaFlags.EPS_MODIFIED) | (int(HondaFlags.VGR_CIVIC_TBA_C020) if vgr else 0)
   CP.dashcamOnly = True
+  CP.carFw = [{"ecu": "eps", "fwVersion": b"39990-TBA,C020\0\0"}]
+  CP.lateralParams.torqueBP = [0, 4096]
+  CP.lateralParams.torqueV = [0, 4096]
   return CP.to_bytes()
 
 
@@ -174,17 +177,17 @@ def test_rate_damping_opposes_the_wheel_rate_below_30_mph_only():
 @pytest.mark.parametrize("vgr", [False, True])
 def test_clarity_eps_kind_builds_the_car_controller_and_joins_the_feedforward(vgr):
   from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps
-  from openpilot.selfdrive.controls.lib.nrdr_eps_firmware_ff import CIVIC_BOSCH_C020
+  from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import CIVIC_TBA_C020
   d = _route(0.02, vgr=vgr)   # a turn past FF_CRAWL_ANGLE_BP, so the crawl gate is fully open
   d["params"]["NrdrLatUseFirmwareVgr"] = "1" if vgr else "0"
   ctl = sim.Controller(d["cp_bytes"], d["params"], kind="clarity_eps")
-  assert isinstance(ctl.lac, LatControlHondaEps) and ctl.lac.core.ff.cal is CIVIC_BOSCH_C020
+  assert isinstance(ctl.lac, LatControlHondaEps) and ctl.lac.core.ff.cal is CIVIC_TBA_C020
   weights = []
   for k in range(400):   # wheel held on the target: the feedforward joins and fades in over 0.5 s
     ctl.step(d, k, ctl.raw_target() if k else 0.0, 0.0, False)
     weights.append(ctl.lac.core.ff_weight)
   ctl.close()
-  assert weights[299] == 0.0 and weights[-1] == 1.0   # straight: held out by the angle gate; in the turn: in
+  assert weights[299] == weights[-1] == 1.0  # latest controller: no angle gate at highway speed
   assert ctl.last_log.active and ctl.lac.core.ff.output < 0.0   # right turn: a negative feedforward
   ang, des, out, deliv, raw = sim.simulate(d, PLANT, with_raw=True, kind="clarity_eps")
   assert raw[-1] < -5.0 and des[-1] == pytest.approx(raw[-1], abs=1e-6)

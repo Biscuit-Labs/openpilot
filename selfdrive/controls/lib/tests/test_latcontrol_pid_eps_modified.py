@@ -7,13 +7,15 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.steer_ratio import (
   HONDA_VGR_INVERSE_BY_PROFILE,
 )
-from opendbc.car.honda.values import CAR
+from opendbc.car.honda.values import CAR, HondaFlags
 from opendbc.car import structs
+from openpilot.common.pid import PIDController
 from openpilot.selfdrive.controls.lib.latcontrol_pid import (
   NRDR_MODIFIED_EPS_KF_SPEED_BP,
   NRDR_MODIFIED_EPS_KF_V,
-  NRDR_SR_CURVE_BY_FP,
+  HONDA_SR_CURVE_BY_FP,
   LatControlPID,
+  _clarity_eps_pid_output_scale,
   get_nrdr_modified_eps_kf,
 )
 
@@ -22,15 +24,18 @@ CarParams = structs.CarParams
 TOGGLES = SimpleNamespace(force_torque_controller=False, nnff=False, nnff_lite=False)
 
 # a comma in the eps fw version is what marks a modified EPS
-MODIFIED_FW = b'39990-TBA,A030\x00\x00'
-STOCK_FW = b'39990-TBA-A030\x00\x00'
+# A part number with no firmware VGR table (every PTM image now has one), so these exercise the road-curve and
+# fixed-ratio paths; the comma marks the modified image.
+MODIFIED_FW = b'39990-TBA,A010\x00\x00'
+STOCK_FW = b'39990-TBA-A010\x00\x00'
 
 # LatControlPID only reaches into CI for the feedforward function
 STUB_CI = SimpleNamespace(get_steer_feedforward_function=lambda: (lambda angle, v_ego: angle))
 
 # Every Honda that can carry a linear-max RWD image. Civic Bosch is included: NRDR keeps modified-EPS
 # cars on the angle-space PID controller, as nrdr-nightly does.
-MODIFIED_EPS_CARS = [CAR.HONDA_CLARITY, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC, CAR.HONDA_CIVIC_BOSCH]
+MODIFIED_EPS_CARS = [CAR.HONDA_CLARITY, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC, CAR.HONDA_CIVIC_BOSCH,
+                     CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR]
 
 
 def _params(candidate, fw_version):
@@ -42,7 +47,9 @@ def _controller(candidate, fw_version):
   return LatControlPID(_params(candidate, fw_version), STUB_CI, 0.01)
 
 
-# All of these must land on LatControlPID, including Civic Bosch.
+# All of these must land on LatControlPID, including Civic Bosch -- except the modified-EPS Clarity, which
+# controlsd hands to LatControlHondaEps, as it does the other PTM cars once
+# HondaEpsController is on (test_honda_eps_firmware_ff.py).
 
 @pytest.mark.parametrize("candidate", MODIFIED_EPS_CARS)
 def test_modified_eps_hondas_select_the_pid_controller(candidate):
@@ -56,7 +63,9 @@ def test_modified_eps_hondas_get_the_nrdr_live_tune(candidate):
   assert lat.is_eps_modified, f"{candidate} should run the NRDR live tune on a modified EPS"
 
 
-@pytest.mark.parametrize("candidate", MODIFIED_EPS_CARS)
+# A stock RDX 3G (either platform) runs the torque controller, so it has no LatControlPID to build; its stock
+# tune is checked in test_stock_rdx_3g_uses_the_torque_controller.
+@pytest.mark.parametrize("candidate", [c for c in MODIFIED_EPS_CARS if c not in (CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR)])
 def test_stock_eps_hondas_do_not_get_the_nrdr_live_tune(candidate):
   lat = _controller(candidate, STOCK_FW)
   assert not lat.is_eps_modified, f"{candidate} must keep stock behaviour on an unmodified EPS"
@@ -67,18 +76,21 @@ def test_stock_eps_hondas_do_not_get_the_nrdr_live_tune(candidate):
   (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00', "civic_tba_c020"),
   (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00', "insight_txm_a040"),
 ])
-def test_road_measured_curve_takes_priority_over_exact_firmware_profile(candidate, fw_version, profile):
+def test_road_measured_curve_defaults_over_exact_firmware_profile(candidate, fw_version, profile):
   car_params = _params(candidate, fw_version)
   lat = LatControlPID(car_params, STUB_CI, 0.01)
   assert profile in HONDA_VGR_INVERSE_BY_PROFILE
-  assert lat.sr_curve is NRDR_SR_CURVE_BY_FP[str(candidate)]
-  assert lat.vgr_inverse is None
+  assert lat.sr_curve is HONDA_SR_CURVE_BY_FP[str(candidate)]
+  # The road curve is the default, but retain the exact firmware inverse for the
+  # runtime VGR A/B setting instead of discarding a valid traced profile at init.
+  assert not lat.use_firmware_vgr
+  assert lat.vgr_inverse is HONDA_VGR_INVERSE_BY_PROFILE[profile]
 
 
 @pytest.mark.parametrize("candidate", [CAR.HONDA_CLARITY, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_INSIGHT, CAR.HONDA_CRV_5G])
 def test_road_measured_curve_does_not_depend_on_eps_firmware(candidate):
   lat = _controller(candidate, STOCK_FW)
-  assert lat.sr_curve is NRDR_SR_CURVE_BY_FP[str(candidate)]
+  assert lat.sr_curve is HONDA_SR_CURVE_BY_FP[str(candidate)]
   assert lat.vgr_inverse is None
 
 
@@ -130,6 +142,38 @@ def test_clarity_and_c020_share_the_current_feedforward_curve():
   assert c020.ff_factor == pytest.approx(3.6e-6)
 
 
+@pytest.mark.parametrize(("desired_angle", "expected"), [
+  (-24.0, 1.07438),
+  (24.0, 1.07438),
+])
+def test_modified_eps_output_scale_is_direction_neutral(desired_angle, expected):
+  # The shared modified-EPS scale is direction-neutral. Directional authority belongs
+  # in the PID, not in a multiplier on its complete P/I/F output.
+  assert _clarity_eps_pid_output_scale(desired_angle, 10.0) == pytest.approx(expected)
+
+
+def test_modified_eps_i_scale_controls_accumulation_and_clears_zero_band_state():
+  pid = PIDController(k_p=0.0, k_i=1.0, rate=100)
+
+  pid.update(1.0, integrator_gain_scale=0.2)
+  assert pid.i == pytest.approx(0.002)
+
+  pid.update(1.0, integrator_gain_scale=0.0, reset_integrator=True)
+  assert pid.i == pytest.approx(0.0)
+
+  # Returning to a non-zero band starts clean; no hidden highway I can reappear.
+  pid.update(0.0, integrator_gain_scale=1.0)
+  assert pid.i == pytest.approx(0.0)
+
+  pid.update(1.0, integrator_gain_scale=1.0)
+  assert pid.i == pytest.approx(0.01)
+
+  # The modified-EPS low-speed freeze clears I as well, so pull-away cannot revive
+  # an old parking-speed correction.
+  pid.update(0.0, freeze_integrator=True, reset_integrator=True)
+  assert pid.i == pytest.approx(0.0)
+
+
 def test_crv_5g_shares_the_clarity_modified_eps_tune():
   # CR-V 5G runs the same NRDR modified-EPS hardware as Clarity/Civic Bosch, so it should
   # get the same banded kp/ki/kf family instead of the old flat, unbanded values.
@@ -144,3 +188,37 @@ def test_crv_5g_shares_the_clarity_modified_eps_tune():
   assert list(cp.lateralTuning.pid.kpV) == pytest.approx([0.018, 0.024, 0.048, 0.060])
   assert list(cp.lateralTuning.pid.kiBP) == pytest.approx(expected_bp)
   assert list(cp.lateralTuning.pid.kiV) == pytest.approx([0.006, 0.008, 0.016, 0.020])
+
+
+
+@pytest.mark.parametrize("candidate", [CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR])
+def test_rdx_3g_ptm_shares_the_clarity_modified_eps_tune_on_pid(candidate):
+  # Both RDX 3G platforms flash to the same 39990-TJB,A220 PTM image.
+  cp = _params(candidate, b'39990-TJB,A220\x00\x00')
+  clarity = _params(CAR.HONDA_CLARITY, MODIFIED_FW)
+  assert cp.flags & HondaFlags.EPS_MODIFIED
+  assert cp.lateralTuning.which() == "pid"
+  # The PTM target map X axis ends at E4 4096, where Route A matches the Clarity's 3840 top.
+  assert list(cp.lateralParams.torqueBP) == list(cp.lateralParams.torqueV) == [0, 4096]
+  for field in ("kpBP", "kpV", "kiBP", "kiV"):
+    assert list(getattr(cp.lateralTuning.pid, field)) == pytest.approx(list(getattr(clarity.lateralTuning.pid, field)))
+  assert cp.lateralTuning.pid.kf == pytest.approx(clarity.lateralTuning.pid.kf)
+  assert cp.steerAtStandstill and cp.minSteerSpeed == -1.0
+
+  rdx = LatControlPID(cp, STUB_CI, 0.01)
+  assert rdx.is_eps_modified and rdx.is_modified_eps_kf_car
+
+  # No EPS firmware calibration for the TJB rack, so controlsd keeps it on LatControlPID.
+  from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_firmware_calibration
+  assert eps_firmware_calibration(cp, SimpleNamespace(get_bool=lambda *a, **k: True, get=lambda *a, **k: b"1")) is None
+
+
+@pytest.mark.parametrize(("candidate", "fw_version", "cap"), [
+  (CAR.ACURA_RDX_3G, b'39990-TJB-A030\x00\x00', 4095),
+  (CAR.ACURA_RDX_3G_MMR, b'39990-TJB-A220\x00\x00', 3840),
+])
+def test_stock_rdx_3g_uses_the_torque_controller(candidate, fw_version, cap):
+  cp = _params(candidate, fw_version)
+  assert not cp.flags & HondaFlags.EPS_MODIFIED
+  assert cp.lateralTuning.which() == "torque"
+  assert list(cp.lateralParams.torqueBP) == list(cp.lateralParams.torqueV) == [0, cap]

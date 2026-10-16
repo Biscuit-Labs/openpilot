@@ -106,29 +106,6 @@ def test_galaxy_layout_contains_basic_mode_controls():
   assert {"AlphaLongitudinalEnabled", "ForceOffroad", "GalaxyDeveloperMode", "JetlinkLink"} <= sections["Developer"].keys()
 
 
-def test_galaxy_exposes_every_raylib_nrdr_control_and_omits_pruned_helpers():
-  layout = _layout()
-  galaxy_keys = {
-    param["key"]
-    for section in layout
-    for param in section.get("params", [])
-  }
-  assert _raylib_nrdr_setting_keys() <= galaxy_keys
-  assert {
-    "HondaUnwindFreeze",
-    "HondaUnwindBoostSeconds",
-    "HondaUnwindFfMultiplier",
-    "NrdrLatRateFf",
-    "NrdrLatStiction",
-    "NrdrLatUnwindRateTau",
-    "NrdrTuneLearner",
-    "NrdrTuneLearnerMap",
-    "NrdrTuneLearnerRate",
-    "NrdrTuneLearnerReset",
-    "NrdrTuneLearnerStrength",
-  }.isdisjoint(galaxy_keys)
-
-
 def test_galaxy_new_ui_is_the_visible_default_choice():
   galaxy_default = _params_by_section(_layout())["Developer"]["GalaxyMobileDefault"]
 
@@ -167,6 +144,29 @@ def test_pedal_feedback_wheel_uses_existing_pedal_toggle():
   assert setting["settings_tier"] == "simple"
   assert setting["ui_type"] == "toggle"
   assert "ShowBrakeStatus" not in _params_by_section(_layout())["Visual (Display & UI)"]
+
+
+def test_galaxy_exposes_every_raylib_nrdr_control_and_omits_pruned_helpers():
+  layout = _layout()
+  galaxy_keys = {
+    param["key"]
+    for section in layout
+    for param in section.get("params", [])
+  }
+  assert _raylib_nrdr_setting_keys() <= galaxy_keys
+  assert {
+    "HondaUnwindFreeze",
+    "HondaUnwindBoostSeconds",
+    "HondaUnwindFfMultiplier",
+    "NrdrLatRateFf",
+    "NrdrLatStiction",
+    "NrdrLatUnwindRateTau",
+    "NrdrTuneLearner",
+    "NrdrTuneLearnerMap",
+    "NrdrTuneLearnerRate",
+    "NrdrTuneLearnerReset",
+    "NrdrTuneLearnerStrength",
+  }.isdisjoint(galaxy_keys)
 
 
 def test_ford_lateral_controls_are_ford_only_and_galaxy_only():
@@ -672,8 +672,8 @@ def test_nrdr_lateral_settings_sit_in_the_collapsible_nrdr_pid_controller_group(
   group = by_key["NrdrPidController"]
   assert group["ui_type"] == "group" and group["is_parent_toggle"] and "parent_key" not in group
   children = {p["key"] for p in params if p.get("parent_key") == "NrdrPidController"}
-  assert {"NrdrLatEpsFirmwareFF", "NrdrLatVfnOverride", "LatPScaleStandard", "NrdrSameDirectionAssist",
-          "HondaTorqueLowPassFilter", "NrdrLearnSteerRatio"} <= children
+  assert {"HondaEpsController", "NrdrLatVfnOverride", "LatPScaleStandard", "NrdrSameDirectionAssist",
+          "HondaTorqueOutputLowPassFilter", "NrdrLearnSteerRatio"} <= children
   nrdr_prefixes = ("Nrdr", "Honda", "LatPScale", "LatIScale", "LatFScale")
   assert not [p["key"] for p in params if p.get("parent_key") == "LateralTune" and p["key"].startswith(nrdr_prefixes)]
   assert all(by_key[k].get("ui_type") != "group" for k in children)

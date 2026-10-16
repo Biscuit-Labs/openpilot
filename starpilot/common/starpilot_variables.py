@@ -279,6 +279,7 @@ EXCLUDED_KEYS = {
   "FLMTrialApplied",
   "InstallDate",
   "StarPilotCarParamsPersistent",
+  "KonikDongleId",  # device identity: a shared backup would make the receiver upload as the sharer
   "KonikMinutes",
   "LastUpdateTime",
   "MapBoxRequests",
@@ -294,6 +295,7 @@ EXCLUDED_KEYS = {
   "PersistedCEStatus",
   "SpeedLimits",
   "SpeedLimitsFiltered",
+  "StockDongleId",  # device identity
   "UpdateFailedCount",
   "UpdaterAvailableBranches",
   "UpdaterCurrentDescription",
@@ -1410,10 +1412,10 @@ class StarPilotVariables:
     toggle.model = self.get_value("Model", cast=None, default="rdf43")
     if not toggle.model:
       toggle.model = self.get_value("DrivingModel", cast=None, default="rdf43")
-    toggle.model_name = self.get_value("DrivingModelName", cast=None, default="Regret Driven Framework V4")
-    toggle.model_version = self.get_value("ModelVersion", cast=None, default="v15")
+    toggle.model_name = self.get_value("DrivingModelName", cast=None, default="Comma small v16")
+    toggle.model_version = self.get_value("ModelVersion", cast=None, default="v16")
     if not toggle.model_version:
-      toggle.model_version = self.get_value("DrivingModelVersion", cast=None, default="v15")
+      toggle.model_version = self.get_value("DrivingModelVersion", cast=None, default="v16")
     if isinstance(toggle.model, bytes):
       toggle.model = toggle.model.decode("utf-8", "ignore")
     if isinstance(toggle.model_name, bytes):

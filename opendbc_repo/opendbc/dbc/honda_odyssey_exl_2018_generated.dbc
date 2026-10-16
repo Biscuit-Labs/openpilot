@@ -231,6 +231,9 @@ CM_ SG_ 804 CRUISE_SPEED_PCM "255 = no speed";
 CM_ SG_ 148 YAW_RATE "Vehicle yaw rate from the chassis yaw sensor, positive = clockwise (right turn), nominal zero 512 counts. Each car sits a few counts off that zero (2018 Clarity 508, 2019 Civic Bosch 513, both constant at every standstill), so learn it at standstill. Scale checked against GPS heading: Clarity 0.2494-0.2522, Civic Bosch 0.241-0.245 deg/s per count. Replaces an unused LAT_ACCEL definition (0.02, -512) that was not lateral acceleration.";
 CM_ SG_ 148 LONG_ACCEL "Longitudinal accelerometer, gravity included (reads road grade at standstill), positive = accelerating. -0.049 m/s2 per count (about 0.005 g) against the comma IMU on 17 Clarity and 2 Civic Bosch routes, correlation 0.98-0.998; the former -0.02 read 2.4x low.";
 
+CM_ SG_ 148 YAW_RATE "Vehicle yaw rate from the chassis yaw sensor, positive = clockwise (right turn), nominal zero 512 counts. Each car sits a few counts off that zero (2018 Clarity 508, 2019 Civic Bosch 513, both constant at every standstill), so learn it at standstill. Scale checked against GPS heading: Clarity 0.2494-0.2522, Civic Bosch 0.241-0.245 deg/s per count. Replaces an unused LAT_ACCEL definition (0.02, -512) that was not lateral acceleration.";
+CM_ SG_ 148 LONG_ACCEL "Longitudinal accelerometer, gravity included (reads road grade at standstill), positive = accelerating. -0.049 m/s2 per count (about 0.005 g) against the comma IMU on 17 Clarity and 2 Civic Bosch routes, correlation 0.98-0.998; the former -0.02 read 2.4x low.";
+
 VAL_ 450 EPB_STATE 3 "engaged" 2 "disengaging" 1 "engaging" 0 "disengaged" ;
 VAL_ 780 CRUISE_SPEED 255 "no_speed" 252 "stopped";
 VAL_ 780 HUD_LEAD 3 "acc_off" 2 "solid_car" 1 "dashed_car" 0 "no_car";

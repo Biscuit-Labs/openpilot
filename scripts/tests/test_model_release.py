@@ -17,6 +17,7 @@ from scripts.model_release import (
   upload_huggingface,
   validate_manifest_update,
 )
+from scripts import model_rebuild_pipeline
 
 
 RELEASE_TEXT = """
@@ -91,14 +92,15 @@ def test_runtime_scan_excludes_model_weights_but_flags_runtime_code():
 
 
 def test_update_manifest_replaces_one_entry(tmp_path: Path):
-  manifest = tmp_path / "model_names_v25.json"
+  assert model_release.MANIFEST_VERSION == "v26"
+  manifest = tmp_path / "model_names_v26.json"
   manifest.write_text(json.dumps({"models": [{"id": "old"}]}) + "\n")
   info = parse_pasted_release(RELEASE_TEXT, "bmrlnapv4", "v16")
   path = update_manifest(
     tmp_path,
     info,
     {"size": 123, "sha256": "a" * 64, "chunk_count": 2},
-    "v25",
+    "v26",
   )
   payload = json.loads(path.read_text())
   assert len(payload["models"]) == 2
@@ -178,7 +180,7 @@ def test_refresh_manifest_is_atomic_and_uses_hugging_face_bucket(tmp_path: Path,
   live_payload = {"models": [{"id": "live"}]}
   commands = []
 
-  monkeypatch.setattr(model_release, "find_hf", lambda: "/usr/bin/hf")
+  monkeypatch.setattr(model_release, "find_hf", lambda: (["/usr/bin/hf"], {}))
 
   def fake_run(command, **kwargs):
     commands.append(command)
@@ -199,7 +201,7 @@ def test_refresh_manifest_keeps_local_copy_when_live_json_is_invalid(tmp_path: P
   manifest = tmp_path / "model_names_v25.json"
   original = {"models": [{"id": "safe"}]}
   manifest.write_text(json.dumps(original) + "\n")
-  monkeypatch.setattr(model_release, "find_hf", lambda: "/usr/bin/hf")
+  monkeypatch.setattr(model_release, "find_hf", lambda: (["/usr/bin/hf"], {}))
   monkeypatch.setattr(model_release, "run", lambda command, **kwargs: Path(command[4]).write_text("{"))
 
   with pytest.raises(ReleaseError, match="Invalid live Hugging Face manifest"):
@@ -242,3 +244,26 @@ def test_upload_refreshes_manifest_after_artifacts(tmp_path: Path, monkeypatch):
     ("prepare", "model_names_v25.json"),
     ("copy", "manifests/model_names_v25.json"),
   ]
+def test_rebuild_pipeline_generates_v26_manifest_from_d5_artifacts(tmp_path: Path):
+  assert model_rebuild_pipeline.MANIFEST_VERSION == "v26"
+  assert model_rebuild_pipeline.DEFAULT_SOURCE_MAP.name == "model_source_map_v26.json"
+  assert model_rebuild_pipeline.DEFAULT_MANIFEST.name == "model_names_v26.json"
+
+  workspace = tmp_path / "workspace"
+  (workspace / "compiled").mkdir(parents=True)
+  (workspace / "ready-for-resources").mkdir(parents=True)
+  artifact = workspace / "compiled" / "comma-small_driving_tinygrad.pkl"
+  artifact.write_bytes(b"rebuilt d5 artifact")
+  (workspace / "ready-for-resources" / "comma-small_driving_tinygrad.pkl.chunk01of01").write_bytes(b"chunk")
+
+  base = tmp_path / "model_names_v25.json"
+  base.write_text(json.dumps({"models": [
+    {"id": "comma-small", "version": "v16", "artifact_sha256": "old", "artifact_url": "old-v25"},
+  ]}))
+  generated = model_rebuild_pipeline.update_manifest(base, workspace, {})
+
+  output = workspace / "manifests" / "model_names_v26.json"
+  assert output.is_file()
+  assert generated["models"][0]["artifact_sha256"] == model_rebuild_pipeline.sha256_file(artifact)
+  assert generated["models"][0]["artifact_chunk_count"] == 1
+  assert "artifact_url" not in generated["models"][0]

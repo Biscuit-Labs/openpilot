@@ -582,7 +582,7 @@
         "settings_tier": "advanced"
       },
       {
-        "key": "NrdrLatAngleRateLimit",
+        "key": "HondaEpsAngleRateLimit",
         "label": "Desired Angle Rate Limit",
         "description": "Ceiling on how fast the desired steering angle may move, deg/s. 0 disables.",
         "data_type": "int",
@@ -594,18 +594,18 @@
         "settings_tier": "advanced"
       },
       {
-        "key": "NrdrLatUseFirmwareVgr",
+        "key": "HondaEpsFirmwareVgr",
         "label": "Use Firmware VGR Table",
-        "description": "Convert curvature with the EPS firmware's position table on top of the learned steer ratio instead of the road-measured effective-ratio curve.",
+        "description": "For a car without a yaw-fitted rack map: convert curvature with the EPS firmware's position table instead of the road-measured ratio curve. Cars with a rack map always use it.",
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "NrdrPidController",
         "settings_tier": "advanced"
       },
       {
-        "key": "NrdrLatEpsFirmwareFF",
-        "label": "EPS Firmware Feedforward",
-        "description": "Modified-EPS Civic Bosch/Clarity: steer with James's controller, a feedforward that inverts the EPS firmware's own control law plus a PID on fixed per-band trims. Checked on road drives against the NRDR PID on both cars (Clarity routes 352-361, Civic routes 286-298). The Lat P/I/F sliders and the other lateral shaping do not apply while it is on. Takes effect on the next drive. Off: the feedforward is only logged.",
+        "key": "HondaEpsController",
+        "label": "Honda EPS Controller",
+        "description": "Steer a PTM-flashed Civic, Insight or CR-V with the controller that inverts the EPS firmware's own control law. The Clarity always uses it. Takes effect the next time you start the car.",
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "NrdrPidController",
@@ -720,27 +720,18 @@
         "settings_tier": "advanced"
       },
       {
-        "key": "NrdrLatPidFirmwareFF",
-        "label": "NRDR PID: PID Turn Feedforward (Test)",
-        "description": "Modified-EPS Civic Bosch/Clarity, NRDR PID: keep the PID and the Lat P/I/F trims, and add James's EPS firmware feedforward in turns only (none within 10 deg of centre, full from 30 deg). It fades in once the wheel is within 10 deg of the path, or 0.5 s after you let go while the wheel is short of the turn, and drops out on a driver press. No effect while EPS Firmware Feedforward is on. (NRDR PID only; not used by James's controller.)",
+        "key": "HondaTorqueOutputLowPassFilter",
+        "label": "Honda Torque Output LPF",
+        "description": "Smooths the final modified-EPS torque command with speed-banded tau values.",
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "NrdrPidController",
         "settings_tier": "advanced"
       },
       {
-        "key": "HondaTorqueLowPassFilter",
-        "label": "NRDR PID: Honda Steering Target Smoothing",
-        "description": "Smooths the desired steering angle with speed-banded tau values. (NRDR PID only; not used by James's controller.)",
-        "data_type": "bool",
-        "ui_type": "toggle",
-        "parent_key": "NrdrPidController",
-        "settings_tier": "advanced"
-      },
-      {
-        "key": "HondaLpfTauLowSpeed",
-        "label": "NRDR PID: Low Speed LPF Tau",
-        "description": "Low-pass tau below 25 mph. (NRDR PID only; not used by James's controller.)",
+        "key": "HondaTorqueOutputLpfTauLowSpeed",
+        "label": "Output LPF Tau: Low Speed",
+        "description": "Torque-output low-pass tau below 25 mph.",
         "data_type": "float",
         "ui_type": "numeric",
         "min": 0.0,
@@ -750,9 +741,9 @@
         "settings_tier": "advanced"
       },
       {
-        "key": "HondaLpfTauStandard",
-        "label": "NRDR PID: Standard Speed LPF Tau",
-        "description": "Low-pass tau from 25 to 50 mph. (NRDR PID only; not used by James's controller.)",
+        "key": "HondaTorqueOutputLpfTauStandard",
+        "label": "Output LPF Tau: Standard",
+        "description": "Torque-output low-pass tau from 25 to 50 mph.",
         "data_type": "float",
         "ui_type": "numeric",
         "min": 0.0,
@@ -762,9 +753,9 @@
         "settings_tier": "advanced"
       },
       {
-        "key": "HondaLpfTauHighway",
-        "label": "NRDR PID: Highway LPF Tau",
-        "description": "Low-pass tau above 50 mph. (NRDR PID only; not used by James's controller.)",
+        "key": "HondaTorqueOutputLpfTauHighway",
+        "label": "Output LPF Tau: Highway",
+        "description": "Torque-output low-pass tau above 50 mph.",
         "data_type": "float",
         "ui_type": "numeric",
         "min": 0.0,

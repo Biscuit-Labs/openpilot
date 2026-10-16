@@ -353,21 +353,48 @@ struct StarPilotLateralState @0xc2243c65e0340384 {
   lowSpeedFactor @6 :Float32;
   unwindDetected @7 :Bool;
 
-  # nrdr: modified-EPS firmware-inversion feedforward (selfdrive/controls/lib/nrdr_eps_firmware_ff.py), names and
-  # ordinals as upstream JamesL787 vfn-controller-shadow. LatControlPID logs it on the Clarity and the Civic Bosch
-  # C020 in shadow (epsFfWeight 0); with NrdrLatEpsFirmwareFF on (default off) LatControlClarityEps steers with it.
+  # Modified-EPS firmware controller (selfdrive/controls/lib/latcontrol_honda_eps.py). The feedforward
+  # inverts the EPS firmware law; see selfdrive/controls/lib/honda_eps_firmware_ff.py.
   epsFfActive @8 :Bool;
   epsFfFeedforward @9 :Float32;   # lateral output ([-1, 1]) of the feedforward at full weight
   epsFfR5 @10 :Float32;           # EPS firmware target counts it asks for
   epsFfLoad @11 :Float32;         # firmware output counts the column load model says the motion needs
   epsFfDesiredRate @12 :Float32;  # deg/s, filtered desired steering-wheel rate it used
   epsFfWeight @13 :Float32;       # 0..1 fade-in; the command carries epsFfWeight * epsFfFeedforward
+  epsCalibration @14 :Text;        # the EPS image calibration it steers with (EpsFirmwareCalibration.name)
+  epsCommandDelay @15 :Float32;    # s, command delay applied this frame (the calibration's, faded with speed)
+  epsModelDelay @16 :Float32;      # s, lateral delay controlsd handed over (the delay told to the model + smoothing)
 }
 
-struct CustomReserved12 @0x9ccdc8676701b412 {
+struct ReprojectState @0x9ccdc8676701b412 {
+  frameId @0 :UInt32;
+  stageMs @1 :Float32;
+  rotation @2 :List(Float32);
+  fitted @3 :Bool;
 }
 
-struct CustomReserved13 @0xcd96dafb67a082d0 {
+struct ReprojectFit @0xcd96dafb67a082d0 {
+  enum Status {
+    waiting @0;
+    fitting @1;
+    building @2;
+    fitted @3;
+  }
+  enum Why {
+    none @0;
+    cameras @1;
+    model @2;
+    speed @3;
+    straight @4;
+    pair @5;
+    features @6;
+  }
+  status @0 :Status;
+  why @1 :Why;
+  pct @2 :UInt8;
+  mean @3 :List(Float32);
+  lastFrameId @4 :UInt32;
+  lastAccepted @5 :Bool;
 }
 
 struct CustomReserved14 @0xb057204d7deadf3f {

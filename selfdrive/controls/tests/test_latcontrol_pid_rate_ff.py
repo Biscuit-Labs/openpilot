@@ -76,6 +76,6 @@ def test_rate_ff_adds_torque_in_the_direction_of_target_slew(monkeypatch):
 
 
 def test_raw_target_is_the_one_before_shaping(monkeypatch):
-  _, _, raw, shaped = _run(monkeypatch, {})
-  assert abs(raw[-1]) > abs(shaped[-1])   # the smoothing filter trails a ramping target
+  _, _, raw, shaped = _run(monkeypatch, {"HondaEpsAngleRateLimit": "5"})
+  assert abs(raw[-1]) > abs(shaped[-1])   # the angle-rate limiter trails a ramping target
   assert raw[100] == pytest.approx(shaped[100])

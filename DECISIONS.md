@@ -3040,3 +3040,66 @@ Validation: upstream openpilot, comma-owner, registry and queue suites 606 passe
 60 subtests; adapter/join tests 16 passed, including actual tinygrad CPU execution and
 actual history-buffer reset. Disabling production warp replay makes the CPU frame test
 fail (negative control). Lint passes under the owning root and vendored configs.
+
+## D-133 — Merge VFN's native model and shared Honda EPS stack while keeping artifact-bound local behavior (2026-10-16)
+
+[CONFIRMED, static integration and unit tests] Merge JamesL787/openpilot `vfn` at
+`8715c7de4422163b8f686be1d60c6197072ef172`, as requested by the owner. Keep the
+local Bosch-A/longitudinal work from Trung `217688cc88c7e230e488555533db6992b94e1ded`,
+VSA telemetry, driver-override options, Galaxy organization, gain schedules, trim/base-Kp
+slew and optional rate feedforward. Renamed Honda EPS/torque-LPF parameters migrate
+before clear_all; the existing default-controller migration writes the new key. The
+PID's integral uses the effective gain directly (VFN), with the local scheduled/slewed
+I trim, rather than storing a hidden full-gain integral and multiplying it at output.
+The gain-schedule integration check asserts the actual returned steering command.
+
+VFN's shared honda_eps_firmware_ff.py and test_honda_eps_firmware_ff.py replace the
+independent nrdr_eps_firmware_ff.py and its old shadow/command-gate tests. The old
+implementation is deleted; analysis consumers use the canonical production module.
+Keeping two independently selectable implementations was rejected. The former PID
+firmware-FF and feedforward-angle-gate settings are retired, not hidden behind flags.
+The current firmware-controller setting is HondaEpsController.
+
+**A220 is a deliberate exception to the incoming mapping.** Upstream `14e5679c0` models
+a corrected firmware (image prefix bead3bd4, RWD prefix d62490b3). The owner's retained
+RWD is `8f175250519130b0a8505291ef328b82f9caf543cfb76c62c3bc23e954e727a7`, application
+`3c6019fd062c3d9c6f605efbc79edc7e30ffa9dc3ee3eadf2db7e0278495bbb6` (D-122). Both images
+report 39990-TLA,A220. Selecting the corrected curve by that shared ID would apply
+the wrong command/P map to the retained image. CRV_TLA_A220 therefore keeps its
+artifact-exact command/P rows 0/1, stored speed envelope and exact former constant
+R6 transfer (-121.6051 * 1650/1450), plus the existing A040 load and untrimmed P/I.
+No corrected-image mapping is reachable here, and no firmware was flashed. The new
+shell's default timing schedule is inferred, not an A220 measurement. The existing
+A220 flag stays 524288; the new C120 flag is 1048576 to avoid a collision. Tests bind
+the production-selected calibration to the actual RWD, not to a stale mirror.
+
+**JetLink:** native small_driving_warp camera artifacts match API 3's two-input
+dictionary format and tinygrad d3f09c9bbd542fbfbe68c8569a1173550c408969. Use those
+modeld artifacts. Retire D-132's temporary four-input adapter/build code and its two
+old warp pickles completely; native persistent-buffer reset replaces queue compatibility.
+Keep the 40-held-frame allowance and per-frame live UI telemetry. New native CPU
+frame/reset tests cover the real warp execution and actual history buffers.
+
+**Build:** remove the tracked prebuilt marker so a source install rebuilds native
+parameters and schemas before manager starts. Leaving the marker alongside stale
+native device libraries was rejected. Local Mac build outputs are not committed;
+VFN's model/device firmware artifacts retain their upstream bytes. Model-rebuild
+scratch defaults are repo-local, replacing another developer's /Volumes/T5 and home
+checkout defaults. No external checkout or route-path dependency is introduced.
+
+No live radar/fusion timing, comma/QCOM execution, physical USB/host handoff, closed-loop
+vehicle test, deployment or firmware flash was performed. Imported route evidence
+remains attached to its original route and source SHA, not to this integration.
+
+## D-134 — Do not reapply older upstream PR implementations over the integrated branch (2026-10-16)
+
+[CONFIRMED by GitHub queries and static review] The owner's RiskyBiscuit-arc/openpilot
+fork has no open PRs. Review JamesL787/openpilot #8, #17, #18 and #19 for incorporation
+only into the owner's fork; do not modify James's repo. #17/#18 are older radar/planner
+implementations already represented in later form by the current branch. #8's reset
+correctness is present in VFN's later controller; its experimental file-backed tuning
+scaffolding is not imported over the calibrated per-image stack. #19's API-2/f6fc4e3f
+warp is incompatible with the API-3/d3f09c9b native modeld warps. Reapplying those PRs
+would overwrite later work or add an incompatible artifact. Preserve the detailed PR
+head SHAs and disposition in docs/upstream_sync_review.md. No PR was merged or closed
+on James's repository, and no duplicate PR was created on the owner's fork.

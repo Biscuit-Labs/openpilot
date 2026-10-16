@@ -17,12 +17,15 @@ if str(REPO_ROOT) not in sys.path:
   sys.path.insert(0, str(REPO_ROOT))
 
 from openpilot.starpilot.common.model_versions import UNIFIED_ARTIFACT_FORMAT
+from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 
 DEFAULT_INPUT_ROOT = Path("/data/openpilot/uncompiledmodels")
 DEFAULT_OUTPUT_ROOT = Path("/data/openpilot/compiledmodels")
 COMPILE_SCRIPT = REPO_ROOT / "tinygrad_repo/examples/openpilot/compile3.py"
 DRIVING_COMPILE_SCRIPT = REPO_ROOT / "selfdrive/modeld/compile_modeld.py"
 DM_WARP_COMPILE_SCRIPT = REPO_ROOT / "selfdrive/modeld/compile_dm_warp.py"
+UPSTREAM_WARP_COMPILE_SCRIPT = REPO_ROOT / "tinygrad_repo/examples/openpilot/compile_warp.py"
+UPSTREAM_WARP_MODELS_DIR = REPO_ROOT / "selfdrive/modeld/models"
 MODEL_VERSIONS_CACHE = Path("/data/models/.model_versions.json")
 MODELS_PATH = MODEL_VERSIONS_CACHE.parent  # runtime dir modeld loads from: /data/models
 
@@ -101,6 +104,8 @@ def parse_args() -> argparse.Namespace:
   )
   parser.add_argument("--model", help="Output model ID, for example sc2.")
   parser.add_argument("--dm", action="store_true", help="Build DM model, metadata, and both camera warps.")
+  parser.add_argument("--build-upstream-warps", action="store_true",
+                      help="Build the paired Chestnut warps required by Comma precompiled big-model PKLs.")
   parser.add_argument("--input-dir", type=Path, default=DEFAULT_INPUT_ROOT)
   parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_ROOT)
   parser.add_argument(
@@ -146,8 +151,10 @@ def parse_args() -> argparse.Namespace:
     args.model = None
   if args.dm and args.model:
     parser.error("Use either --dm or a driving model ID.")
-  if args.split_artifact and (args.dm or args.model):
+  if args.split_artifact and (args.dm or args.model or args.build_upstream_warps):
     parser.error("--split-artifact cannot be combined with --dm or a model ID.")
+  if args.build_upstream_warps and (args.dm or args.model or args.list):
+    parser.error("--build-upstream-warps cannot be combined with model, --dm, or --list.")
   if not 1 <= args.chunk_size_mib < 100:
     parser.error("--chunk-size-mib must be between 1 and 99.")
   return args
@@ -322,6 +329,22 @@ def driving_compile_args(files: dict[str, Path], input_format: str) -> tuple[str
 
   args += ["--on-policy-onnx", str(primary), "--off-policy-onnx", str(off_policy)]
   return "vision_multi_policy", args
+
+
+def driving_model_size(files: dict[str, Path], input_format: str) -> tuple[int, int]:
+  """Model image size from the driving ONNX's road image input ((1, 12, H/2, W/2) packed YUV). Stock models give
+  512x256; a model trained on another framing (e.g. 768x448) gets its warp built at its own size."""
+  import onnx
+  source = files.get("driving_supercombo") if input_format == "supercombo" else files.get("driving_vision")
+  if source is None:
+    return MEDMODEL_INPUT_SIZE
+  graph = onnx.load(str(source), load_external_data=False).graph
+  for value in graph.input:
+    if value.name == "img":
+      dims = [int(dim.dim_value) for dim in value.type.tensor_type.shape.dim]
+      if len(dims) == 4 and dims[2] > 0 and dims[3] > 0:
+        return dims[3] * 2, dims[2] * 2
+  return MEDMODEL_INPUT_SIZE
 
 
 def remove_paths(paths: list[Path]) -> int:
@@ -537,6 +560,7 @@ def compile_driving(
   external_gpu: bool = False,
 ) -> Path:
   model_type, source_args = driving_compile_args(files, input_format)
+  model_w, model_h = driving_model_size(files, input_format)
   output_path = output_dir / f"{model_key}_driving_tinygrad.pkl"
   # A rebuild queue may compile several models into the same directory. Only
   # replace the selected model; deleting every driving artifact here loses
@@ -560,7 +584,7 @@ def compile_driving(
     "--model-type",
     model_type,
     "--model-size",
-    f"{MEDMODEL_INPUT_SIZE[0]}x{MEDMODEL_INPUT_SIZE[1]}",
+    f"{model_w}x{model_h}",
     "--camera-resolutions",
     *(f"{width}x{height}" for width, height in DEFAULT_CAMERA_RESOLUTIONS),
     "--output",
@@ -596,8 +620,10 @@ def compile_driving(
       "GMMU": "0",
       "TC_OPT": "2",
       "TC_MIN_GLOBALS": "32",
+      # Keep camera buffers and the warp on the device native to the comma;
+      # only the prepared model crop crosses the USB link to AMD.
+      "WARP_DEV": "QCOM",
     })
-    compile_env.pop("WARP_DEV", None)
     command += ["--fused", "--benchmark-runs", str(validation_runs)]
     wait_for_external_gpu()
     command = external_gpu_compile_command(command)
@@ -642,6 +668,48 @@ def compile_dm(onnx_path: Path, output_dir: Path) -> list[Path]:
   return outputs
 
 
+def compile_upstream_precompiled_warps() -> list[Path]:
+  """Build Comma's two camera-specific Chestnut warp artifacts offroad."""
+  wait_for_external_gpu()
+  UPSTREAM_WARP_MODELS_DIR.mkdir(parents=True, exist_ok=True)
+  env = os.environ.copy()
+  existing_pythonpath = env.get("PYTHONPATH", "")
+  python_paths = [str(REPO_ROOT / "tinygrad_repo"), str(REPO_ROOT)]
+  if existing_pythonpath:
+    python_paths.append(existing_pythonpath)
+  env["PYTHONPATH"] = os.pathsep.join(python_paths)
+  for key in ("IMAGE", "NOLOCALS", "OPENPILOT_HACKS", "WARP_DEV", "QCOM_PRIORITY"):
+    env.pop(key, None)
+  env.update({
+    "DEBUG": "1",
+    "DEV": "USB+AMD:LLVM",
+    "FRAME_DEV": "CPU",
+    "FLOAT16": "1",
+    "JIT_BATCH_SIZE": "0",
+    "GMMU": "0",
+    "TC_OPT": "2",
+    "TC_MIN_GLOBALS": "32",
+  })
+
+  outputs: list[Path] = []
+  for cam_w, cam_h in DEFAULT_CAMERA_RESOLUTIONS:
+    stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+    frame_copy_size = stride * (y_height + uv_height)
+    output = UPSTREAM_WARP_MODELS_DIR / f"big_driving_warp_{cam_w}x{cam_h}_tinygrad.pkl"
+    command = [
+      sys.executable,
+      str(UPSTREAM_WARP_COMPILE_SCRIPT),
+      "--frame", f"{cam_w},{cam_h},{stride},{y_height},{uv_height},{frame_copy_size}",
+      "--warp-to", f"{MEDMODEL_INPUT_SIZE[0]}x{MEDMODEL_INPUT_SIZE[1]}",
+      "--layout", "yuv420",
+      "--frames", "2",
+      "--output", str(output),
+    ]
+    subprocess.run(external_gpu_compile_command(command), cwd=REPO_ROOT, env=env, check=True)
+    outputs.append(output)
+  return outputs
+
+
 def list_models(staged: dict[str, dict[str, Path]], input_root: Path) -> int:
   for model_key, files in sorted(staged.items()):
     print(model_key)
@@ -657,6 +725,12 @@ def list_models(staged: dict[str, dict[str, Path]], input_root: Path) -> int:
 
 def main() -> int:
   args = parse_args()
+  if args.build_upstream_warps:
+    print("Building upstream Chestnut warp pair...")
+    for output in compile_upstream_precompiled_warps():
+      print(f"  saved {output.name}")
+    print("Done.")
+    return 0
   if args.split_artifact:
     outputs = split_oversized_artifact(
       args.split_artifact,

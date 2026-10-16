@@ -12,7 +12,7 @@ Repo: StarPilot / openpilot fork `openpilot-radar`. Working branch
 cleanup are cited below as their `archive/<name>` tags. For the current tip, trust `git log`, not this line.
 
 **Latest work (2026-10-16), start here:** Trung sync through
-`217688cc8` and JetLink API 3 update (items 269–270). Prior local work: item 261 (A220 PTM controller calibration and
+`217688cc8`, VFN `8715c7de4`, and JetLink API 3 (items 269–271). Prior local work: item 261 (A220 PTM controller calibration and
 firmware VGR support, static/unit tests only). Then item 259 (bind the JetLink icon to live per-frame
 big-model telemetry). Then item 258 (comma 3X JetLink onroad status icon).
 Then item 257 (synced Trung through
@@ -11689,3 +11689,20 @@ real CPU TinyJit frame and actual history reset; skipping the production frame r
 fails its test. Root adapter lint and vendored runtime/script lint pass. This does not
 exercise the QCOM GPU, physical USB charger behavior, actual host/comma model handoffs,
 realtime process scheduling or vehicle response. No live JetLink or road validation.
+
+## 271. VFN, Trung and ZoomPilot integrated; PR review complete (D-133/D-134, 2026-10-16).
+
+[CONFIRMED, static integration] Source pins and PR head SHAs are recorded in
+`docs/upstream_sync_review.md`. VFN's native model/warp stack and shared Honda EPS
+controller are integrated, preserving local radar/longitudinal work, VSA telemetry,
+override controls, gain schedules/slew/rate feedforward and Galaxy organization.
+Renamed settings migrate to HondaEps* and HondaTorqueOutput*. The independent
+legacy firmware-FF implementation and temporary JetLink camera-ABI bridge are
+retired. A220 keeps the retained 8f175250 firmware's exact command/P tables and
+constant R6 transfer; VFN's corrected firmware has the same ID and is not selected.
+No firmware was flashed. The source install rebuilds native schemas/params because
+the tracked prebuilt marker is removed; local host binaries are excluded.
+
+Implementation SHA and final validation are recorded below after the merge commit.
+No route replay, live radar/fusion timing, QCOM hardware validation, live JetLink
+handoff, closed-loop vehicle test, device installation or road validation occurred.

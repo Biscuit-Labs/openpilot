@@ -263,6 +263,14 @@ class Controller:
     self.CI = interfaces[self.CP.carFingerprint](self.CP, fpcp)
     self.VM = VehicleModel(self.CP)
     self.params = dict(params)
+    for old, new in {
+      "NrdrLatEpsFirmwareFF": "HondaEpsController", "NrdrLatUseFirmwareVgr": "HondaEpsFirmwareVgr",
+      "NrdrLatAngleRateLimit": "HondaEpsAngleRateLimit", "HondaTorqueLowPassFilter": "HondaTorqueOutputLowPassFilter",
+      "HondaLpfTauLowSpeed": "HondaTorqueOutputLpfTauLowSpeed", "HondaLpfTauStandard": "HondaTorqueOutputLpfTauStandard",
+      "HondaLpfTauHighway": "HondaTorqueOutputLpfTauHighway",
+    }.items():
+      if old in self.params and new not in self.params:
+        self.params[new] = self.params[old]
     self.vgr = None
     self.target = 0.0
     self._friction = None
@@ -282,10 +290,11 @@ class Controller:
         self.lac.is_modified_eps_kf_car = False
     elif kind == "clarity_eps":
       from openpilot.selfdrive.controls.lib import latcontrol_honda_eps
-      if not latcontrol_honda_eps.use_honda_eps_controller(self.CP, _DictParams({"NrdrLatEpsFirmwareFF": "1"})):
+      calibration = latcontrol_honda_eps.eps_firmware_calibration(self.CP, _DictParams({"HondaEpsController": "1"}))
+      if calibration is None:
         raise ValueError(f"clarity_eps needs a modified-EPS Clarity or Civic Bosch on pid tuning, not {self.CP.carFingerprint}")
       self._patch(latcontrol_honda_eps, "Params", lambda: _DictParams(self.params))
-      self.lac = latcontrol_honda_eps.LatControlHondaEps(self.CP, self.CI, DT)
+      self.lac = latcontrol_honda_eps.LatControlHondaEps(self.CP, self.CI, DT, calibration)
     else:
       from opendbc.car.honda.steer_ratio import get_honda_vgr_inverse, vgr_physical_to_linear
       if self.tq["vgr"]:
@@ -326,7 +335,7 @@ class Controller:
   def raw_target(self):
     """The unshaped target angle (deg, physical): the PID's before the slew clip and smoothing, or for the torque
     kinds the angle the controller's own kinematics (VGR map or not, its sR) give for the desired curvature."""
-    return self.lac.raw_angle_steers_des if self.kind == "pid" else self.target  # clarity_eps: before its rate limit
+    return self.lac.raw_angle_steers_des if self.kind == "pid" else self.target  # before shaping
 
   def _set_friction(self, v):
     fr = self.tq["friction"]
@@ -359,6 +368,7 @@ class Controller:
       if self.gains.get("rate_damp") and active:
         fade = float(np.clip((30 * MPH - CS.vEgo) / (30 * MPH), 0.0, 1.0))
         out = float(np.clip(out - self.gains["rate_damp"] * 0.010 * CS.steeringRateDeg * fade, -1.0, 1.0))
+      self.target = float(des)
       return float(out), float(des)
     if self.kind == "clarity_eps":
       # the shell's own map (firmware VGR or sr curve) before its rate limit; it recomputes the same value in update

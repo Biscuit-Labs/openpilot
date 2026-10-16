@@ -232,7 +232,7 @@ class NRDRTuningLayout(_SettingsPage):
       ]))
 
     controller_rows = [
-      toggle("NrdrLatEpsFirmwareFF", "EPS Firmware Feedforward",
+      toggle("HondaEpsController", "EPS Firmware Feedforward",
              "On: steer with James's modified-EPS controller, a feedforward that inverts the EPS firmware's own "
              "control law plus a PID on fixed per-band trims. Checked on road drives against the NRDR PID on "
              "both cars (Clarity routes 352-361, Civic routes 286-298). Off: steer with the NRDR PID, set up under "
@@ -245,31 +245,27 @@ class NRDRTuningLayout(_SettingsPage):
     ]
 
     pid_turn_rows = [
-      toggle("NrdrLatPidFirmwareFF", "PID Turn Feedforward (Test)",
-             "Add James's EPS firmware feedforward in turns only: none within 10 deg of centre, full from 30 deg, "
-             "so it does not bring back the near-centre wobble. Fades in once the wheel is within 10 deg of the "
-             "path, or 0.5 s after you let go while the wheel is short of the turn; a driver press takes it out."),
     ]
 
     pid_smoothing_rows = [
-      toggle("HondaTorqueLowPassFilter", "Steering Target Smoothing", "Smooth the desired steering angle using speed-banded time constants."),
+      toggle("HondaTorqueOutputLowPassFilter", "Steering Target Smoothing", "Smooth the desired steering angle using speed-banded time constants."),
       value(
-        "HondaLpfTauLowSpeed", "LPF Tau: Low Speed", "Low-pass time constant below 25 mph.",
-        lambda: f"{p.get_float('HondaLpfTauLowSpeed'):.2f}",
-        lambda: self._show_slider("HondaLpfTauLowSpeed", 0.0, 5.0, step=0.01, value_type="float", title="LPF Tau: Low Speed"),
-        visible=lambda: p.get_bool("HondaTorqueLowPassFilter"),
+        "HondaTorqueOutputLpfTauLowSpeed", "LPF Tau: Low Speed", "Low-pass time constant below 25 mph.",
+        lambda: f"{p.get_float('HondaTorqueOutputLpfTauLowSpeed'):.2f}",
+        lambda: self._show_slider("HondaTorqueOutputLpfTauLowSpeed", 0.0, 5.0, step=0.01, value_type="float", title="LPF Tau: Low Speed"),
+        visible=lambda: p.get_bool("HondaTorqueOutputLowPassFilter"),
       ),
       value(
-        "HondaLpfTauStandard", "LPF Tau: Standard", "Low-pass time constant from 25 to 50 mph.",
-        lambda: f"{p.get_float('HondaLpfTauStandard'):.2f}",
-        lambda: self._show_slider("HondaLpfTauStandard", 0.0, 5.0, step=0.01, value_type="float", title="LPF Tau: Standard"),
-        visible=lambda: p.get_bool("HondaTorqueLowPassFilter"),
+        "HondaTorqueOutputLpfTauStandard", "LPF Tau: Standard", "Low-pass time constant from 25 to 50 mph.",
+        lambda: f"{p.get_float('HondaTorqueOutputLpfTauStandard'):.2f}",
+        lambda: self._show_slider("HondaTorqueOutputLpfTauStandard", 0.0, 5.0, step=0.01, value_type="float", title="LPF Tau: Standard"),
+        visible=lambda: p.get_bool("HondaTorqueOutputLowPassFilter"),
       ),
       value(
-        "HondaLpfTauHighway", "LPF Tau: Highway", "Low-pass time constant above 50 mph.",
-        lambda: f"{p.get_float('HondaLpfTauHighway'):.2f}",
-        lambda: self._show_slider("HondaLpfTauHighway", 0.0, 5.0, step=0.01, value_type="float", title="LPF Tau: Highway"),
-        visible=lambda: p.get_bool("HondaTorqueLowPassFilter"),
+        "HondaTorqueOutputLpfTauHighway", "LPF Tau: Highway", "Low-pass time constant above 50 mph.",
+        lambda: f"{p.get_float('HondaTorqueOutputLpfTauHighway'):.2f}",
+        lambda: self._show_slider("HondaTorqueOutputLpfTauHighway", 0.0, 5.0, step=0.01, value_type="float", title="LPF Tau: Highway"),
+        visible=lambda: p.get_bool("HondaTorqueOutputLowPassFilter"),
       ),
     ]
 
@@ -308,18 +304,18 @@ class NRDRTuningLayout(_SettingsPage):
     ]
 
     filter_rows = [
-      toggle("NrdrLatUseFirmwareVgr", "Use Firmware VGR Table",
+      toggle("HondaEpsFirmwareVgr", "Use Firmware VGR Table",
              "Convert curvature with the EPS firmware's A (position) table on top of the learned steer "
              "ratio, instead of the road-measured effective-ratio curve. Changes centre gain and taper."),
       toggle("NrdrLatModelActionInterp", "Model Action Interpolation",
              "Ramp the model's 20 Hz steering action across the model frame instead of holding it. "
              "Removes the 20 Hz staircase in the target that the smoothing filter otherwise has to hide."),
       value(
-        "NrdrLatAngleRateLimit", "Desired Angle Rate Limit",
+        "HondaEpsAngleRateLimit", "Desired Angle Rate Limit",
         "Ceiling on how fast the desired steering angle may move. Backstops the curvature jerk limit, "
         "which does not bind below about 20 mph. 0 disables.",
-        lambda: f"{p.get_int('NrdrLatAngleRateLimit')} deg/s",
-        lambda: self._show_slider("NrdrLatAngleRateLimit", 0, 2000, unit=" deg/s", title="Desired Angle Rate Limit"),
+        lambda: f"{p.get_int('HondaEpsAngleRateLimit')} deg/s",
+        lambda: self._show_slider("HondaEpsAngleRateLimit", 0, 2000, unit=" deg/s", title="Desired Angle Rate Limit"),
       ),
       toggle("HondaSteerDeltaLimiter", "Steer Delta Limiter", "Legacy torque rate limiter. Leave off unless testing."),
       value(

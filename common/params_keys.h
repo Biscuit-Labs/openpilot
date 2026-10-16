@@ -23,6 +23,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"BluetoothDisconnectControllersOffroad", {PERSISTENT, BOOL, "0"}},
     {"BluetoothEnabled", {PERSISTENT, BOOL, "0"}},
     {"CalibrationParams", {PERSISTENT, BYTES}},
+    {"ReprojectRotation", {PERSISTENT, JSON}},
     {"CameraDebugExpGain", {CLEAR_ON_MANAGER_START, STRING}},
     {"CameraDebugExpTime", {CLEAR_ON_MANAGER_START, STRING}},
     {"CarBatteryCapacity", {PERSISTENT, INT}},
@@ -140,6 +141,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PandaHeartbeatLost", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
     {"PandaSomResetTriggered", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
     {"PandaSignatures", {CLEAR_ON_MANAGER_START, BYTES}},
+    {"ReprojectSessionActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | CLEAR_ON_OFFROAD_TRANSITION | DONT_LOG, BOOL}},
     {"PrimeType", {PERSISTENT, INT}},
     {"PriusClusterOffsetMigrated", {PERSISTENT, BOOL, "0", "0"}},
     {"RecordAudio", {PERSISTENT, BOOL}},
@@ -372,10 +374,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ActiveSmallModelName", {PERSISTENT, STRING}},
     {"ActiveSmallModelVersion", {PERSISTENT, STRING}},
     {"Model", {PERSISTENT, STRING, "rdf43", "rdf43", 1}},
-    {"ModelVersion", {PERSISTENT, STRING, "v15", "v15", 1}},
+    {"ModelVersion", {PERSISTENT, STRING, "v16", "v16", 1}},
     {"DrivingModel", {PERSISTENT, STRING, "rdf43", "rdf43", 1}},
-    {"DrivingModelName", {PERSISTENT, STRING, "Regret Driven Framework V4", "Regret Driven Framework V4", 1}},
-    {"DrivingModelVersion", {PERSISTENT, STRING, "v15", "v15", 1}},
+    {"DrivingModelName", {PERSISTENT, STRING, "Comma small v16", "Comma small v16", 1}},
+    {"DrivingModelVersion", {PERSISTENT, STRING, "v16", "v16", 1}},
     {"DynamicPathWidth", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"DynamicPedalsOnUI", {PERSISTENT, BOOL, "1", "0", 1, SETTINGS_SIMPLE}},
     {"GpuModelReadySound", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
@@ -444,13 +446,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NrdrLearnSteerRatio", {PERSISTENT, BOOL, "1", "1", 2}},
     {"NrdrLearnStiffness", {PERSISTENT, BOOL, "1", "1", 2}},
     {"NrdrLearnAngleOffset", {PERSISTENT, BOOL, "1", "1", 2}},
-    {"NrdrLatRateFF", {PERSISTENT, FLOAT, "0.0", "0.0", 2}},     // desired-rate feedforward, torque fraction per 100 deg/s of target slew; 0 = off (STATUS 133)
-    {"NrdrLatAngleRateLimit", {PERSISTENT, INT, "300", "300", 2}},     // deg/s ceiling on desired wheel-angle slew; 0 disables. Backstops clip_curvature, whose ISO jerk limit is ~1/v^2 in angle space and so does not bind below ~20 mph
+    {"NrdrLatRateFF", {PERSISTENT, FLOAT, "0.0", "0.0", 2}},
+    {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300", "300", 2}},     // deg/s ceiling on desired wheel-angle slew; 0 disables. Backstops clip_curvature, whose ISO jerk limit is ~1/v^2 in angle space and so does not bind below ~20 mph
     {"NrdrLatModelActionInterp", {PERSISTENT, BOOL, "1", "1", 2}},   // ramp modeld's 20 Hz action across the model frame instead of holding it; removes the 20 Hz staircase in the lateral target
-    {"NrdrLatUseFirmwareVgr", {PERSISTENT, BOOL, "0", "0", 2}},      // use the EPS firmware A (position) VGR table instead of the road-measured effective-ratio curve
-    {"NrdrLatPidFirmwareFF", {PERSISTENT, BOOL, "0", "0", 2}},       // traced modified-EPS Honda images: firmware-inversion feedforward in turns only (STATUS 175/224)
-    {"NrdrLatEpsFirmwareFF", {PERSISTENT, BOOL, "0", "0", 2}},       // modified-EPS Clarity/Civic Bosch/CR-V A040 FF45: James's controller (read when controlsd starts; STATUS 166/224)
-    {"NrdrLatEpsFfAngleGate", {PERSISTENT, BOOL, "0", "0", 2}},      // LatControlClarityEps: hold the feedforward off near straight at speed too (10-30 deg |desired angle|), as before PR 10; 0 = PR 10 (read when controlsd starts)
+    {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0", "0", 2}},      // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table instead of the road-measured ratio curve
     {"ForceFingerprint", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"ForceOffroad", {CLEAR_ON_MANAGER_START, BOOL, "0", "0"}},
     {"ForceOnroad", {CLEAR_ON_MANAGER_START, BOOL, "0", "0"}},
@@ -501,13 +500,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HideSteeringWheel", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"HigherBitrate", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"HolidayThemes", {PERSISTENT, BOOL, "1", "0", 0, SETTINGS_SIMPLE}},
-    {"HondaCenterBoostMinSpeed", {PERSISTENT, INT, "50", "50", 2}},
-    {"HondaCenterBoostThreshold", {PERSISTENT, FLOAT, "3.0", "3.0", 2}},
-    {"HondaCenterScale", {PERSISTENT, FLOAT, "0.5", "0.5", 2}},
     {"HondaDriverAssistDuringOverride", {PERSISTENT, BOOL, "0", "0", 2}},
-    {"HondaLpfTauHighway", {PERSISTENT, FLOAT, "0.1", "0.1", 2}},
-    {"HondaLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1", "0.1", 2}},
-    {"HondaLpfTauStandard", {PERSISTENT, FLOAT, "0.1", "0.1", 2}},
+    {"HondaEpsController", {PERSISTENT, BOOL, "0", "0", 2}},  // steer the PTM EPS cars without default_on with LatControlHondaEps (read when controlsd starts)
+    {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.1", "0.1", 2}},
+    {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1", "0.1", 2}},
+    {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.1", "0.1", 2}},
     {"HondaOverrideFadeDownSecs", {PERSISTENT, FLOAT, "0.0", "0.0", 2}},
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.5", "1.5", 2}},
     {"HondaOverrideTorqueScale", {PERSISTENT, INT, "0", "0", 2}},
@@ -515,7 +512,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaSteerDeltaLimiter", {PERSISTENT, BOOL, "0", "0", 2}},
     {"HondaSteerDeltaUp", {PERSISTENT, FLOAT, "3.0", "3.0", 2}},
     {"HondaStoppingDecelRate", {PERSISTENT, INT, "30", "30", 2}},
-    {"HondaTorqueLowPassFilter", {PERSISTENT, BOOL, "0", "0", 2}},
+    {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "0", "0", 2}},
     {"HumanLaneChanges", {PERSISTENT, BOOL, "0", "0", 2, SETTINGS_SIMPLE}},
     {"IconPack", {PERSISTENT, STRING, "stock", "stock", 0}},
     {"IconToDownload", {CLEAR_ON_MANAGER_START, STRING, "", ""}},
@@ -639,7 +636,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ModelToDownload", {CLEAR_ON_MANAGER_START, STRING, "", ""}},
     {"ModelUI", {PERSISTENT, BOOL, "1", "0", 2, SETTINGS_SIMPLE}},
     {"ModelVersions", {PERSISTENT, STRING, "", "", 1}},
-    {"ModelManifestVersion", {PERSISTENT, STRING, "", "", 1}},
+    {"ModelManifestVersion", {PERSISTENT, STRING, "v26", "v26", 1}},
     {"NrdrDriverOverrideThreshold", {PERSISTENT, INT, "2400", "2400", 2}},
     {"NrdrIncreaseOverrideTolerance", {PERSISTENT, BOOL, "0", "0", 2}},
     {"NrdrMinSteerSpeed", {PERSISTENT, INT, "1", "1", 2}},

@@ -1,9 +1,15 @@
 import os
 import glob
 
+from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
+from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE
+from openpilot.selfdrive.modeld.helpers import usbgpu_present
+from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+
 Import('env', 'envCython', 'arch', 'cereal', 'messaging', 'common', 'gpucommon', 'visionipc', 'transformations')
 lenv = env.Clone()
 lenvCython = envCython.Clone()
+lenv.PrependENVPath('PYTHONPATH', Dir('#tinygrad_repo').abspath)
 
 libs = [cereal, messaging, visionipc, gpucommon, common, 'capnp', 'kj', 'pthread']
 frameworks = []
@@ -43,18 +49,84 @@ if build_dm_artifacts and not skip_dm_tinygrad_pkl:
     f'python3 selfdrive/modeld/get_model_metadata.py {dm_rel_path}.onnx',
   )
 
-  flags = (
-    'DEV=QCOM FLOAT16=1 NOLOCALS=1 IMAGE=2 JIT_BATCH_SIZE=0 DEBUG=0'
-    if arch == 'larch64'
-    else 'DEV=CPU IMAGE=0 NOLOCALS=1 DEBUG=0 HOME=/tmp'
-  )
+  # tinygrad d3f09c9b: comma master's DM recipe (compile_onnx.py; compile3.py no longer exists)
+  flags = ('DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1' if arch == 'larch64' else 'DEV=CPU:LLVM HOME=/tmp')
   pythonpath_string = 'PYTHONPATH="${PYTHONPATH}:tinygrad_repo"'
-  compile_script = "#tinygrad_repo/examples/openpilot/compile3.py"
+  compile_script = "#tinygrad_repo/examples/openpilot/compile_onnx.py"
   lenv.Command(
     dm_node_path + "_tinygrad.pkl",
     [dm_node_path + ".onnx"] + tinygrad_files + [compile_script],
-    f'{pythonpath_string} {flags} python3 tinygrad_repo/examples/openpilot/compile3.py '
-    f'{dm_rel_path}.onnx {dm_rel_path}_tinygrad.pkl',
+    f'{pythonpath_string} {flags} python3 tinygrad_repo/examples/openpilot/compile_onnx.py '
+    f'{dm_rel_path}.onnx {dm_rel_path}_tinygrad.pkl --out-of-band --benchmark-runs 1',
   )
 else:
   print("Using prebuilt unified driving and driver-monitoring artifacts")
+
+# The bundled small model is a Comma-style precompiled QCOM policy. Its camera
+# preprocessing is a separate QCOM warp compiled against body-only NV12 input.
+if arch == "larch64":
+  from SCons.Script import Action
+
+  camera_configs = [(camera.width, camera.height) for camera in (_ar_ox_fisheye, _os_fisheye)]
+  compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
+  taskset = 'taskset -c 7 '
+  qcom_flags = 'DEBUG=1 DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'  # comma master's QCOM recipe
+  qcom_lock = File('models/.qcom-small-warp.lock').abspath
+  model_w, model_h = MEDMODEL_INPUT_SIZE
+  warp_deps = [File('#openpilot/system/camerad/cameras/nv12_info.py')]
+
+  def qcom_action(command, target):
+    def do_compile(target, source, env):
+      return env.Execute(command)
+    return Action(do_compile, f'  [QCOM SMALL] {target}')
+
+  for cam_w, cam_h in camera_configs:
+    target = File(f'models/small_driving_warp_{cam_w}x{cam_h}_tinygrad.pkl').abspath
+    stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+    frame_copy_size = stride * (y_height + uv_height)
+    command = (
+      f'{qcom_flags} {taskset}python3 "{compiler}/compile_warp.py" '
+      f'--frame {cam_w},{cam_h},{stride},{y_height},{uv_height},{frame_copy_size} '
+      f'--warp-to {model_w}x{model_h} --layout yuv420 --frames 2 --output {target}'
+    )
+    node = lenv.Command(target, tinygrad_files + warp_deps + [Value(command)], qcom_action(command, target))
+    lenv.SideEffect(qcom_lock, node)
+
+# Comma's current big-model artifacts are a pair: the downloaded AMD policy
+# pickle and a camera-specific Chestnut warp pickle. Build both Tizi camera
+# sizes when the accelerator is connected during the device SCons build.
+if usbgpu_present():
+  from openpilot.system.hardware.chestnut.flash import link_up
+
+  camera_configs = [(camera.width, camera.height) for camera in (_ar_ox_fisheye, _os_fisheye)]
+  compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
+  taskset = 'taskset -c 7 ' if arch == 'larch64' else ''
+  chestnut_flags = 'DEBUG=1 DEV=USB+AMD:LLVM GMMU=0'  # upstream recipe: compile_warp/compile_onnx set their own TC context
+  chestnut_lock = File('models/.chestnut.lock').abspath
+
+  def chestnut_action(command):
+    def do_compile(target, source, env):
+      for _ in range(10):
+        if link_up():
+          break
+        time.sleep(1)
+      else:
+        print('Chestnut PCIe link is not ready; skipping big-model warp build')
+        return
+      return env.Execute(command)
+    return Action(do_compile, '  [CHESTNUT] $TARGET')
+
+  import time
+  model_w, model_h = MEDMODEL_INPUT_SIZE
+  warp_deps = [File('#openpilot/system/camerad/cameras/nv12_info.py')]
+  for cam_w, cam_h in camera_configs:
+    target = File(f'models/big_driving_warp_{cam_w}x{cam_h}_tinygrad.pkl').abspath
+    stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+    frame_copy_size = stride * (y_height + uv_height)
+    command = (
+      f'{chestnut_flags} {taskset}python3 "{compiler}/compile_warp.py" '
+      f'--frame {cam_w},{cam_h},{stride},{y_height},{uv_height},{frame_copy_size} '
+      f'--warp-to {model_w}x{model_h} --layout yuv420 --frames 2 --output {target}'
+    )
+    node = lenv.Command(target, tinygrad_files + warp_deps + [Value(command)], chestnut_action(command))
+    lenv.SideEffect(chestnut_lock, node)

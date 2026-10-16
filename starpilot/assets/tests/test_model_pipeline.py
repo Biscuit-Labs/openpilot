@@ -8,6 +8,7 @@ from scripts import model_compiler
 from scripts import reconcile_v23_artifacts
 from scripts.model_compiler import split_oversized_artifact
 from openpilot.common import file_chunker
+from openpilot.common.params import Params
 from openpilot.selfdrive.modeld import compile_modeld
 from openpilot.starpilot.assets import download_functions
 from openpilot.starpilot.assets import model_manager
@@ -15,12 +16,20 @@ from openpilot.starpilot.assets.model_manager import MANIFEST_CANDIDATES, ModelM
 from openpilot.starpilot.common.model_versions import UNIFIED_ARTIFACT_FORMAT
 
 
-def test_v25_is_the_only_manifest_candidate():
-  assert MANIFEST_CANDIDATES == ("v25",)
+
+def _write_driving_onnx(path):
+  import onnx
+  value = onnx.helper.make_tensor_value_info('img', onnx.TensorProto.FLOAT, [1, 12, 128, 256])
+  graph = onnx.helper.make_graph([onnx.helper.make_node('Identity', ['img'], ['out'])], 'fixture', [value],
+    [onnx.helper.make_tensor_value_info('out', onnx.TensorProto.FLOAT, [1, 12, 128, 256])])
+  onnx.save(onnx.helper.make_model(graph), path)
+
+def test_v26_is_the_only_manifest_candidate():
+  assert MANIFEST_CANDIDATES == ("v26",)
 
 
-def test_v25_manifest_is_loaded_from_models_checkout():
-  assert ModelManager._manifest_paths("v25") == ("Models/model_names_v25.json",)
+def test_v26_manifest_is_loaded_from_models_checkout():
+  assert ModelManager._manifest_paths("v26") == ("Models/model_names_v26.json",)
 
 
 def test_resource_sources_prefer_huggingface_then_github(monkeypatch):
@@ -33,20 +42,28 @@ def test_resource_sources_prefer_huggingface_then_github(monkeypatch):
 
 
 def test_huggingface_manifest_lives_under_manifests():
-  assert ModelManager._hf_manifest_paths("v25") == ("manifests/model_names_v25.json",)
+  assert ModelManager._hf_manifest_paths("v26") == ("manifests/model_names_v26.json",)
 
 
-def test_v25_artifacts_only_use_versioned_paths():
+def test_v26_artifacts_only_use_versioned_paths():
   hf_url = "https://huggingface.co/buckets/StarPilot-Driving/StarPilot-Resources"
   github_url = "https://raw.githubusercontent.com/firestar5683/StarPilot-Resources"
   filename = "pop223_driving_tinygrad.pkl"
 
-  assert ModelManager._artifact_source_urls(hf_url, "v25", "pop223", filename) == (
-    f"{hf_url}/models/v25/pop223/{filename}",
+  assert ModelManager._artifact_source_urls(hf_url, "v26", "pop223", filename) == (
+    f"{hf_url}/models/v26/pop223/{filename}",
   )
-  assert ModelManager._artifact_source_urls(github_url, "v25", "pop223", filename) == (
-    f"{github_url}/Models/v25/pop223/{filename}",
+  assert ModelManager._artifact_source_urls(github_url, "v26", "pop223", filename) == (
+    f"{github_url}/Models/v26/pop223/{filename}",
   )
+
+
+def test_actual_params_defaults_are_small_v16_and_manifest_v26():
+  params = Params()
+  assert params.get_default_value("ModelVersion") == "v16"
+  assert params.get_default_value("DrivingModelVersion") == "v16"
+  assert params.get_default_value("DrivingModelName") == "Comma small v16"
+  assert params.get_default_value("ModelManifestVersion") == "v26"
 
 
 def test_old_manifest_ids_resolve_to_v23_namespace():
@@ -92,8 +109,8 @@ def test_manifest_migration_purges_old_artifacts_and_redownloads_selected(tmp_pa
   manager = object.__new__(ModelManager)
   manager.params_memory = FakeParamsMemory()
   manager.available_models = ["rdf43", "pop223"]
-  manager.available_model_names = ["Regret Driven Framework V4", "Pop V2"]
-  manager.model_versions = ["v15", "v15"]
+  manager.available_model_names = [model_manager.BUILTIN_MODEL_NAME, "Pop V2"]
+  manager.model_versions = [model_manager.BUILTIN_MODEL_VERSION, "v15"]
   manager.artifact_formats = [UNIFIED_ARTIFACT_FORMAT, UNIFIED_ARTIFACT_FORMAT]
 
   def fake_download(model_key):
@@ -108,6 +125,35 @@ def test_manifest_migration_purges_old_artifacts_and_redownloads_selected(tmp_pa
   assert (tmp_path / "dmonitoring_model_tinygrad.pkl").read_bytes() == b"old"
   assert not (tmp_path / "pop223_driving_tinygrad.pkl.p00").exists()
   assert not (tmp_path / "other_driving_tinygrad.pkl.chunkmanifest").exists()
+
+
+def test_v25_to_v26_generation_change_runs_artifact_migration(monkeypatch):
+  class FakeParams:
+    def __init__(self):
+      self.values = {"ModelManifestVersion": "v25"}
+
+    def put(self, key, value):
+      self.values[key] = value
+
+    def get(self, key):
+      return self.values.get(key, "").encode()
+
+  manager = object.__new__(ModelManager)
+  manager.downloading_model = False
+  manager.params = FakeParams()
+  manager._selected_model = lambda: "pop223"
+  manager._get_manifest = lambda _urls: ("v26", [{"id": "pop223"}])
+  manager.update_model_params = lambda _info, version: manager.params.put("ModelManifestVersion", version)
+  manager._resolve_manifest_model_key = lambda model: model
+  migrated = []
+  manager._migrate_model_artifacts = lambda model: migrated.append(model)
+  manager.check_models = lambda _boot_run: None
+  monkeypatch.setattr(model_manager, "get_resource_urls", lambda: ["https://models.example"])
+
+  manager.update_models()
+
+  assert manager.params.values["ModelManifestVersion"] == "v26"
+  assert migrated == ["pop223"]
 
 
 def test_behavior_version_does_not_control_artifact_layout():
@@ -156,8 +202,8 @@ def test_active_small_and_big_profiles_migrate_from_legacy_selection(tmp_path, m
         "DrivingModelName": selected.title(),
         "DrivingModelVersion": "v16",
         "AvailableModels": "rdf43,small-one,big-one",
-        "AvailableModelNames": "Regret Driven Framework V4,Small One,Big One",
-        "ModelVersions": "v15,v16,v16",
+        "AvailableModelNames": f"{model_manager.BUILTIN_MODEL_NAME},Small One,Big One",
+        "ModelVersions": f"{model_manager.BUILTIN_MODEL_VERSION},v16,v16",
       }
 
     def get(self, key):
@@ -172,9 +218,19 @@ def test_active_small_and_big_profiles_migrate_from_legacy_selection(tmp_path, m
 
   big_params = FakeParams("big-one")
   assert model_manager.get_model_profile(big_params, "small") == (
-    "rdf43", "Regret Driven Framework V4", "v15",
+    "rdf43", model_manager.BUILTIN_MODEL_NAME, model_manager.BUILTIN_MODEL_VERSION,
   )
   assert model_manager.get_model_profile(big_params, "big") == ("big-one", "Big One", "v16")
+
+  stale_builtin = FakeParams("rdf43")
+  stale_builtin.values.update({
+    model_manager.ACTIVE_SMALL_MODEL_PARAM: "rdf43",
+    model_manager.ACTIVE_SMALL_MODEL_NAME_PARAM: "Regret Driven Framework V4",
+    model_manager.ACTIVE_SMALL_MODEL_VERSION_PARAM: "v15",
+  })
+  assert model_manager.get_model_profile(stale_builtin, "small") == (
+    "rdf43", model_manager.BUILTIN_MODEL_NAME, model_manager.BUILTIN_MODEL_VERSION,
+  )
 
 
 def test_disabled_big_profile_does_not_migrate_from_legacy_selection(tmp_path, monkeypatch):
@@ -232,10 +288,10 @@ def test_selected_chestnut_artifacts_ready_ignores_cleared_runtime_flag(tmp_path
 
   params = FakeParams()
   assert not params.get("UsbGpuCompiled")
-  assert model_manager.selected_chestnut_artifacts_ready(params)
+  assert model_manager.chestnut_model_installed(params)
 
   (tmp_path / "big-one_driving_tinygrad.pkl").unlink()
-  assert not model_manager.selected_chestnut_artifacts_ready(params)
+  assert not model_manager.chestnut_model_installed(params)
 
 
 def test_selected_chestnut_artifacts_ready_accepts_model_lab_pair(tmp_path, monkeypatch):
@@ -261,9 +317,9 @@ def test_selected_chestnut_artifacts_ready_accepts_model_lab_pair(tmp_path, monk
         },
       }.get(key)
 
-  assert model_manager.selected_chestnut_artifacts_ready(FakeParams())
+  assert model_manager.chestnut_model_installed(FakeParams())
   (tmp_path / "longitudinal_driving_chestnut_tinygrad.pkl").unlink()
-  assert not model_manager.selected_chestnut_artifacts_ready(FakeParams())
+  assert not model_manager.chestnut_model_installed(FakeParams())
 
 
 def test_runtime_model_metadata_does_not_overwrite_model_profiles(tmp_path, monkeypatch):
@@ -367,7 +423,7 @@ def test_model_manager_downloads_precompiled_accelerator_variant_without_compili
     def remove(self, key):
       self.values.pop(key, None)
 
-  manager.params = FakeParams({"ModelManifestVersion": "v25"})
+  manager.params = FakeParams({"ModelManifestVersion": "v26"})
   manager.params_memory = FakeParams({model_manager.MODEL_LAB_DOWNLOAD_PARAM: "lat"})
   manager.downloading_model = False
   metadata = manager._build_artifact_metadata_map([{
@@ -439,6 +495,7 @@ def test_all_compilation_uses_oob_and_external_gpu_is_opt_in(tmp_path, monkeypat
   })
   monkeypatch.setattr(model_compiler.subprocess, "run", lambda command, **kwargs: invocations.append((command, kwargs)))
   monkeypatch.setattr(model_compiler, "wait_for_external_gpu", lambda: None)
+  _write_driving_onnx(tmp_path / "model.onnx")
   files = {"driving_supercombo": tmp_path / "model.onnx"}
 
   model_compiler.compile_driving("normal", files, "supercombo", "v15", tmp_path, "policy")
@@ -456,7 +513,7 @@ def test_all_compilation_uses_oob_and_external_gpu_is_opt_in(tmp_path, monkeypat
   assert external_kwargs["env"]["DEV"] == "USB+AMD:LLVM"
   assert external_kwargs["env"]["FRAME_DEV"] == "CPU"
   assert external_kwargs["env"]["TC_MIN_GLOBALS"] == "32"
-  assert "WARP_DEV" not in external_kwargs["env"]
+  assert external_kwargs["env"]["WARP_DEV"] == "QCOM"
   assert all(flag not in external_kwargs["env"] for flag in ("IMAGE", "NOLOCALS", "OPENPILOT_HACKS"))
 
 
@@ -486,7 +543,32 @@ def test_external_gpu_compile_does_not_pin_other_platforms(monkeypatch):
   assert model_compiler.external_gpu_compile_command(command) is command
 
 
+def test_upstream_precompiled_warps_build_the_tizi_pair(tmp_path, monkeypatch):
+  invocations = []
+  monkeypatch.setattr(model_compiler, "UPSTREAM_WARP_MODELS_DIR", tmp_path)
+  monkeypatch.setattr(model_compiler, "wait_for_external_gpu", lambda: None)
+  monkeypatch.setattr(model_compiler, "external_gpu_compile_command", lambda command: command)
+  monkeypatch.setattr(model_compiler.subprocess, "run", lambda command, **kwargs: invocations.append((command, kwargs)))
+
+  outputs = model_compiler.compile_upstream_precompiled_warps()
+
+  assert [path.name for path in outputs] == [
+    "big_driving_warp_1928x1208_tinygrad.pkl",
+    "big_driving_warp_1344x760_tinygrad.pkl",
+  ]
+  assert all("compile_warp.py" in invocation[0][1] for invocation in invocations)
+  assert all("--layout" in invocation[0] and "yuv420" in invocation[0] for invocation in invocations)
+  assert all("--frames" in invocation[0] and "2" in invocation[0] for invocation in invocations)
+  assert all(invocation[1]["env"]["DEV"] == "USB+AMD:LLVM" for invocation in invocations)
+  assert all("WARP_DEV" not in invocation[1]["env"] for invocation in invocations)
+  assert [invocation[0][invocation[0].index("--frame") + 1] for invocation in invocations] == [
+    "1928,1208,2048,1216,608,3735552",
+    "1344,760,1408,768,384,1622016",
+  ]
+
+
 def test_compile_clears_only_selected_model_outputs(tmp_path, monkeypatch):
+  _write_driving_onnx(tmp_path / "model.onnx")
   monkeypatch.setattr(model_compiler, "build_compile_env", lambda **_: {})
   monkeypatch.setattr(model_compiler.subprocess, "run", lambda *args, **kwargs: None)
   (tmp_path / "normal_driving_tinygrad.pkl").write_bytes(b"old")

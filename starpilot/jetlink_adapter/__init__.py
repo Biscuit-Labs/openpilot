@@ -47,12 +47,8 @@ KEYS = _Keys(link='JetlinkLink', offroad='IsOffroad', progress='AcceleratorProgr
 # hardware package is too heavy for the owner, so they are written out here
 CHESTNUT_IDS = frozenset({(0xADD1, 0x0001), (0x3801, 0x0001), (0x174C, 0x2464), (0x174C, 0x2463)})
 
-# where the build puts the warp for each camera (SConscript) and modeld loads
-# it from: in the fork's tree, never in the jetlink submodule (a file there
-# leaves it dirty for the updater), and under the *.pkl ignore, which the
-# release scripts add past. Not Paths.comma_home(), which on AGNOS is a tmpfs
-# overlay: the pickle was gone every boot
-WARP_DIR = Path(__file__).resolve().parent / 'models'
+# Use modeld's native QCOM warp, built and shipped with its small model.
+WARP_DIR = Path(__file__).resolve().parents[2] / 'selfdrive' / 'modeld' / 'models'
 
 OWNER_LOG = Path('/data/log/jetlink-owner.log')
 
@@ -73,7 +69,7 @@ def _params_dir() -> Path:
 
 def warp_path(cam_w: int, cam_h: int, model_w: int, model_h: int) -> Path:
   """The warp for one geometry: the build's target and what modeld opens."""
-  return WARP_DIR / f'warp_{cam_w}x{cam_h}_{model_w}x{model_h}_tinygrad.pkl'
+  return WARP_DIR / f'small_driving_warp_{cam_w}x{cam_h}_tinygrad.pkl'
 
 
 def owner_config():
@@ -201,32 +197,8 @@ class Adapter:
     except Exception:
       return True
 
-  def load_legacy_warp(self, jit, model_w: int, model_h: int):
-    """Validate the fork's four-input warp before handing it to the frame loop."""
-    from jetlink.openpilot.warp import LegacyWarp
-    from openpilot.starpilot.jetlink_adapter.legacy_warp import Warp, WARP_INPUT_NAMES
-    captured = getattr(jit, 'captured', None)
-    if captured is None or list(getattr(captured, 'expected_names', [])) != WARP_INPUT_NAMES:
-      raise RuntimeError('legacy warp has no valid four-input capture')
-    if tuple(getattr(captured.ret, 'shape', ())) != (2, 6, model_h // 2, model_w // 2):
-      raise RuntimeError('legacy warp output does not match the model geometry')
-    return LegacyWarp(lambda frame_size: Warp(jit, frame_size, self.log))
-
   def event(self, name: str, **fields) -> None:
     self.log.event(name, **fields)
-
-  # -- the build --------------------------------------------------------------
-
-  def make_warp(self, cam_w: int, cam_h: int, model_w: int, model_h: int):
-    # compile_modeld first: it patches tinygrad's firmware fetch as it loads
-    # In policy-history mode on the default device this fork's make_warp is
-    # upstream's graph (frame_skip is unused there)
-    from openpilot.selfdrive.modeld.compile_modeld import IMAGE_HISTORY_IN_POLICY, NV12Frame, make_warp
-    from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
-    from tinygrad import Device
-    nv12 = NV12Frame(cam_w, cam_h, *get_nv12_info(cam_w, cam_h))
-    return make_warp(nv12, model_w, model_h, 1, IMAGE_HISTORY_IN_POLICY, Device.DEFAULT), nv12.size
-
 
 # -- what the hooks call ------------------------------------------------------
 

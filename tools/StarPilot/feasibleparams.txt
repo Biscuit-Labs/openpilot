@@ -146,14 +146,11 @@ HideSteeringWheel
 HideTurningBanner
 HigherBitrate
 HolidayThemes
-HondaCenterBoostMinSpeed
-HondaCenterBoostThreshold
-HondaCenterScale
 HondaDriverAssistDuringOverride
 HondaLiveLearningGas
-HondaLpfTauHighway
-HondaLpfTauLowSpeed
-HondaLpfTauStandard
+HondaTorqueOutputLpfTauHighway
+HondaTorqueOutputLpfTauLowSpeed
+HondaTorqueOutputLpfTauStandard
 HondaOverrideFadeDownSecs
 HondaOverrideFadeUpSecs
 HondaOverrideTorqueScale
@@ -163,7 +160,7 @@ HondaSteerDeltaUp
 HondaStopAccel
 HondaStoppingDecelRate
 HondaStoppingDecelRateLong
-HondaTorqueLowPassFilter
+HondaTorqueOutputLowPassFilter
 HondaVEgoStarting
 HondaVEgoStopping
 HumanLaneChanges
@@ -260,7 +257,6 @@ NostalgiaMode
 NrdrClarityHybrid
 NrdrDriverOverrideThreshold
 NrdrHondaEcuMatchedLong
-NrdrIncreaseOverrideTolerance
 NrdrLearnAngleOffset
 NrdrLearnSteerRatio
 NrdrLearnStiffness
@@ -271,7 +267,6 @@ NrdrNnlcEnabled
 NrdrNnlcKfGain
 NrdrNnlcKiGain
 NrdrNnlcKpGain
-NrdrOverrideThresholdCenterBoost
 NudgelessLaneChange
 NumericalTemp
 Offroad_ExcessiveActuation

@@ -61,7 +61,7 @@ def test_get_usb_state(tmp_path, monkeypatch):
     "idProduct": "0001\n",
     "speed": "5000\n",
     "manufacturer": "tiny\n",
-    "product": "custom ed4e39b7-CLEAN\n",
+    "product": "custom 8516b768-CLEAN\n",
   }
   for name, value in values.items():
     (device / name).write_text(value)
@@ -83,7 +83,7 @@ def test_get_usb_state(tmp_path, monkeypatch):
     "productId": 0x0001,
     "speedMbps": 5000,
     "manufacturer": "tiny",
-    "product": "custom ed4e39b7-CLEAN",
+    "product": "custom 8516b768-CLEAN",
     "linkErrorCount": 0x2345,
     "usb3Lane": "b",
   }]
@@ -98,7 +98,7 @@ def test_set_usb_state():
     "productId": 0x0001,
     "speedMbps": 5000,
     "manufacturer": "tiny",
-    "product": "custom ed4e39b7-CLEAN",
+    "product": "custom 8516b768-CLEAN",
     "linkErrorCount": 7,
     "usb3Lane": "a",
   }]

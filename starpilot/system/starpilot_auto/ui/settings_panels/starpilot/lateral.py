@@ -151,14 +151,14 @@ class StarPilotLateralLayout(_SettingsPage):
       ),
       SettingRow(
         "NavLanePositioningAllowed", "toggle", tr_noop("Route Lane Positioning"),
-        subtitle=tr_noop("Allow navigation to position in lane and request highway exit lane changes: blinker toward the exit for the first lane, blinker + nudge for each further lane."),
+        subtitle=tr_noop("Allow navigation to position in lane and request highway exit lane changes: blinker toward the exit for the first lane, blinker + nudge for each further lane."),  # noqa: E501
         get_state=lambda: p.get_bool("NavLanePositioningAllowed"),
         set_state=lambda s: p.put_bool("NavLanePositioningAllowed", s),
         visible=lambda: p.get_bool("NavDesiresAllowed"),
       ),
       SettingRow(
         "NavExitAutoKeep", "toggle", tr_noop("Auto-Take Exit"),
-        subtitle=tr_noop("Take a same-side highway exit without the blinker or a wheel nudge when navigation lane guidance already puts you in the exit-side edge lane. Off-ramps only (never forks), above 8 m/s, withdrawn by any steering input. Experimental and off by default; not road-validated."),
+        subtitle=tr_noop("Take a same-side highway exit without the blinker or a wheel nudge when navigation lane guidance already puts you in the exit-side edge lane. Off-ramps only (never forks), above 8 m/s, withdrawn by any steering input. Experimental and off by default; not road-validated."),  # noqa: E501
         get_state=lambda: p.get_bool("NavExitAutoKeep"),
         set_state=lambda s: p.put_bool("NavExitAutoKeep", s),
         visible=lambda: p.get_bool("NavDesiresAllowed") and p.get_bool("NavLanePositioningAllowed"),

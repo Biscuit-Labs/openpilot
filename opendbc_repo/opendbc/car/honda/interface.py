@@ -298,9 +298,25 @@ class CarInterface(CarInterfaceBase):
       ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 1000], [0, 1000]]  # TODO: determine if there is a dead zone at the top end
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
 
+    elif candidate in (CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR) and eps_modified:
+      # NRDR 39990-TJB,A220 PTM. Stock A220 accepts every RDX 3G image (A010-A070, A210, A220) as a source, so
+      # 2019-21 and 2022+ cars end up on the same rack image and share this branch. Its target map X axis runs
+      # E4 0..4096 (command key a = E4/4 up to 1024), and Route A puts the 30000 top there, level with the
+      # Clarity's 29982 at its 3840 cap -- so at 4096 the normalized output asks for the same target as the
+      # Clarity and its gains carry over 1:1. No EPS firmware calibration yet, so it stays on LatControlPID.
+      ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 4096], [0, 4096]]
+      # Shares the modified-EPS Clarity tune: four-point handoff at 25 mph.
+      ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kpV = [[0., 25. * CV.MPH_TO_MS - 1e-3, 25. * CV.MPH_TO_MS, 50. * CV.MPH_TO_MS], [0.018, 0.024, 0.048, 0.060]]
+      ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kiV = [[0., 25. * CV.MPH_TO_MS - 1e-3, 25. * CV.MPH_TO_MS, 50. * CV.MPH_TO_MS], [0.006, 0.008, 0.016, 0.020]]
+      ret.lateralTuning.pid.kf = 3.6e-6
+      ret.steerAtStandstill, ret.autoResumeSng = True, True
+      ret.minEnableSpeed, ret.minSteerSpeed = -1.0, -1.0
+      CarControllerParams.BOSCH_GAS_LOOKUP_V = [0, 2200] if candidate == CAR.ACURA_RDX_3G else [0, 2000]
+
     elif candidate == CAR.ACURA_RDX_3G:
+      # Stock EPS: the torque controller on its torque_data tune; only the PTM image above runs PID.
       ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 4095], [0, 4095]]
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.2], [0.06]]
+      CarInterfaceBase.configure_torque_tune(candidate, ret.lateralTuning)
       CarControllerParams.BOSCH_GAS_LOOKUP_V = [0, 2200]
 
     elif candidate == CAR.ACURA_RDX_3G_MMR:

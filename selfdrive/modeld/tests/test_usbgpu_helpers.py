@@ -1,4 +1,6 @@
+import base64
 import io
+import pickle
 import struct
 from types import MethodType
 from types import SimpleNamespace
@@ -7,14 +9,65 @@ import numpy as np
 import pytest
 
 from openpilot.selfdrive.modeld import modeld
+from openpilot.selfdrive.modeld.compile_modeld import validate_serialized_artifact
 from openpilot.selfdrive.modeld.helpers import dump_oob, load_oob, tinygrad_dev_config
 from scripts import model_compiler
+
+
+class _FakePrecompiledWarp:
+  def __init__(self, output_shape):
+    self.output_shape = output_shape
+    self.inputs = None
+
+  def __call__(self, **inputs):
+    self.inputs = inputs
+    return modeld.Tensor.zeros(self.output_shape, dtype="uint8", device="CPU").realize()
+
+
+class _FakePrecompiledPolicy:
+  def __init__(self):
+    self.inputs = None
+
+  def __call__(self, output_buffers, **inputs):
+    self.inputs = inputs
+    output_buffers["outputs"].assign(0).realize()
+
+
+class _FakeParser:
+  def parse_outputs(self, outputs):
+    return outputs
+
+
+class _LegacyBufferReduce:
+  """Mirror the pre-BufferStorage pickle tuple emitted by VFN's old tinygrad."""
+  def __reduce__(self):
+    from tinygrad.device import Buffer
+    from tinygrad.dtype import dtypes
+
+    # The seventh positional item used to be uop_refcount; it now maps to base.
+    return Buffer, ("CPU", 4, dtypes.uint8, None, None, None, 0)
 
 
 def test_external_gpu_keeps_the_native_device_available():
   assert tinygrad_dev_config(True, tici=True) == "QCOM;USB+AMD:LLVM"
   assert tinygrad_dev_config(False, tici=True) == "QCOM"
   assert tinygrad_dev_config(True, tici=False) == "CPU:LLVM;USB+AMD:LLVM"
+
+
+def test_current_tinygrad_loads_legacy_vfn_buffer_pickle():
+  buffer = pickle.loads(pickle.dumps(_LegacyBufferReduce(), protocol=5))
+
+  assert buffer.device == "CPU"
+  assert buffer.size == 4
+  assert buffer._base is None
+
+
+def test_tinygrad_call_info_accepts_old_and_new_pickle_schemas():
+  from tinygrad.dtype import dtypes
+  from tinygrad.uop.ops import CallInfo
+
+  assert CallInfo(None, "legacy", False, False, None).dtype is dtypes.void
+  assert CallInfo(None, "current", False, False, None, dtypes.float).dtype is dtypes.float
 
 
 def test_external_gpu_selects_amd_without_probing_other_backends(monkeypatch, tmp_path):
@@ -35,8 +88,26 @@ def test_external_gpu_selects_amd_without_probing_other_backends(monkeypatch, tm
 
 
 def test_external_gpu_uses_a_longer_load_watchdog():
-  assert modeld.BIG_MODEL_LOAD_WAIT_TIMEOUT_MS == 30000
+  assert modeld.BIG_MODEL_LOAD_WAIT_TIMEOUT_MS == 60000
   assert modeld.BIG_MODEL_RUN_WAIT_TIMEOUT_MS == 3000
+
+
+def test_serialized_artifact_validation_rejects_trailing_data(tmp_path):
+  artifact = tmp_path / "artifact.pkl"
+  artifact.write_bytes(pickle.dumps({"ok": True}) + b"trailing")
+
+  with pytest.raises(ValueError, match="trailing data"):
+    validate_serialized_artifact(artifact, out_of_band=False)
+
+
+def test_serialized_artifact_validation_rejects_incomplete_oob_data(tmp_path):
+  artifact = tmp_path / "artifact.pkl"
+  with artifact.open("wb") as output:
+    dump_oob({"ok": True}, output)
+  artifact.write_bytes(artifact.read_bytes()[:-1])
+
+  with pytest.raises((EOFError, pickle.UnpicklingError)):
+    validate_serialized_artifact(artifact, out_of_band=True)
 
 
 def test_external_gpu_voltage_uses_hardware_specific_source():
@@ -84,35 +155,13 @@ def test_egmp_ready_uses_accelerator_ready_bit():
   assert modeld._egmp_vehicle_ready([not_ready, ready], bus)
 
 
-def test_external_gpu_signal_wait_yields_between_usb_polls(monkeypatch):
-  from tinygrad.runtime import ops_amd
+def test_current_amd_runtime_uses_hcq2_by_default():
+  from tinygrad.helpers import HCQ2
 
-  sleeps = []
-  monkeypatch.setattr(ops_amd.time, "sleep", sleeps.append)
-  signal = ops_amd.AMDSignal.__new__(ops_amd.AMDSignal)
-  signal.should_return = False
-  signal.owner = SimpleNamespace(is_usb=lambda: True, iface=SimpleNamespace(sleep=lambda _: None))
-
-  signal._sleep(0)
-
-  assert sleeps == [ops_amd.AMD_USB_POLL_US / 1e6]
-
-
-def test_native_amd_signal_keeps_existing_short_wait_behavior():
-  from tinygrad.runtime import ops_amd
-
-  sleeps = []
-  signal = ops_amd.AMDSignal.__new__(ops_amd.AMDSignal)
-  signal.should_return = False
-  signal.owner = SimpleNamespace(is_usb=lambda: False, iface=SimpleNamespace(sleep=sleeps.append))
-
-  signal._sleep(199)
-
-  assert sleeps == []
-
-  signal._sleep(201)
-
-  assert sleeps == [200]
+  # The upstream precompiled artifacts are built for the HCQ2 AMD runtime.
+  # HCQ1's AMDSignal polling implementation is intentionally not part of the
+  # current compatibility contract.
+  assert HCQ2.value == 1
 
 
 def test_external_gpu_wait_timeout_updates_tinygrad_cache(monkeypatch):
@@ -338,8 +387,8 @@ def test_external_gpu_nonfinite_outputs_trigger_fallback(monkeypatch):
     callbacks.append("sent")
 
   with pytest.raises(RuntimeError, match="external GPU model output not finite"):
-    state.run(buffers, transforms, inputs, False, after_output_sync=send_telemetry)
-  assert call_order == ["output_sync", "telemetry"]
+    state.run(buffers, transforms, inputs, False, after_enqueue=send_telemetry)
+  assert call_order == ["telemetry", "output_sync"]
   assert callbacks == ["sent"]
 
 
@@ -366,6 +415,7 @@ def test_fused_model_copies_live_frames_and_runs_single_graph():
 
   state = modeld.ModelState.__new__(modeld.ModelState)
   state.fused = True
+  state.fused_legacy = True
   state.frame_copy_size = 4
   state.frame_views = {
     "img": np.zeros(4, dtype=np.uint8),
@@ -441,6 +491,192 @@ def test_fused_artifact_accepts_matching_tinygrad():
   assert modeld._normalize_model_artifact(artifact) is artifact
 
 
+def test_upstream_precompiled_artifact_is_normalized():
+  output_slices = {"plan": slice(0, 10)}
+  artifact = {
+    "run": lambda **_kwargs: None,
+    "input_specs": {"new_img": ((2, 6, 128, 256), "uint8", "AMD")},
+    "output_specs": {"outputs": ((1, 10), "float32", "AMD")},
+    "metadata": {
+      "input_shapes": {"new_img": (2, 6, 128, 256)},
+      "metadata": {"output_slices": base64.b64encode(pickle.dumps(output_slices)).decode()},
+    },
+  }
+
+  normalized = modeld._normalize_model_artifact(artifact)
+
+  assert normalized["execution_mode"] == modeld.UPSTREAM_PRECOMPILED_EXECUTION_MODE
+  assert normalized["image_history_pipeline"] == modeld.IMAGE_HISTORY_IN_POLICY
+  assert normalized["output_slices"] == output_slices
+
+
+def test_upstream_precompiled_artifact_requires_output_slices():
+  artifact = {
+    "run": lambda **_kwargs: None,
+    "input_specs": {"new_img": ((2, 6, 128, 256), "uint8", "AMD")},
+    "output_specs": {"outputs": ((1, 10), "float32", "AMD")},
+    "metadata": {"input_shapes": {"new_img": (2, 6, 128, 256)}, "metadata": {}},
+  }
+
+  with pytest.raises(ValueError, match="output_slices"):
+    modeld._normalize_model_artifact(artifact)
+
+
+def test_upstream_precompiled_warp_path_is_camera_specific():
+  assert modeld._upstream_precompiled_warp_path(1928, 1208, True).name == "big_driving_warp_1928x1208_tinygrad.pkl"
+  assert modeld._upstream_precompiled_warp_path(1344, 760, True).name == "big_driving_warp_1344x760_tinygrad.pkl"
+  assert modeld._upstream_precompiled_warp_path(1928, 1208, False).name == "small_driving_warp_1928x1208_tinygrad.pkl"
+  assert modeld._upstream_precompiled_warp_path(1344, 760, False).name == "small_driving_warp_1344x760_tinygrad.pkl"
+
+
+def test_upstream_precompiled_runtime_packs_frames_with_warp_inputs(tmp_path, monkeypatch):
+  cam_w, cam_h = 8, 8
+  stride, y_height, uv_height, full_frame_size = modeld.get_nv12_info(cam_w, cam_h)
+  frame_size = modeld.nv12_copy_size(stride, y_height, uv_height)
+  assert frame_size < full_frame_size
+  warp_path = tmp_path / "big_driving_warp_8x8_tinygrad.pkl"
+  warp_path.touch()
+  fake_warp = _FakePrecompiledWarp((2, 6, 2, 2))
+  monkeypatch.setattr(modeld, "_upstream_precompiled_warp_path", lambda *_: warp_path)
+  monkeypatch.setattr(modeld.pickle, "load", lambda _: {
+    "run": fake_warp,
+    "input_specs": {
+      "input_frame": ((2, frame_size), "uint8", "CPU"),
+      "M_inv": ((2, 3, 3), "float32", "CPU"),
+    },
+  })
+  policy = _FakePrecompiledPolicy()
+  input_shapes = {
+    "new_img": (2, 6, 2, 2),
+    "desire": (1, modeld.ModelConstants.DESIRE_LEN),
+    "traffic_convention": (1, 2),
+    "action_t": (1, 2),
+  }
+  artifact = {
+    "run": policy,
+    "input_specs": {
+      name: (shape, "uint8" if name == "new_img" else "float32", "CPU")
+      for name, shape in input_shapes.items()
+    },
+    "output_specs": {"outputs": ((1, 1), "float32", "CPU")},
+    "metadata": {"input_shapes": input_shapes},
+    "output_slices": {"stub": slice(0, 1)},
+  }
+  state = modeld.ModelState.__new__(modeld.ModelState)
+  state.uses_external_gpu = False
+  state._queue_dev = "CPU"
+  state._warp_dev = "CPU"
+  state.reprojector = None
+  state._reproject_blob_cache = {}
+  state._init_upstream_precompiled(artifact, cam_w, cam_h)
+  state.parser = _FakeParser()
+
+  road = np.arange(frame_size, dtype=np.uint8)
+  wide = np.arange(frame_size, dtype=np.uint8) + 1
+  eye = np.eye(3, dtype=np.float32)
+  result = state._run_upstream_precompiled(
+    {"img": SimpleNamespace(data=road), "big_img": SimpleNamespace(data=wide)},
+    {"img": eye, "big_img": eye * 2},
+    {
+      "desire": np.zeros(modeld.ModelConstants.DESIRE_LEN, dtype=np.float32),
+      "traffic_convention": np.array([1, 0], dtype=np.float32),
+      "action_t": np.array([.1, .2], dtype=np.float32),
+    },
+    None,
+    None,
+    False,
+  )
+
+  np.testing.assert_array_equal(fake_warp.inputs["input_frame"].numpy(), np.stack((road, wide)))
+  np.testing.assert_array_equal(fake_warp.inputs["M_inv"].numpy(), np.stack((eye, eye * 2)))
+  assert "new_img" in policy.inputs
+  assert "tfm" not in policy.inputs
+  assert result["stub"].shape == (1, 1)
+
+
+def test_fused_artifact_without_device_metadata_remains_compatible(monkeypatch):
+  artifact = {
+    "format_version": modeld.ARTIFACT_FORMAT_VERSION,
+    "execution_mode": "fused",
+    "run_model": {},
+    "compiler": {"tinygrad_commit": modeld.tinygrad_commit()},
+  }
+  monkeypatch.setattr(modeld, "get_tg_input_devices", lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD"})
+
+  modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
+def test_fused_artifact_accepts_matching_device_metadata(monkeypatch):
+  artifact = {
+    "execution_mode": "fused",
+    "input_devices": {"model": "amd:0"},
+  }
+  monkeypatch.setattr(modeld, "get_tg_input_devices", lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD"})
+
+  modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
+def test_fused_artifact_accepts_matching_warp_device_metadata(monkeypatch):
+  artifact = {
+    "execution_mode": "fused",
+    "input_devices": {"model": "amd:0", "warp": "QCOM"},
+  }
+  monkeypatch.setattr(
+    modeld,
+    "get_tg_input_devices",
+    lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD", "WARP_DEV": "QCOM"},
+  )
+
+  modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
+def test_fused_artifact_rejects_wrong_device_metadata(monkeypatch):
+  artifact = {
+    "execution_mode": "fused",
+    "input_devices": {"model": "CPU"},
+  }
+  monkeypatch.setattr(modeld, "get_tg_input_devices", lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD"})
+
+  with pytest.raises(ValueError, match="device mismatch"):
+    modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
+def test_fused_artifact_rejects_wrong_warp_device_metadata(monkeypatch):
+  artifact = {
+    "execution_mode": "fused",
+    "input_devices": {"model": "AMD", "warp": "CPU"},
+  }
+  monkeypatch.setattr(
+    modeld,
+    "get_tg_input_devices",
+    lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD", "WARP_DEV": "QCOM"},
+  )
+
+  with pytest.raises(ValueError, match="warp device mismatch"):
+    modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
+def test_upstream_precompiled_artifact_accepts_runtime_model_device(monkeypatch):
+  artifact = {
+    "execution_mode": modeld.UPSTREAM_PRECOMPILED_EXECUTION_MODE,
+    "input_specs": {"new_img": ((2, 6, 128, 256), "uint8", "AMD")},
+  }
+  monkeypatch.setattr(modeld, "get_tg_input_devices", lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD"})
+
+  modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
+def test_upstream_precompiled_artifact_rejects_wrong_runtime_model_device(monkeypatch):
+  artifact = {
+    "execution_mode": modeld.UPSTREAM_PRECOMPILED_EXECUTION_MODE,
+    "input_specs": {"new_img": ((2, 6, 128, 256), "uint8", "CPU")},
+  }
+  monkeypatch.setattr(modeld, "get_tg_input_devices", lambda *_args, **_kwargs: {"QUEUE_DEV": "AMD"})
+
+  with pytest.raises(ValueError, match="device mismatch"):
+    modeld._validate_fused_artifact_device(artifact, external_gpu_active=True)
+
+
 def test_external_gpu_probe_matches_upstream_retry_loop(monkeypatch):
   from openpilot.system.hardware.chestnut import flash
 
@@ -482,7 +718,7 @@ def test_external_gpu_compiler_uses_fused_comma_stack(monkeypatch, tmp_path):
   assert env["DEV"] == "USB+AMD:LLVM"
   assert env["FRAME_DEV"] == "CPU"
   assert env["TC_MIN_GLOBALS"] == "32"
-  assert "WARP_DEV" not in env
+  assert env["WARP_DEV"] == "QCOM"
 
 
 def test_external_gpu_warmup_runs_a_complete_frame_and_resets(monkeypatch):

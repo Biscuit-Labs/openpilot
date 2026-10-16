@@ -102,10 +102,6 @@ class Warps:
       raise RuntimeError(f"no warp for {cam_w}x{cam_h} -> {model_w}x{model_h} at {path}")
     with open(path, 'rb') as f:
       warp = pickle.load(f)
-    # StarPilot's modeld artifacts still use its four-input camera ABI.
-    # The adapter owns that compatibility implementation; invalid captures fail closed.
-    if not isinstance(warp, dict) and hasattr(self.op, 'load_legacy_warp'):
-      return self.op.load_legacy_warp(warp, model_w, model_h)
     if not isinstance(warp, dict) or not {'run', 'input_specs'} <= warp.keys():
       raise RuntimeError(f"{path.name} is not a driving warp: {type(warp).__name__}")
 
@@ -125,13 +121,6 @@ class Warps:
     if made != (2, 6, model_h // 2, model_w // 2):
       raise RuntimeError(f"the warp makes {made}, not a {model_w}x{model_h} model's input")
     return warp
-
-
-class LegacyWarp:
-  """Adapter-validated compatibility capture, never an unchecked pickle."""
-
-  def __init__(self, make):
-    self.make = make
 
 
 class Warp:
@@ -158,11 +147,6 @@ class Warp:
   The warm-up, the link of the JIT and its first runs, is paid here rather
   than on modeld's frame loop.
   """
-
-  def __new__(cls, warp, frame_size: int):
-    if isinstance(warp, LegacyWarp):
-      return warp.make(frame_size)
-    return super().__new__(cls)
 
   def __init__(self, warp: dict, frame_size: int):
     import numpy as np
@@ -239,11 +223,7 @@ def prepare_reset(model):
   from tinygrad import Tensor, TinyJit
 
   adapter = getattr(model, 'adapter', None)
-  if adapter is None and not hasattr(model, 'state_pairs'):
-    # StarPilot's queue-based ModelState ABI, before native persistent buffers.
-    queues = tuple(q for q in model.input_queues.values() if q.device != 'NPY')
-    arrays = tuple(model.numpy_inputs.values())
-  elif adapter is None or adapter.is_native:
+  if adapter is None or adapter.is_native:
     keeper = model if adapter is None else adapter
     queues = tuple(keeper.input_queues[name] for name in keeper.state_pairs)
     arrays = (keeper.packed_input,)

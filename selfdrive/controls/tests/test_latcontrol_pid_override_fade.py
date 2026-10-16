@@ -1,9 +1,42 @@
 from types import SimpleNamespace
 
-from cereal import car
-from openpilot.selfdrive.controls.tests.test_latcontrol_pid_rate_ff import _build
+from cereal import car, custom, log
+import openpilot.selfdrive.controls.lib.latcontrol_pid as latcontrol_pid
+from opendbc.car.car_helpers import interfaces
+from opendbc.car.honda.values import CAR as HONDA, HondaFlags
+from opendbc.car.vehicle_model import VehicleModel
+from openpilot.common.realtime import DT_CTRL
+from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 
 MPH = 0.44704
+
+
+class _Params:
+  def __init__(self, values):
+    self.values = values
+
+  def get(self, key, *args, **kwargs):
+    return self.values.get(key)
+
+  def get_bool(self, key, *args, **kwargs):
+    return str(self.values[key]) in ("1", "True", "true")   # KeyError -> the controller's default
+
+
+def _build(monkeypatch, values):
+  monkeypatch.setattr(latcontrol_pid, "civic_bosch_modified_lateral_testing_ground_active", lambda *a, **kw: False)
+  monkeypatch.setattr(latcontrol_pid, "Params", lambda: _Params(values))
+  CarInterface = interfaces[HONDA.HONDA_CIVIC_BOSCH]
+  CP = CarInterface.get_non_essential_params(HONDA.HONDA_CIVIC_BOSCH)
+  CP.flags |= int(HondaFlags.EPS_MODIFIED)
+  CP.dashcamOnly = True
+  CI = CarInterface(CP, custom.StarPilotCarParams.new_message())
+  lac = LatControlPID(CP.as_reader(), CI, DT_CTRL)
+  lac.params = _Params(values)
+  params = log.LiveParametersData.new_message()
+  params.steerRatio = CP.steerRatio
+  params.stiffnessFactor = 1.0
+  params.angleOffsetDeg = 0.0
+  return lac, VehicleModel(CP), params
 
 
 def _step(lac, VM, params, CS, limited=False, active=True):
@@ -64,3 +97,20 @@ def test_limit_without_a_press_still_freezes(monkeypatch):
   for _ in range(100):
     _step(lac, VM, params, CS, limited=True)
   assert lac.pid.i == held
+
+
+def test_gain_schedule_reaches_the_production_pid_output(monkeypatch):
+  values = {'LatIScaleLowSpeed': '0', 'HondaTorqueOutputLowPassFilter': '0'}
+  baseline, vm_base, live_base = _build(monkeypatch, values)
+  scheduled, vm_scheduled, live_scheduled = _build(monkeypatch, {
+    **values, 'LatGainSchedule': '{"v_mph":[10,30],"p":[200,200],"i":[0,0]}',
+  })
+  cs = car.CarState.new_message()
+  cs.vEgo = 20 * MPH
+  cs.steeringAngleDeg = -0.2
+  for _ in range(5):
+    base_out = baseline.update(True, cs, vm_base, live_base, False, 0.0, False, 0.2, None, None, SimpleNamespace())[0]
+    scheduled_out = scheduled.update(True, cs, vm_scheduled, live_scheduled, False, 0.0, False, 0.2, None, None, SimpleNamespace())[0]
+  assert base_out > 0.0
+  assert scheduled.pid.i == baseline.pid.i == 0.0
+  assert abs(scheduled_out / base_out - 2.0) < 1e-9

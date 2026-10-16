@@ -2,12 +2,13 @@ import io
 import json
 import os
 import pickle
+import pickletools
 import shutil
 import struct
 import tempfile
 from pathlib import Path
 
-from tinygrad.device import Device
+from tinygrad.device import Buffer, Device
 from openpilot.system.hardware.usb import chestnut_firmware_ready
 
 MODELS_DIR = Path(__file__).resolve().parent / "models"
@@ -92,11 +93,58 @@ def dump_oob(obj, output) -> None:
     shutil.copyfileobj(buffers, output)
 
 
-def load_oob(source):
+def _load_persistent_oob(source, opcodes: bytes, device: str | None):
+  """Load upstream's aligned weight arena, retaining views into one allocation."""
+  if not source.seekable():
+    raise ValueError("persistent-buffer models must be installed as a single file")
+  start = source.tell()
+  source.seek(0, os.SEEK_END)
+  arena_size = source.tell() - start
+  source.seek(start)
+  if arena_size <= 0:
+    raise EOFError("missing persistent model buffers")
+  arena = Buffer(device or Device.DEFAULT, arena_size, preallocate=True)
+  chunk_size = 32 << 20
+  for offset in range(0, arena_size, chunk_size):
+    size = min(chunk_size, arena_size - offset)
+    data = source.read(size)
+    if len(data) != size:
+      raise EOFError("truncated persistent model buffer arena")
+    host = Buffer("PYTHON", size, opaque=memoryview(bytearray(data)))
+    arena.view(size, offset).ensure_allocated().copy_from(host)
+
+  def persistent_load(pid):
+    # tinygrad d3f09c9b artifacts reference (nbytes, offset): Buffer has no dtype. The older (size, dtype, offset) form
+    # comes from artifacts compiled for an earlier tinygrad pin, which must be recompiled for this one.
+    if not isinstance(pid, tuple) or len(pid) != 2:
+      raise ValueError("persistent model buffer reference is not (nbytes, offset): artifact was compiled for another tinygrad, recompile it")
+    nbytes, offset = pid
+    if not isinstance(nbytes, int) or not isinstance(offset, int) or nbytes <= 0 or offset < 0:
+      raise ValueError("invalid persistent model buffer range")
+    if offset + nbytes > arena_size:
+      raise EOFError("persistent model buffer exceeds weight arena")
+    return arena.view(nbytes, offset)
+
+  unpickler = pickle.Unpickler(io.BytesIO(opcodes))
+  unpickler.persistent_load = persistent_load
+  return unpickler.load()
+
+
+def load_oob(source, device: str | None = None):
+  if not source.seekable():
+    # chunked artifacts (common/file_chunker ChunkStream) stream forward only; the weight arena needs its size up front
+    source = io.BytesIO(source.read())
   header = source.read(8)
   if len(header) != 8:
     raise EOFError("truncated out-of-band pickle header")
-  opcodes = source.read(struct.unpack("<q", header)[0])
+  opcode_size = struct.unpack("<q", header)[0]
+  if not 2 <= opcode_size <= 1024 * 1024 * 1024:
+    raise ValueError("invalid out-of-band opcode length")
+  opcodes = source.read(opcode_size)
+  if len(opcodes) != opcode_size:
+    raise EOFError("truncated out-of-band opcodes")
+  if any(op.name == "BINPERSID" for op, _, _ in pickletools.genops(opcodes)):
+    return _load_persistent_oob(source, opcodes, device)
 
   def buffers():
     previous = None
@@ -112,3 +160,11 @@ def load_oob(source):
       yield previous
 
   return pickle.load(io.BytesIO(opcodes), buffers=buffers())
+
+
+def load_precompiled_artifact(path: Path, device: str | None = None):
+  """A tinygrad examples/openpilot compile_onnx.py / compile_warp.py artifact (out-of-band weight arena), single file or
+  chunked, onto `device` (default: tinygrad's default device)."""
+  from openpilot.common.file_chunker import open_file_chunked
+  with (path.open("rb") if path.is_file() else open_file_chunked(path)) as artifact_file:
+    return load_oob(artifact_file, device=device)

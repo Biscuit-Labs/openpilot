@@ -261,11 +261,11 @@ SLIDE_MIN_D = 20.0
 # nearer car (~17.5 m/s) took over the same track and the camera lead. Camera x stepped 66 -> 50 m in ~0.5 s and the
 # radar range slid 60 -> 41 m while U11 vRel said only -6..-8, so the off-rail range assist published vRel -13.7, the
 # Doppler blend gave aLeadK -4.2 and STOCK_FEEL_EMERGENCY latched past the SBF depth cap: the car braked -3.5 down to
-# 14.6 m/s behind a 17.5 m/s lead. The camera speed was falling, which blocks the D-102 entry, so this entry reads ranges:
+# 14.6 m/s behind a 17.5 m/s lead. The camera speed was falling, which blocks the D-114 entry, so this entry reads ranges:
 #   the camera range fell >= LEAD_SWITCH_CAM_EXCESS_M further than its own speed explains over LEAD_SWITCH_WINDOW_S
 #   (that step latched for LEAD_SWITCH_WINDOW_S, since the radar slide trails it by ~0.4 s), AND the same radar track's
-#   range fell >= LEAD_SWITCH_RADAR_EXCESS_M further than its U11 vRel explains, plus the D-102 camera gates (same
-#   object, prob > 0.9 for 1 s, speed sd < 1.5, camera >= SLIDE_MIN_GAP faster). Floors and hold are D-102's.
+#   range fell >= LEAD_SWITCH_RADAR_EXCESS_M further than its U11 vRel explains, plus the D-114 camera gates (same
+#   object, prob > 0.9 for 1 s, speed sd < 1.5, camera >= SLIDE_MIN_GAP faster). Floors and hold are D-114's.
 # Replay (car-matched, closed-loop, with D-123; the same without it): 31b 14:34 plan -3.63 -> -2.55, sim accel -4.37 ->
 # -3.67, sim min speed 15.2 -> ~17 m/s; closest gap 33.4 -> 26.1 m. In 15 replay windows (real brakes, stops, 2f5
 # emergency, 299 s49) it fires only there, and in 11 protected groups (297/298/2a6/2f2/311/312) it never raises a vRel.

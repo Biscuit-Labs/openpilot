@@ -37,10 +37,10 @@ from openpilot.system.hardware.usb import (
   set_usb_state,
 )
 from openpilot.system.hardware.chestnut.status import ChestnutStatus
+from openpilot.starpilot.assets.model_manager import chestnut_model_installed
 from openpilot.system.version import terms_version, training_version
 from openpilot.system.athena.registration import UNREGISTERED_DONGLE_ID
 
-from openpilot.starpilot.assets.model_manager import selected_chestnut_artifacts_ready
 from openpilot.starpilot.common.starpilot_variables import get_starpilot_toggles
 
 ThermalStatus = log.DeviceState.ThermalStatus
@@ -112,9 +112,11 @@ def notify_sentry_low_voltage(power_monitor: PowerMonitoring) -> bool:
 
 
 class Chestnut:
-  """Keep the ASM2464PD dock on the firmware expected by the GPU runtime."""
+  """Keep the ASM2464PD dock on the firmware expected by the GPU runtime, flashing before going onroad (comma #39078):
+  the onroad start waits up to STARTUP_TIMEOUT for a running flash, so modeld never opens the dock mid-flash."""
   MAX_ATTEMPTS = 3
   RETRY_INTERVAL = 20.0
+  STARTUP_TIMEOUT = 30.
 
   def __init__(self):
     self.thread: threading.Thread | None = None
@@ -122,6 +124,10 @@ class Chestnut:
     self.last_attempt = 0.0
     self.flashed = False
     self.mismatch = False
+
+  @property
+  def flashing(self) -> bool:
+    return self.thread is not None and self.thread.is_alive() and time.monotonic() - self.last_attempt < self.STARTUP_TIMEOUT
 
   @property
   def failed(self) -> bool:
@@ -152,7 +158,7 @@ class Chestnut:
       return
     if self.thread is not None and self.thread.is_alive():
       return
-    if time.monotonic() - self.last_attempt < self.RETRY_INTERVAL:
+    if self.attempts > 0 and time.monotonic() - self.last_attempt < self.RETRY_INTERVAL:
       return
 
     self.attempts += 1
@@ -331,7 +337,7 @@ def hardware_thread(end_event, hw_queue) -> None:
     network_strength=NetworkStrength.unknown,
     network_stats={'wwanTx': -1, 'wwanRx': -1},
     modem_temps=[],
-    usb_state=[],
+    usb_state=get_usb_state(),
   )
 
   all_temp_filter = FirstOrderFilter(0., TEMP_TAU, DT_HW, initialized=False)
@@ -349,6 +355,7 @@ def hardware_thread(end_event, hw_queue) -> None:
   power_monitor = PowerMonitoring()
   chestnut = Chestnut() if AGNOS else None
   chestnut_status = ChestnutStatus() if AGNOS else None
+  chestnut_compiled, chestnut_compiled_checked = False, None
 
   uptime_offroad: float = params.get("UptimeOffroad", return_default=True)
   uptime_onroad: float = params.get("UptimeOnroad", return_default=True)
@@ -437,11 +444,19 @@ def hardware_thread(end_event, hw_queue) -> None:
       chestnut_expected = active_big_model.lower() not in ("", "none") or (
         isinstance(model_lab_config, dict) and bool(model_lab_config.get("enabled"))
       )
+      if started_ts is not None:
+        chestnut_compiled = params.get_bool("UsbGpuCompiled")   # modeld's own answer, set when it starts
+        chestnut_compiled_checked = None
+      elif chestnut_compiled_checked is None or time.monotonic() - chestnut_compiled_checked > 10.0:
+        # offroad UsbGpuCompiled is always cleared, so it showed "not installed" for installed models: ask the disk
+        try:
+          chestnut_compiled = chestnut_model_installed(params)
+        except Exception:
+          cloudlog.exception("chestnut model install check failed")
+          chestnut_compiled = True   # unknown is not "not installed"
+        chestnut_compiled_checked = time.monotonic()
       chestnut_state = sm["chestnutState"]
       chestnut_valid = sm.alive["chestnutState"] and sm.valid["chestnutState"]
-      compiled = params.get_bool("UsbGpuCompiled")
-      if started_ts is None:
-        compiled = selected_chestnut_artifacts_ready(params)
       chestnut_status.update(
         started_ts is None,
         chestnut_expected,
@@ -449,7 +464,7 @@ def hardware_thread(end_event, hw_queue) -> None:
         chestnut.failed,
         params.get_bool("UsbGpuLoading"),
         params.get("UsbGpuActive"),
-        compiled,
+        chestnut_compiled,
         chestnut_state if chestnut_valid else None,
         set_offroad_alert_if_changed,
       )
@@ -509,6 +524,8 @@ def hardware_thread(end_event, hw_queue) -> None:
 
     # must be at an engageable thermal band to go onroad
     startup_conditions["device_temp_engageable"] = thermal_status < ThermalStatus.overheated
+
+    startup_conditions["not_flashing_chestnut"] = chestnut is None or not chestnut.flashing
 
     # ensure device is fully booted
     startup_conditions["device_booted"] = startup_conditions.get("device_booted", False) or HARDWARE.booted()

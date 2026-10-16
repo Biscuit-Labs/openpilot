@@ -110,8 +110,25 @@ FAST_POLICY_INPUTS = ("img_q", "big_img_q", *BASE_POLICY_INPUTS)
 WARP_INPUTS = LEGACY_WARP_INPUTS
 SPLIT_POLICY_INPUTS = BASE_POLICY_INPUTS
 SUPERCOMBO_POLICY_INPUTS = BASE_POLICY_INPUTS
-FUSED_MODELD_INPUTS = ("img_q", "big_img_q", "feat_q", "desire_q", "packed_npy_inputs")
+# New fused artifacts keep camera buffers on the native device (QCOM on a
+# Chestnut build) and pass only the prepared model crop over USB. Keep the old
+# ABI named separately so artifacts already installed on devices remain
+# loadable while the compiler emits the new one.
+FUSED_FRAME_INPUTS = ("frame", "big_frame")
+FUSED_QUEUE_INPUTS = ("img_q", "big_img_q", "feat_q", "desire_q", "packed_npy_inputs")
+FUSED_MODELD_INPUTS = (*FUSED_FRAME_INPUTS, *FUSED_QUEUE_INPUTS)
+FUSED_LEGACY_MODELD_INPUTS = FUSED_QUEUE_INPUTS
 WARP_DEV = os.getenv("WARP_DEV") or Device.DEFAULT
+
+
+def to_model_device(tensor: Tensor) -> Tensor:
+  """Move a warp output to the model device. The USB AMD runtime pulls host memory but cannot read QCOM GPU memory
+  directly (a QCOM -> USB AMD copy of any buffer over 64 KiB needs a copyin it does not implement), so QCOM sources go
+  through CPU: the QCOM -> CPU hop is a host memcpy of mapped memory and CPU -> AMD is the supported upload."""
+  source = tensor.device if isinstance(tensor.device, str) else ""
+  if source.split(":")[0] == "QCOM" and str(Device.DEFAULT).split(":")[0] == "AMD":
+    return tensor.to("CPU").to(Device.DEFAULT)
+  return tensor.to(Device.DEFAULT)
 OOB_PICKLE = False
 
 
@@ -326,8 +343,13 @@ def make_supercombo_input_queues(input_shapes, frame_skip, device):
   return queues, npy
 
 
-def make_fused_supercombo_input_queues(input_shapes, frame_skip, device, frame_copy_size):
-  """Build the single packed host input used by comma's fused Chestnut graph."""
+def make_fused_supercombo_input_queues(input_shapes, frame_skip, device, frame_copy_size=None):
+  """Build queues for a fused Chestnut graph.
+
+  New artifacts pass the raw NV12 frames as separate device tensors. The
+  optional ``frame_copy_size`` selects the legacy host-packed ABI for old
+  artifacts that still contain the frame bytes in ``packed_npy_inputs``.
+  """
   road_key, wide_key = _detect_vision_keys(input_shapes)
   image_shape = input_shapes[road_key]
   frame_count = image_shape[1] // 6
@@ -340,18 +362,11 @@ def make_fused_supercombo_input_queues(input_shapes, frame_skip, device, frame_c
   policy_shapes, _ = _packed_policy_shapes(input_shapes, include_prev_feature=True)
   packed_shapes = {"tfm": (3, 3), "big_tfm": (3, 3), **policy_shapes}
   packed_sizes = [math.prod(shape) for shape in packed_shapes.values()]
-  packed_npy_size = sum(packed_sizes) * np.dtype(np.float32).itemsize
-  packed_input = np.zeros(packed_npy_size + 2 * frame_copy_size, dtype=np.uint8)
-  packed_npy_inputs = packed_input[:packed_npy_size].view(np.float32)
-  packed_frames = packed_input[packed_npy_size:]
-  frame_views = {
-    road_key: packed_frames[:frame_copy_size],
-    wide_key: packed_frames[frame_copy_size:],
-  }
+  packed_input = np.zeros(sum(packed_sizes), dtype=np.float32)
   npy = {
     key: value.reshape(shape)
     for (key, shape), value in zip(
-      packed_shapes.items(), np.split(packed_npy_inputs, np.cumsum(packed_sizes[:-1])), strict=True,
+      packed_shapes.items(), np.split(packed_input, np.cumsum(packed_sizes[:-1])), strict=True,
     )
   }
   queues = {
@@ -367,6 +382,26 @@ def make_fused_supercombo_input_queues(input_shapes, frame_skip, device, frame_c
     ).contiguous().realize(),
     "packed_npy_inputs": Tensor(packed_input, device="NPY").realize(),
   }
+  if frame_copy_size is None:
+    return queues, npy
+
+  # Compatibility path for artifacts built before camera frames became
+  # explicit fused inputs.
+  packed_npy_size = sum(packed_sizes) * np.dtype(np.float32).itemsize
+  packed_input_legacy = np.zeros(packed_npy_size + 2 * frame_copy_size, dtype=np.uint8)
+  packed_npy_inputs = packed_input_legacy[:packed_npy_size].view(np.float32)
+  packed_frames = packed_input_legacy[packed_npy_size:]
+  frame_views = {
+    road_key: packed_frames[:frame_copy_size],
+    wide_key: packed_frames[frame_copy_size:],
+  }
+  npy = {
+    key: value.reshape(shape)
+    for (key, shape), value in zip(
+      packed_shapes.items(), np.split(packed_npy_inputs, np.cumsum(packed_sizes[:-1])), strict=True,
+    )
+  }
+  queues["packed_npy_inputs"] = Tensor(packed_input_legacy, device="NPY").realize()
   return queues, npy, frame_views
 
 
@@ -414,7 +449,8 @@ def make_warp(nv12, model_w, model_h, frame_skip, image_history_pipeline=IMAGE_H
     warped = Tensor.cat(
       frame_prepare(frame, tfm).unsqueeze(0),
       frame_prepare(big_frame, big_tfm).unsqueeze(0),
-    ).to(Device.DEFAULT)
+    )
+    warped = to_model_device(warped)
     img = shift_and_sample(img_q, warped[0:1], sample_skip_fn)
     big_img = shift_and_sample(big_img_q, warped[1:2], sample_skip_fn)
     return img, big_img
@@ -471,7 +507,7 @@ def make_run_split_policy(vision_runner, policy_runners, metadata, policy_order,
   if image_history_pipeline == IMAGE_HISTORY_IN_POLICY:
     def run_policy(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
       packed_npy_inputs = packed_npy_inputs.to(Device.DEFAULT)
-      warped = warped.to(Device.DEFAULT)
+      warped = to_model_device(warped)
       Tensor.realize(packed_npy_inputs, warped)
       img = shift_and_sample(img_q, warped[0:1], sample_skip_fn)
       big_img = shift_and_sample(big_img_q, warped[1:2], sample_skip_fn)
@@ -524,7 +560,7 @@ def make_run_supercombo(model_runner, metadata, frame_skip, image_history_pipeli
   if image_history_pipeline == IMAGE_HISTORY_IN_POLICY:
     def run_policy(warped, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
       packed_npy_inputs = packed_npy_inputs.to(Device.DEFAULT)
-      warped = warped.to(Device.DEFAULT)
+      warped = to_model_device(warped)
       Tensor.realize(packed_npy_inputs, warped)
       img = shift_and_sample(img_q, warped[0:1], sample_skip_fn)
       big_img = shift_and_sample(big_img_q, warped[1:2], sample_skip_fn)
@@ -540,19 +576,36 @@ def make_run_supercombo(model_runner, metadata, frame_skip, image_history_pipeli
 
 
 def make_fused_run_model(warp, run_policy, input_shapes, frame_copy_size):
-  """Fuse host-to-AMD transfer, frame warp, temporal queues, and policy into one JIT."""
-  _, policy_sizes = _packed_policy_shapes(input_shapes, include_prev_feature=True)
-  packed_npy_size = (18 + sum(policy_sizes)) * np.dtype(np.float32).itemsize
+  """Fuse frame preparation, temporal queues, and policy into one JIT.
 
-  def run_model(img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
-    packed_input = packed_npy_inputs.to(Device.DEFAULT)
-    Tensor.realize(packed_input)
-    packed_policy_inputs = packed_input[:packed_npy_size].bitcast("float32")
-    frame = packed_input[packed_npy_size:packed_npy_size + frame_copy_size]
-    big_frame = packed_input[packed_npy_size + frame_copy_size:]
-    transform, big_transform, policy_inputs = packed_policy_inputs.split([9, 9, sum(policy_sizes)])
-    warped = warp(transform.reshape(3, 3), big_transform.reshape(3, 3), frame, big_frame)
-    return run_policy(warped, img_q, big_img_q, feat_q, desire_q, policy_inputs)
+  ``frame_copy_size`` is retained only for the pre-frame-input ABI. New
+  artifacts receive ``frame`` and ``big_frame`` directly on ``WARP_DEV``;
+  this keeps the large camera buffers off the USB link and leaves only the
+  prepared model input to cross to the AMD queue.
+  """
+  _, policy_sizes = _packed_policy_shapes(input_shapes, include_prev_feature=True)
+  if frame_copy_size is not None:
+    packed_npy_size = (18 + sum(policy_sizes)) * np.dtype(np.float32).itemsize
+
+    def run_legacy_model(img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
+      packed_input = packed_npy_inputs.to(Device.DEFAULT)
+      Tensor.realize(packed_input)
+      packed_policy_inputs = packed_input[:packed_npy_size].bitcast("float32")
+      frame = packed_input[packed_npy_size:packed_npy_size + frame_copy_size]
+      big_frame = packed_input[packed_npy_size + frame_copy_size:]
+      transform, big_transform, policy_inputs = packed_policy_inputs.split([9, 9, sum(policy_sizes)])
+      warped = warp(transform.reshape(3, 3), big_transform.reshape(3, 3), frame, big_frame)
+      return run_policy(warped, img_q, big_img_q, feat_q, desire_q, policy_inputs)
+
+    return run_legacy_model
+
+  def run_model(frame, big_frame, img_q, big_img_q, feat_q, desire_q, packed_npy_inputs):
+    warp_inputs = packed_npy_inputs.to(WARP_DEV)
+    policy_inputs = packed_npy_inputs.to(Device.DEFAULT)
+    Tensor.realize(warp_inputs, policy_inputs)
+    transform, big_transform = warp_inputs[:9].reshape(3, 3), warp_inputs[9:18].reshape(3, 3)
+    warped = warp(transform, big_transform, frame, big_frame)
+    return run_policy(warped, img_q, big_img_q, feat_q, desire_q, policy_inputs[18:])
 
   return run_model
 
@@ -609,24 +662,43 @@ def compile_jit(jit, make_random_inputs, input_keys, make_queues):
   return jit
 
 
-def compile_fused_jit(jit, make_queues, benchmark_runs):
-  """Capture and verify a fused graph using the same packed host buffer as runtime."""
+def compile_fused_jit(jit, make_queues, nv12, benchmark_runs):
+  """Capture and verify a fused graph using the same inputs as runtime."""
   if benchmark_runs < 1:
     raise ValueError("benchmark_runs must be at least 1")
   seed = 42
 
   def random_inputs_run(fn, current_seed, run_count, test_values=None, test_buffers=None, expect_match=True):
-    input_queues, npy, frame_views = make_queues(Device.DEFAULT)
+    queue_result = make_queues(Device.DEFAULT)
+    if len(queue_result) == 3:
+      # This is only used when validating a legacy graph during development.
+      input_queues, npy, frame_views = queue_result
+      frames = {
+        key: Tensor.from_blob(value.ctypes.data, value.shape, dtype="uint8", device=WARP_DEV).realize()
+        for key, value in frame_views.items()
+      }
+    else:
+      input_queues, npy = queue_result
+      frames = make_random_images(("frame", "big_frame"), nv12.size, device=WARP_DEV)
     rng = np.random.default_rng(current_seed)
 
     for index in range(run_count):
       for value in npy.values():
         value[:] = rng.standard_normal(value.shape).astype(value.dtype)
-      for value in frame_views.values():
-        value[:] = rng.integers(0, 256, size=value.shape, dtype=np.uint8)
+      if len(queue_result) == 3:
+        for value in frame_views.values():
+          value[:] = rng.integers(0, 256, size=value.shape, dtype=np.uint8)
+      else:
+        # frames from the seeded rng like the policy inputs: Tensor.randint draws from tinygrad's global generator, so
+        # the baseline and the reloaded artifact saw different frames and the bit-exact check could never pass
+        frames = {
+          key: Tensor(rng.integers(0, 256, size=nv12.size, dtype=np.uint8), device=WARP_DEV).realize()
+          for key in FUSED_FRAME_INPUTS
+        }
       Device.default.synchronize()
       start = time.perf_counter()
-      outputs = fn(**{key: input_queues[key] for key in FUSED_MODELD_INPUTS})
+      queue_inputs = {key: input_queues[key] for key in FUSED_QUEUE_INPUTS}
+      outputs = fn(**queue_inputs) if len(queue_result) == 3 else fn(**frames, **queue_inputs)
       mid = time.perf_counter()
       Device.default.synchronize()
       end = time.perf_counter()
@@ -683,6 +755,18 @@ def read_file_chunked_to_disk(path):
     raise
   atexit.register(lambda: os.path.exists(temporary_path) and os.remove(temporary_path))
   return temporary_path
+
+
+def validate_serialized_artifact(path, out_of_band: bool) -> None:
+  """Read the complete artifact back and reject trailing or incomplete data."""
+  with open(path, "rb") as artifact_file:
+    if out_of_band:
+      from openpilot.selfdrive.modeld.helpers import load_oob
+      load_oob(artifact_file)
+    else:
+      pickle.load(artifact_file)
+    if artifact_file.read(1):
+      raise ValueError(f"serialized model artifact has trailing data: {path}")
 
 
 def validate_metadata(metadata):
@@ -746,6 +830,15 @@ def main():
       "device": str(Device.DEFAULT),
     },
   }
+  if args.fused:
+    # Fused artifacts execute the model graph on the queue device. Keep this
+    # explicit so modeld can reject an artifact built for the wrong accelerator
+    # before it starts warming a large graph. This is additive: older artifacts
+    # without input_devices remain compatible with the runtime.
+    output["input_devices"] = {
+      "model": Device.canonicalize(Device.DEFAULT),
+      "warp": Device.canonicalize(WARP_DEV),
+    }
   if args.behavior_version:
     output["behavior_version"] = args.behavior_version
 
@@ -816,12 +909,10 @@ def main():
     output["run_model"] = {}
     for cam_w, cam_h in args.camera_resolutions:
       nv12 = NV12Frame(cam_w, cam_h, *get_nv12_info(cam_w, cam_h))
-      frame_copy_size = nv12_copy_size(nv12.stride, nv12.y_height, nv12.uv_height)
       make_model_queues = partial(
         make_fused_supercombo_input_queues,
         policy_shapes,
         frame_skip,
-        frame_copy_size=frame_copy_size,
       )
       warp = make_warp(
         nv12,
@@ -829,15 +920,16 @@ def main():
         model_h,
         frame_skip,
         IMAGE_HISTORY_IN_POLICY,
-        device=Device.DEFAULT,
+        device=WARP_DEV,
       )
       run_model_jit = TinyJit(
-        make_fused_run_model(warp, run_policy, policy_shapes, frame_copy_size),
+        make_fused_run_model(warp, run_policy, policy_shapes, None),
         prune=True,
       )
       output["run_model"][(cam_w, cam_h)] = compile_fused_jit(
         run_model_jit,
         make_model_queues,
+        nv12,
         args.benchmark_runs,
       )
   else:
@@ -882,6 +974,7 @@ def main():
       dump_oob(output, artifact_file)
     else:
       pickle.dump(output, artifact_file)
+  validate_serialized_artifact(args.output, args.out_of_band)
   print(f"Saved JITs to {args.output} ({os.path.getsize(args.output) / 1e6:.2f} MB)")
   return 0
 

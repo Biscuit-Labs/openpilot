@@ -26,8 +26,8 @@ from openpilot.selfdrive.controls.lib.drive_helpers import (
 from openpilot.selfdrive.controls.lib.lane_centering import LaneCenteringController
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
-from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, eps_lateral_delay, \
-  eps_lateral_delay_schedule, use_honda_eps_controller
+from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, eps_firmware_calibration, \
+  get_rack_map, lateral_delay_schedule, scheduled_lateral_delay
 from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle, STEER_ANGLE_SATURATION_THRESHOLD
 from openpilot.selfdrive.controls.lib.latcontrol_curvature import LatControlCurvature
 from openpilot.selfdrive.controls.lib.latcontrol_torque import (
@@ -171,7 +171,7 @@ CURVATURE_HOLD_OPPOSITE_RELEASE = 0.01  # 1/m
 # already bounds the captured floor in that band.
 CURVATURE_HOLD_CONFIRM_MIN = 0.003  # 1/m (~7 deg) of wound curvature before capture
 CURVATURE_HOLD_CONFIRM_SWEPT = 0.6  # rad of heading swept this blinker cycle; past this the push is exit-shaping, not initiation
-# nrdr: turn shaping for controllers that track the target closely (the Clarity's firmware-inversion
+# nrdr: turn shaping for controllers that track the target closely (the EPS-firmware inversion
 # controller). The hold and the turn lead enter the command as steps: the plan ratchet below the
 # plan-source speed jumps a model frame at a time, opposite-release and handoff drop the floor in one
 # frame, and at a stop the every-frame done reset re-arms the pre-wind the frame after
@@ -443,18 +443,18 @@ class Controls:
       self.LaC = LatControlAngle(self.CP, self.CI, DT_CTRL)
     elif self.CP.steerControlType == car.CarParams.SteerControlType.curvatureDEPRECATED:
       self.LaC = LatControlCurvature(self.CP, self.CI, DT_CTRL)
-    elif use_honda_eps_controller(self.CP, self.params):
-      # NrdrLatEpsFirmwareFF: JamesL787 8c3a3fd8's controller (modified-EPS Clarity/Civic Bosch/CR-V A040 FF45)
-      self.LaC = LatControlHondaEps(self.CP, self.CI, DT_CTRL)
+    elif (eps_profile := eps_firmware_calibration(self.CP)) is not None:
+      self.LaC = LatControlHondaEps(self.CP, self.CI, DT_CTRL, eps_profile)
     elif self.CP.lateralTuning.which() == 'pid':
       self.LaC = LatControlPID(self.CP, self.CI, DT_CTRL)
     elif self.CP.lateralTuning.which() == 'torque':
       self.LaC = LatControlTorque(self.CP, self.CI, DT_CTRL)
 
+    eps_fw = isinstance(self.LaC, LatControlHondaEps)
+    self.lat_delay_schedule = lateral_delay_schedule(self.CP) if eps_fw else None
+    self.rack_map = get_rack_map(self.CP, self.LaC.calibration) if eps_fw else None
     # see TURN_SHAPING_TAU
     self.turn_shaping = isinstance(self.LaC, LatControlHondaEps)
-    # speed-scheduled model delay for that controller (EPS_LAT_DELAY_SCHEDULE); modeld tells the model the same
-    self.lat_delay_schedule = eps_lateral_delay_schedule(self.CP, self.params) if self.turn_shaping else None
 
     self.sm = self.sm.extend(['liveDelay', 'starpilotCarState', 'starpilotPlan'])
 
@@ -729,7 +729,11 @@ class Controls:
 
     angle_offset = lp.angleOffsetDeg if self.learn_angle_offset else 0.0
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - angle_offset)
-    self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
+    if self.rack_map is not None:
+      # the same map the controller steers through, so a held or seeded curvature comes back as the same wheel angle
+      self.curvature = self.rack_map.curvature_from_angle(CS.steeringAngleDeg - angle_offset, CS.vEgo, lp.roll)
+    else:
+      self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
 
     # Update Torque Params
     # The Clarity hybrid keeps self.CP on the pid union but still runs an NNFF half
@@ -799,6 +803,13 @@ class Controls:
                                         CS.steerFaultTemporary, CS.steerFaultPermanent,
                                         standstill, self.CP.steerAtStandstill,
                                         self.sm['starpilotPlan'].lateralCheck)
+    # Never steer from a model that stopped publishing. Engaged driving disengages on the resulting events, but
+    # always-on lateral runs with selfdrive disabled, so without this it kept tracking the last curvature (turn hold
+    # and lane centering keep shaping it) and wound the controller up to full torque for 20 s when the Chestnut model
+    # failed and the small-model fallback published nothing (route 000003bb, 2026-10-10). alive = a modelV2 within
+    # 10 periods (0.5 s); the valid flag is not used so occasional dropped frames do not toggle lateral.
+    if not self.sm.alive['modelV2']:
+      CC.latActive = False
     # EcuDisableFailed is set when car started in READY mode (ECU disable was rejected)
     # Disable longitudinal so stock ACC works instead
     self.update_ecu_disable_failed()
@@ -853,9 +864,8 @@ class Controls:
     #
     # Measured on route 00000276 under 15 mph: each model frame steps the desired wheel angle by
     # 2.0 deg at p50 and 6.9 deg at p90, half of those steps are smaller than the angle-rate clip
-    # and so pass it untouched, and 19% of the command's chatter power sits in the 15-22 Hz band
-    # -- about four times what it is with the lateral target low-pass enabled. That low-pass is
-    # what has been hiding this, at the cost of 0.11 s of lag on every genuine maneuver too.
+    # and so pass it untouched. Target smoothing is deliberately not used here; modified-EPS
+    # torque is filtered once, after output shaping, in LatControlPID (LatControlHondaEps on the cars that run it).
     #
     # Ramp toward each new action across the model frame instead. Starting the ramp from the value
     # currently being commanded keeps the target continuous by construction -- there is no step
@@ -930,7 +940,9 @@ class Controls:
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll,
                                                                jerk_factor)
     lat_smooth_seconds = get_control_lateral_smooth_seconds(self.CP.brand, CS.vEgo, self.CP.lateralSmoothSeconds)
-    lat_delay = eps_lateral_delay(self.lat_delay_schedule, CS.vEgo, self.sm["liveDelay"].lateralDelay) + lat_smooth_seconds
+    lateral_delay = scheduled_lateral_delay(self.lat_delay_schedule, CS.vEgo) if self.lat_delay_schedule else \
+      self.sm["liveDelay"].lateralDelay
+    lat_delay = lateral_delay + lat_smooth_seconds
 
     actuators.curvature = self.desired_curvature
     steer, lateral_output, lac_log = self.LaC.update(CC.latActive, CS, self.VM, lp,
@@ -1032,12 +1044,10 @@ class Controls:
       else:
         # This is a proxy, not a report: it infers "the car could not deliver what we asked" from
         # the car controller having returned something else. That only holds while every stage
-        # between actuators.torque and actuatorsOutput.torque is a genuine limit. A car controller
-        # that also does comfort shaping here -- the Honda torque LPF used to -- makes the two
-        # indistinguishable, and because a first-order lag holds a steady-state gap of tau * slew
-        # it trips this 1e-2 threshold continuously rather than occasionally: tau = 0.1 s means any
-        # command slewing faster than 0.1 authority/s reads as limited, which froze the lateral
-        # integrator for effectively the whole drive. Shaping belongs upstream of actuators.torque.
+        # between actuators.torque and actuatorsOutput.torque is a genuine limit. The modified-EPS
+        # torque-output LPF runs in LatControlPID before actuators.torque, so comfort shaping is
+        # already reflected in CC and this comparison remains a safety-limit proxy rather than a
+        # filter-lag detector.
         self.steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > 1e-2
     else:
       self.steer_limited_by_safety = False

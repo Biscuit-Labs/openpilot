@@ -11,6 +11,7 @@ from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
 from opendbc.car.gps import car_gps_available
 from openpilot.system.hardware import HARDWARE, PC, TICI
+from openpilot.selfdrive.modeld.reproject_config import select_reproject_session
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 from openpilot.starpilot import jetlink_adapter
 
@@ -80,6 +81,13 @@ def only_onroad(started: bool, params: Params, CP: car.CarParams, starpilot_togg
 
 def only_offroad(started: bool, params: Params, CP: car.CarParams, starpilot_toggles: SimpleNamespace) -> bool:
   return not started
+
+
+def reproject(started: bool, params: Params, CP: car.CarParams, starpilot_toggles: SimpleNamespace) -> bool:
+  # Establish the session as soon as the onroad process graph is evaluated.
+  # select_reproject_session latches a successful choice, so later predicates
+  # reuse it without re-probing a transiently disconnected Chestnut.
+  return started and select_reproject_session(params)
 
 def sentry_mode(started: bool, params: Params, CP: car.CarParams, starpilot_toggles: SimpleNamespace) -> bool:
   return not started and params.get_bool("SentryModeEnabled")
@@ -226,6 +234,8 @@ procs = [
   # enabled, onroad included. A gadget whose owner exits leaves the bus, and
   # that is the unplug at every ignition edge this arrangement removes
   RestartingPythonProcess(jetlink_adapter.OWNER, jetlink_adapter.__name__, and_(always_run, jetlink_should_run)),
+  PythonProcess("reprojectd", "selfdrive.modeld.reprojectd", reproject),
+  PythonProcess("reprojectcalibd", "selfdrive.modeld.reprojectcalibd", reproject),
   PythonProcess("dmonitoringmodeld", "selfdrive.modeld.dmonitoringmodeld", driverview, enabled=(WEBCAM or not PC)),
 
   PythonProcess("sensord", "system.sensord.sensord", sensord_run, enabled=not PC),

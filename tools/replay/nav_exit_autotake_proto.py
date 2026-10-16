@@ -21,7 +21,7 @@ def imminent(v):
   pts = IMMINENT_M
   if v <= pts[0][0]:
     return pts[0][1]
-  for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+  for (x0, y0), (x1, y1) in zip(pts, pts[1:], strict=False):
     if v <= x1:
       return y0 + (y1 - y0) * (v - x0) / (x1 - x0)
   return pts[-1][1]

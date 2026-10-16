@@ -1,13 +1,23 @@
 #!/usr/bin/env python3
+import base64
+from collections import deque
 from collections.abc import Callable
+import contextlib
 import ctypes
+from dataclasses import dataclass
 from functools import cached_property
 import json
+import math
 import os
 import struct
+import threading
 import usb1
 from openpilot.system.hardware import HARDWARE, TICI
 os.environ['GMMU'] = '0'
+# comma 082c43da39: cap the Chestnut at 100 W. With a power limit tinygrad's AM driver leaves the clocks under the SMU's
+# own management (AM_PERF_LEVEL defaults to auto) instead of pinning every domain at max; at pinned max clocks our G1b
+# graph's summarizer matmuls intermittently write one wrong element (the action NaN), reproduced on the bench.
+os.environ.setdefault('AM_POWER_LIMIT', '100')
 os.environ['DEV'] = 'QCOM' if TICI else 'LLVM'
 # jetlink's prepare() starts tinygrad's compile pool before modeld goes
 # realtime, sized PARALLEL = cpu count. 8 spawn workers held ~270 MB on a
@@ -38,8 +48,12 @@ def _jetlink_gpu_priority() -> None:
 
 
 _jetlink_gpu_priority()
-from tinygrad.device import Device
+from tinygrad.device import Buffer, Device
+from tinygrad.engine.realize import lower_and_compile
+from tinygrad.dtype import DType, dtypes
+from tinygrad.helpers import round_up
 from tinygrad.tensor import Tensor
+from tinygrad.uop.ops import UOp
 import time
 import pickle
 import numpy as np
@@ -56,13 +70,13 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.file_chunker import file_chunked_exists, open_file_chunked
 from openpilot.common.realtime import config_realtime_process, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
-from openpilot.common.transformations.model import get_warp_matrix
+from openpilot.common.transformations.model import get_warp_matrix, model_frame_corrections
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 from openpilot.system import sentry
 from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
-from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_lateral_delay, eps_lateral_delay_schedule
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan_tomb_raider, smooth_value
+from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import lateral_delay_schedule, scheduled_lateral_delay
 from openpilot.selfdrive.modeld.camera_offset import CameraOffset, DEFAULT_CAMERA_HEIGHT
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
@@ -72,6 +86,7 @@ from openpilot.selfdrive.modeld.compile_modeld import (
   FAST_POLICY_INPUTS,
   FAST_WARP_INPUTS,
   FUSED_MODELD_INPUTS,
+  FUSED_LEGACY_MODELD_INPUTS,
   IMAGE_HISTORY_IN_POLICY,
   IMAGE_HISTORY_IN_WARP,
   LEGACY_ARTIFACT_FORMAT_VERSION,
@@ -86,10 +101,14 @@ from openpilot.selfdrive.modeld.compile_modeld import (
 )
 from openpilot.selfdrive.modeld.helpers import get_tg_input_devices, load_oob, tinygrad_dev_config, usbgpu_present
 from openpilot.selfdrive.modeld.jetlink_join import Joined, SmallModel
+from openpilot.selfdrive.modeld.reproject_config import REPROJECT_CAMERA_SIZE, reproject_expected, select_reproject_session
 from openpilot.selfdrive.modeld.usbgpu_link import wait_usbgpu_link
 from openpilot.starpilot import jetlink_adapter
 from openpilot.system.hardware.usb import CHESTNUT_USB_IDS
 from openpilot.starpilot.assets.model_manager import (
+  BUILTIN_MODEL_NAME,
+  BUILTIN_MODEL_VERSION,
+  DEFAULT_MODEL_KEY,
   ModelManager,
   get_model_profile,
   load_model_artifact_metadata,
@@ -118,7 +137,7 @@ from openpilot.starpilot.common.starpilot_variables import (
 PROCESS_NAME = "selfdrive.modeld.modeld"
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
-BUILTIN_MODEL_KEY = "rdf43"
+BUILTIN_MODEL_KEY = DEFAULT_MODEL_KEY
 BUILTIN_MODEL_ALIASES = {BUILTIN_MODEL_KEY, "rdf"}
 MODEL_ID_ALIASES = {"sc": "sc2"}
 
@@ -135,11 +154,88 @@ def _model_smooth_seconds(params, key, default):
 
 
 def _should_publish_model_output(model_output, vipc_dropped_frames: int, external_gpu_active: bool = False) -> bool:
-  return model_output is not None and vipc_dropped_frames == 0
+  # A completed inference remains useful when modeld skipped an input frame.
+  # Match Comma's modeld: publish it and carry the gap in frameDropPerc rather
+  # than turning a transient capture gap into an unrelated commIssueAvgFreq.
+  del vipc_dropped_frames, external_gpu_active
+  return model_output is not None
+
+
+NAN_CAPTURE_DIR = "/data/media/0/modeld_nan"
+NAN_CAPTURE_KEEP = 10
+
+
+def _snapshot_nan_capture(model, model_output: np.ndarray, download_queues: bool) -> dict[str, np.ndarray] | None:
+  """Everything needed to replay the frame that went non-finite, offline on the same artifact, copied into memory this
+  function owns: the used image and desire histories are the post-run state buffers (next_state = the queue the model
+  read, small device downloads); the feature history is the pre-run one, rebuilt from the host ring of hidden outputs.
+  Also the last frames' Chestnut telemetry markers. Writing the file is left to _write_nan_capture, off the inference
+  path, so the fallback is not delayed by disk I/O. The queue downloads are slow over USB (~2.7 s for the G1b image and
+  desire queues), so a road NaN skips them and the fallback is not held up: the replay check is done, and a diagnostic
+  build carries its first-bad-stage values in `outputs`. Best effort: a failed capture never changes the fallback."""
+  try:
+    st = time.monotonic()
+    arrays = {"outputs": model_output.copy(), "packed_input": model.packed_input.copy(),
+              "nonfinite_idx": np.flatnonzero(~np.isfinite(model_output)).astype(np.int32)}
+    for name in model.state_pairs if download_queues else ():
+      if name != "state_feat_q":
+        arrays[f"used_{name}"] = model.input_queues[name].numpy()
+    if getattr(model, "hidden_ring", None) is not None:
+      order = (model.hidden_ring_pos + np.arange(len(model.hidden_ring))) % len(model.hidden_ring)
+      arrays["pre_state_feat_q"] = model.hidden_ring[order][:, None, :]
+    for name, value in model.npy.items():
+      arrays[f"npy_{name}"] = value.copy()
+    if getattr(model, "telemetry_ring", None) is not None:
+      # columns: model run index, monotonic time, telemetry ran, SMU metrics read, INA read via the AMD link, LTSSM read
+      arrays["telemetry_ring"] = np.array(list(model.telemetry_ring), dtype=np.float64).reshape(-1, 6)
+    arrays["snapshot_ms"] = np.array([(time.monotonic() - st) * 1e3])
+    return arrays
+  except Exception:
+    cloudlog.exception("NaN capture snapshot failed")
+    return None
+
+
+def _write_nan_capture(arrays: dict[str, np.ndarray], model_id: str) -> None:
+  """Persist a snapshot from _snapshot_nan_capture (host arrays only, no device access): safe on a background thread."""
+  try:
+    st = time.monotonic()
+    os.makedirs(NAN_CAPTURE_DIR, exist_ok=True)
+    old = sorted(f for f in os.listdir(NAN_CAPTURE_DIR) if f.endswith(".npz"))
+    for f in old[:max(0, len(old) - NAN_CAPTURE_KEEP + 1)]:
+      os.remove(os.path.join(NAN_CAPTURE_DIR, f))
+    path = os.path.join(NAN_CAPTURE_DIR, f"nan_{time.strftime('%Y%m%d_%H%M%S')}_{model_id}.npz")
+    np.savez(path, **arrays)
+    first = arrays["nonfinite_idx"][:8].tolist()
+    cloudlog.error(f"saved NaN capture {path} (snapshot {float(arrays['snapshot_ms'][0]):.0f} ms, write {time.monotonic() - st:.1f} s): "
+                   f"{len(arrays['nonfinite_idx'])} non-finite outputs, first at {first}")
+  except Exception:
+    cloudlog.exception("NaN capture write failed")
+
+
+def drop_chestnut() -> None:
+  # comma a0d47bcd08 dropped the other devices' pending waits on the Chestnut here; comma's tinygrad bump d05c2d971b
+  # (tinygrad d3f09c9b, the pin this branch now runs) removed it: devices no longer keep a pending-wait table.
+  pass
+
+
+# A big model slower than the camera hands back to the small model before selfdrived's modeldLagging would see it
+# (zoompilot / jetlink ce5f834). On frameDropPerc / 100 as modeld publishes it: one dropped frame is forgiven, a
+# second within about 6.5 s is not. Route 000003bb drove ~10 % drops at 52 ms a frame with the big model steering.
+BIG_MODEL_DROP_LIMIT = 0.0075
+
+
+class BigModelBehind(RuntimeError):
+  pass
+
+
+def _big_model_behind(external_gpu_active: bool, has_small_model: bool, frame_drop_ratio: float) -> bool:
+  return external_gpu_active and has_small_model and frame_drop_ratio > BIG_MODEL_DROP_LIMIT
 
 
 MIN_LAT_CONTROL_SPEED = 0.3
-BIG_MODEL_LOAD_WAIT_TIMEOUT_MS = 30000
+# Newer fused v16 artifacts can spend a long time loading and warming the
+# Chestnut graph on a cold boot. Match upstream's one-minute load watchdog.
+BIG_MODEL_LOAD_WAIT_TIMEOUT_MS = 60000
 BIG_MODEL_RUN_WAIT_TIMEOUT_MS = 3000
 EXTERNAL_GPU_POWER_READY_MV = 10000
 EXTERNAL_GPU_EGMP_READY_MV = 12500
@@ -147,15 +243,56 @@ EXTERNAL_GPU_POWER_STABLE_SECONDS = 3.0
 EXTERNAL_GPU_POWER_LOG_INTERVAL_SECONDS = 10.0
 LAT_SMOOTH_BP = [2.0, 8.0]
 MAX_ABS_EXTERNAL_MODEL_OUTPUT = 1e6
+UPSTREAM_PRECOMPILED_EXECUTION_MODE = "upstream_precompiled"
+UPSTREAM_PRECOMPILED_BIG_WARP_PREFIX = "big_driving_warp_"
+UPSTREAM_PRECOMPILED_SMALL_WARP_PREFIX = "small_driving_warp_"
+
+
+@dataclass(frozen=True)
+class CameraPath:
+  server: str
+  resolution: tuple[int, int]
+
+  def __post_init__(self):
+    if self.server == "reproject" and self.resolution != REPROJECT_CAMERA_SIZE:
+      raise RuntimeError(
+        f"Virtual-C4 server has resolution {self.resolution[0]}x{self.resolution[1]}; "
+        f"expected {REPROJECT_CAMERA_SIZE[0]}x{REPROJECT_CAMERA_SIZE[1]}"
+      )
+
+  def validate_model(self, model: "ModelState") -> None:
+    if getattr(model, "camera_resolution", None) != self.resolution:
+      raise RuntimeError(
+        f"Model {getattr(model, 'model_id', '<unknown>')} was loaded for "
+        f"{getattr(model, 'camera_resolution', None)}, but active camera stream is {self.resolution}"
+      )
+
+  def warp_geometry(self, device_type: str, sensor: str) -> tuple[str, str]:
+    if self.server == "reproject":
+      return "mici", "os04c10"
+    return device_type, sensor
+
+
+def _input_view(buffer: Buffer, shape: tuple[int, ...], dtype: DType, offset: int) -> Tensor:
+  view = buffer.view(math.prod(shape) * dtype.itemsize, offset).ensure_allocated()
+  return Tensor(UOp.from_buffer(view, dtype)).reshape(shape)
+
+
+def _upstream_precompiled_warp_path(cam_w: int, cam_h: int, external_gpu: bool, model_id: str = "") -> Path:
+  if model_id.startswith("local-"):
+    local_warp = MODELS_PATH / f"{model_id}_warp_{cam_w}x{cam_h}_tinygrad.pkl"
+    if local_warp.is_file():
+      return local_warp
+  prefix = UPSTREAM_PRECOMPILED_BIG_WARP_PREFIX if external_gpu else UPSTREAM_PRECOMPILED_SMALL_WARP_PREFIX
+  return Path(__file__).parent / "models" / f"{prefix}{cam_w}x{cam_h}_tinygrad.pkl"
 
 
 def _set_hcq_wait_timeout(timeout_ms: int) -> None:
-  """Update tinygrad's cached HCQ timeout for the external-GPU load/run phase."""
-  os.environ["HCQDEV_WAIT_TIMEOUT_MS"] = str(timeout_ms)
-  # tinygrad.getenv is cached. Updating os.environ alone leaves the first value
-  # in effect for the lifetime of modeld.
-  from tinygrad.helpers import getenv
-  getenv.cache_clear()
+  """Update tinygrad's HCQ signal-wait timeout for the external-GPU load/run phase."""
+  # tinygrad d3f09c9b reads Compiled.wait_timeout_ms (comma master sets AMDDevice.wait_timeout_ms); the old
+  # HCQDEV_WAIT_TIMEOUT_MS env var is gone.
+  from tinygrad.runtime.ops_amd import AMDDevice
+  AMDDevice.wait_timeout_ms = timeout_ms
 
 
 def _validate_external_gpu_outputs(outputs: list[np.ndarray]) -> None:
@@ -283,6 +420,8 @@ class ChestnutState:
   def _read_ina(self) -> tuple[int, int, bool]:
     if "AMD" in Device._opened_devices and self._asm_usb is None:
       try:
+        if getattr(self, "last_send", None) is not None:
+          self.last_send["ina_amd"] = True
         raw = Device["AMD"].iface.pci_dev.usb.usb.control_read(0xC0, 5)
         return struct.unpack("<Hh?", bytes(raw))
       except Exception:
@@ -307,6 +446,8 @@ class ChestnutState:
     msg = messaging.new_message("chestnutState")
     state = msg.chestnutState
     self.sends += 1
+    # per-call markers for modeld's NaN capture: which USB/SMU traffic ran between enqueue and readback this frame
+    self.last_send = {"smu": False, "ina_amd": False, "ltssm": False}
 
     # SMU metrics are relatively expensive, so update them at 0.1 Hz while
     # publishing the cached values with the 10 Hz ASM link telemetry.
@@ -314,6 +455,7 @@ class ChestnutState:
       try:
         smu = Device["AMD"].iface.dev_impl.smu
         metrics_t = smu.smu_mod.SmuMetricsExternal_t
+        self.last_send["smu"] = True
         smu._send_msg(smu.smu_mod.PPSMC_MSG_TransferTableSmu2Dram, smu.smu_mod.TABLE_SMU_METRICS, timeout=100)
         metrics_buf = bytearray(smu.adev.vram.view(smu.driver_table_paddr, ctypes.sizeof(metrics_t))[:])
         metrics = metrics_t.from_buffer(metrics_buf).SmuMetrics
@@ -345,6 +487,7 @@ class ChestnutState:
       pass
     if "AMD" in Device._opened_devices:
       try:
+        self.last_send["ltssm"] = True
         state.pcieLtssm = Device["AMD"].iface.pci_dev.usb.read(0xB450, 1)[0]
       except Exception:
         pass
@@ -413,7 +556,7 @@ def _canonical_model_id(model_id: str) -> str:
 def _select_builtin_model(params: Params) -> None:
   params.put("Model", BUILTIN_MODEL_KEY)
   params.put("DrivingModel", BUILTIN_MODEL_KEY)
-  params.put("DrivingModelName", "Regret Driven Framework V4")
+  params.put("DrivingModelName", BUILTIN_MODEL_NAME)
 
 
 def _close_tinygrad_disk_cache_connection() -> None:
@@ -448,7 +591,8 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
                           is_v9: bool, is_v14: bool, is_v15: bool, starpilot_toggles,
                           lat_smooth_seconds=LAT_SMOOTH_SECONDS, long_smooth_seconds=LONG_SMOOTH_SECONDS,
                           is_v16: bool = False) -> log.ModelDataV2.Action:
-    if is_v14 or is_v15 or is_v16:
+    # the built-in small model is tagged v16 but has no action head; it falls through to the plan below
+    if (is_v14 or is_v15 or is_v16) and 'action' in model_output:
       desired_curv_unscaled, desired_accel = model_output['action'][0]
       if is_v15 or is_v16:
         desired_curvature = float(desired_curv_unscaled) / max(1.0, v_ego) ** 2
@@ -516,17 +660,73 @@ def _is_oob_artifact_header(header: bytes) -> bool:
   return 2 <= opcode_size <= MAX_OOB_OPCODE_SIZE and header[8] == 0x80 and header[9] <= pickle.HIGHEST_PROTOCOL
 
 
-def _load_model_artifact(path: Path):
+def _load_model_artifact(path: Path, device: str | None = None):
   """Load legacy pickle artifacts and the streaming OOB format used by large GPU models."""
   with open_file_chunked(path) as artifact_file:
     oob_artifact = _is_oob_artifact_header(artifact_file.peek(10)[:10])
 
-  with open_file_chunked(path) as artifact_file:
-    return load_oob(artifact_file) if oob_artifact else pickle.load(artifact_file)
+  with (path.open("rb") if path.is_file() else open_file_chunked(path)) as artifact_file:
+    return load_oob(artifact_file, device=device) if oob_artifact else pickle.load(artifact_file)
+
+
+def _is_upstream_precompiled_artifact(artifact: dict) -> bool:
+  return (
+    isinstance(artifact, dict)
+    and callable(artifact.get("run"))
+    and isinstance(artifact.get("input_specs"), dict)
+    and isinstance(artifact.get("output_specs"), dict)
+    and isinstance(artifact.get("metadata"), dict)
+  )
+
+
+def _require_artifact_camera_resolution(artifact: dict, cam_w: int, cam_h: int) -> None:
+  """Fail before inference if a VFN model artifact has no warp for this camera."""
+  if _is_upstream_precompiled_artifact(artifact):
+    # Comma's precompiled policy is camera-size agnostic. Its camera-specific
+    # companion warp is checked against the packed NV12 ABI in ModelState.
+    return
+  compiled = artifact.get("run_model") if artifact.get("execution_mode") == "fused" else artifact
+  if not isinstance(compiled, dict) or (cam_w, cam_h) not in compiled:
+    raise ValueError(
+      f"Model artifact has no camera warp for {cam_w}x{cam_h}; "
+      "refusing to run it against a different camera geometry"
+    )
+
+
+def _require_precompiled_warp_abi(warp_specs: dict, cam_w: int, cam_h: int) -> None:
+  stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+  expected_frame_shape = (2, nv12_copy_size(stride, y_height, uv_height))
+  if tuple(warp_specs.get("input_frame", ((),))[0]) != expected_frame_shape:
+    raise ValueError(f"Precompiled Chestnut warp frame shape does not match {cam_w}x{cam_h}")
+  if tuple(warp_specs.get("M_inv", ((),))[0]) != (2, 3, 3):
+    raise ValueError("Precompiled Chestnut warp transforms are invalid")
+
+
+def _upstream_output_slices(artifact: dict) -> dict[str, slice]:
+  encoded = artifact.get("metadata", {}).get("metadata", {}).get("output_slices")
+  if not isinstance(encoded, str):
+    raise ValueError("Precompiled model artifact is missing output_slices metadata")
+  output_slices = pickle.loads(base64.b64decode(encoded))
+  if not isinstance(output_slices, dict) or not all(isinstance(value, slice) for value in output_slices.values()):
+    raise ValueError("Precompiled model artifact has invalid output_slices metadata")
+  return output_slices
 
 
 def _normalize_model_artifact(artifact: dict) -> dict:
   """Adapt the current metadata-only artifact envelope to StarPilot's explicit schema."""
+  if _is_upstream_precompiled_artifact(artifact):
+    input_shapes = artifact["metadata"].get("input_shapes")
+    if not isinstance(input_shapes, dict) or "new_img" not in input_shapes:
+      raise ValueError("Precompiled model artifact is missing new_img input metadata")
+    return {
+      **artifact,
+      "execution_mode": UPSTREAM_PRECOMPILED_EXECUTION_MODE,
+      "model_type": "supercombo",
+      "frame_skip": 1,
+      "image_history_pipeline": IMAGE_HISTORY_IN_POLICY,
+      "output_slices": _upstream_output_slices(artifact),
+    }
+
   if artifact.get("format_version") is not None:
     if artifact["format_version"] not in (LEGACY_ARTIFACT_FORMAT_VERSION, ARTIFACT_FORMAT_VERSION):
       actual = artifact.get("format_version")
@@ -568,8 +768,178 @@ def _normalize_model_artifact(artifact: dict) -> dict:
     "policy_input_keys": FAST_POLICY_INPUTS,
   }
 
+
+def _validate_fused_artifact_device(artifact: dict, external_gpu_active: bool) -> None:
+  """Reject accelerator artifacts compiled for another model device."""
+  if not external_gpu_active:
+    return
+
+  if artifact.get("execution_mode") == UPSTREAM_PRECOMPILED_EXECUTION_MODE:
+    new_img_spec = artifact.get("input_specs", {}).get("new_img")
+    if not isinstance(new_img_spec, (tuple, list)) or len(new_img_spec) != 3:
+      raise ValueError("Precompiled model artifact is missing the new_img device specification")
+    declared = Device.canonicalize(str(new_img_spec[2]))
+    expected = Device.canonicalize(str(get_tg_input_devices(PROCESS_NAME, usbgpu=True)["QUEUE_DEV"]))
+    if declared != expected:
+      raise ValueError(f"Precompiled model device mismatch: built for {declared}, runtime queue is {expected}")
+    return
+
+  if artifact.get("execution_mode") != "fused":
+    return
+
+  input_devices = artifact.get("input_devices")
+  if not isinstance(input_devices, dict) or input_devices.get("model") is None:
+    # The field was added after the first fused artifacts shipped. Preserve
+    # compatibility with those artifacts while enforcing it for new builds.
+    return
+
+  devices = get_tg_input_devices(PROCESS_NAME, usbgpu=True)
+  declared = Device.canonicalize(str(input_devices["model"]))
+  expected = Device.canonicalize(str(devices["QUEUE_DEV"]))
+  if declared != expected:
+    raise ValueError(
+      f"Fused model artifact device mismatch: built for {declared}, runtime queue is {expected}"
+    )
+
+  if input_devices.get("warp") is not None:
+    declared_warp = Device.canonicalize(str(input_devices["warp"]))
+    expected_warp = Device.canonicalize(str(devices["WARP_DEV"]))
+    if declared_warp != expected_warp:
+      raise ValueError(
+        f"Fused model artifact warp device mismatch: built for {declared_warp}, runtime warp is {expected_warp}"
+      )
+
 class ModelState:
   prev_desire: np.ndarray
+
+  def _init_upstream_precompiled(self, artifact: dict, cam_w: int, cam_h: int) -> None:
+    """Load Comma's paired policy and Chestnut-warp precompiled artifacts."""
+    self.model_type = "supercombo"
+    self.policy_order = []
+    self.frame_skip = 1
+    self.execution_mode = UPSTREAM_PRECOMPILED_EXECUTION_MODE
+    self.precompiled = True
+    self.fused = False
+    self.fused_legacy = False
+    self.image_history_pipeline = IMAGE_HISTORY_IN_POLICY
+    self.can_prepare_only = False
+
+    self.input_specs = artifact["input_specs"]
+    self.output_specs = artifact["output_specs"]
+    self.policy_input_shapes = artifact["metadata"]["input_shapes"]
+    self.output_slices = artifact["output_slices"]
+    self.metadata = {
+      "model": {
+        "input_shapes": self.policy_input_shapes,
+        "output_slices": self.output_slices,
+      },
+    }
+    self.model_device = str(self.input_specs["new_img"][2])
+    if Device.canonicalize(self.model_device) != Device.canonicalize(self.QUEUE_DEV):
+      raise ValueError(f"Precompiled model expects {self.model_device}, runtime queue is {self.QUEUE_DEV}")
+
+    self.state_pairs = {
+      name: f"next_{name}"
+      for name in self.input_specs
+      if f"next_{name}" in self.output_specs
+    }
+    self.input_shapes = {
+      name: (tuple(shape), np.dtype(dtype))
+      for name, (shape, dtype, _) in self.input_specs.items()
+    }
+    # Comma's precompiled model JIT is captured against one packed host/device
+    # buffer, including the full NV12 frame pair. The companion warp JIT and
+    # policy JIT both receive views into this same AMD allocation.
+    self.input_queues = {
+      name: Tensor(np.zeros(shape, dtype=dtype), device=self.model_device).realize()
+      for name, (shape, dtype) in self.input_shapes.items()
+      if name in self.state_pairs
+    }
+    packed_shapes = {
+      "tfm": (2, 3, 3),
+      **{
+        name: shape
+        for name, (shape, _) in self.input_shapes.items()
+        if name not in self.state_pairs and name != "new_img"
+      },
+    }
+    packed_size = sum(round_up(math.prod(shape) * 4, 128) for shape in packed_shapes.values())
+    # Only the padded Y+UV body is consumed by the driving warp. Do not pack
+    # camerad's trailing Venus/kernel guard allocation into the USB upload.
+    # This matches current comma upstream and Amy's tizi-to-mici measurements.
+    stride, y_height, uv_height, _ = get_nv12_info(cam_w, cam_h)
+    self.frame_copy_size = nv12_copy_size(stride, y_height, uv_height)
+    self.packed_input = np.zeros(packed_size + 2 * self.frame_copy_size, dtype=np.uint8)
+    self.input_host = Tensor(self.packed_input, device="NPY")._buffer()
+    self.input_device = Tensor(self.packed_input, device=self.model_device)._buffer()
+    self.npy = {}
+    offset = 0
+    for name, shape in packed_shapes.items():
+      self.npy[name] = np.ndarray(shape, dtype=np.float32, buffer=self.packed_input, offset=offset)
+      self.input_queues[name] = _input_view(self.input_device, shape, dtypes.float32, offset)
+      offset += round_up(self.npy[name].nbytes, 128)
+    self.frames = self.packed_input[packed_size:].reshape(2, self.frame_copy_size)
+    self.warp_inputs = {
+      "input_frame": _input_view(self.input_device, self.frames.shape, dtypes.uint8, packed_size),
+      "M_inv": self.input_queues.pop("tfm"),
+    }
+    self.numpy_inputs = {name: value for name, value in self.npy.items() if name != "tfm"}
+    self.model_outputs = {
+      name: Tensor(np.zeros(shape, dtype=dtype), device=device).realize()
+      for name, (shape, dtype, device) in self.output_specs.items()
+    }
+    for name, next_name in self.state_pairs.items():
+      state = self.input_queues[name]
+      self.model_outputs[next_name] = _input_view(state._buffer(), state.shape, state.dtype, 0)
+    # Host mirror of state_feat_q for NaN captures: the model reads the oldest entry before the in-place update drops it,
+    # so the pre-run feature history can only be rebuilt from the hidden outputs modeld already downloads every frame.
+    self.hidden_ring = None
+    if "state_feat_q" in self.state_pairs and "hidden_state" in self.output_slices:
+      n, _, width = self.input_shapes["state_feat_q"][0]
+      hs = self.output_slices["hidden_state"]
+      if hs.stop - hs.start == width:
+        self.hidden_ring, self.hidden_ring_pos = np.zeros((n, width), dtype=np.float32), 0
+
+    warp_path = _upstream_precompiled_warp_path(cam_w, cam_h, self.uses_external_gpu, getattr(self, "model_id", ""))
+    if not warp_path.is_file():
+      raise FileNotFoundError(
+        f"Missing required precompiled Chestnut warp {warp_path.name}; build it offroad before selecting this model"
+      )
+    with warp_path.open("rb") as warp_file:
+      warp_artifact = pickle.load(warp_file)
+    if not isinstance(warp_artifact, dict) or not callable(warp_artifact.get("run")):
+      raise ValueError(f"Invalid precompiled Chestnut warp artifact: {warp_path}")
+    warp_specs = warp_artifact.get("input_specs", {})
+    try:
+      _require_precompiled_warp_abi(warp_specs, cam_w, cam_h)
+    except ValueError as e:
+      raise ValueError(f"Invalid precompiled Chestnut warp {warp_path}: {e}") from e
+    self.run_warp = warp_artifact["run"]
+    self.run_model = artifact["run"]
+    # Upstream artifacts omit binaries for retargetable host kernels.
+    for run in (self.run_warp, self.run_model):
+      if (captured := getattr(run, "captured", None)) is not None:
+        captured._linear = lower_and_compile(captured._linear)
+    self.warped_input_shape = tuple(self.input_specs["new_img"][0])
+
+    self.road_key, self.wide_key = "img", "big_img"
+    self.vision_input_names = [self.road_key, self.wide_key]
+    # compile_onnx keeps the ONNX metadata properties: a model with its own image geometry carries model_geometry (json)
+    geometry = artifact.get("metadata", {}).get("metadata", {}).get("model_geometry")
+    self.model_frame_corrections = model_frame_corrections(json.loads(geometry) if isinstance(geometry, str) else geometry)
+    self.desire_key = next((name for name in self.numpy_inputs if name.startswith("desire")), "desire")
+    if self.desire_key not in self.numpy_inputs:
+      raise ValueError("Precompiled model artifact is missing a desire input")
+    self.prev_desired_curv_key = None
+    self.off_policy_enabled = False
+    self.off_policy_numpy_inputs = {}
+    self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
+    self.prev_blinker_on = False
+    self.parser = Parser()
+    self.aux_parser = Parser(ignore_missing=True)
+    self.frame_buf_size = self.frame_copy_size
+    self._blob_cache = {}
+    self.last_warp_output = None
 
   def _build_policy_inputs(self, input_shapes: dict[str, tuple[int, ...]]) -> tuple[dict[str, np.ndarray], str | None]:
     numpy_inputs: dict[str, np.ndarray] = {}
@@ -591,6 +961,7 @@ class ModelState:
                model_id_override: str | None = None, write_model_version: bool = True,
                model_version_override: str | None = None, model_path_override: Path | None = None,
                force_external_gpu: bool = False):
+    self.camera_resolution = (cam_w, cam_h)
     params = Params()
     selected_model = model_id_override or _resolve_mirrored_param(params, "Model", "DrivingModel") or BUILTIN_MODEL_KEY
     model_id = _canonical_model_id(selected_model)
@@ -627,66 +998,85 @@ class ModelState:
 
     self.model_id = BUILTIN_MODEL_KEY if loaded_builtin else model_id
     self.uses_external_gpu = external_gpu_active and (requires_external_gpu or force_external_gpu) and not loaded_builtin
-    artifact = _normalize_model_artifact(_load_model_artifact(model_path))
+    artifact_device = get_tg_input_devices(PROCESS_NAME, usbgpu=self.uses_external_gpu)["QUEUE_DEV"]
+    artifact = _normalize_model_artifact(_load_model_artifact(model_path, device=artifact_device))
+    _require_artifact_camera_resolution(artifact, cam_w, cam_h)
+    _validate_fused_artifact_device(artifact, self.uses_external_gpu)
 
-    self.model_type = artifact["model_type"]
-    self.metadata = artifact["metadata"]
-    self.policy_order = artifact.get("policy_order", [])
-    self.frame_skip = int(artifact["frame_skip"])
-    self.execution_mode = artifact.get("execution_mode", "split")
-    self.fused = self.execution_mode == "fused"
-    self.image_history_pipeline = artifact.get("image_history_pipeline", IMAGE_HISTORY_IN_WARP)
-    if self.fused:
-      self.model_input_keys = tuple(artifact.get("input_keys", FUSED_MODELD_INPUTS))
-      self.run_model = artifact["run_model"][(cam_w, cam_h)]
-      self.can_prepare_only = False
+    self.precompiled = artifact.get("execution_mode") == UPSTREAM_PRECOMPILED_EXECUTION_MODE
+
+    if getattr(self, "precompiled", False):
+      self._init_upstream_precompiled(artifact, cam_w, cam_h)
     else:
-      self.warp_input_keys = tuple(artifact.get("warp_input_keys", LEGACY_WARP_INPUTS))
-      self.policy_input_keys = tuple(artifact["policy_input_keys"])
-      self.run_policy = artifact["run_policy"]
-      self.warp_enqueue = artifact[(cam_w, cam_h)]
-      self.can_prepare_only = self.image_history_pipeline == IMAGE_HISTORY_IN_WARP
-
-    if self.model_type == "supercombo":
-      input_shapes = self.metadata["model"]["input_shapes"]
-      self.output_slices = self.metadata["model"]["output_slices"]
-      self.policy_input_shapes = input_shapes
+      self.model_type = artifact["model_type"]
+      self.metadata = artifact["metadata"]
+      self.policy_order = artifact.get("policy_order", [])
+      self.frame_skip = int(artifact["frame_skip"])
+      self.execution_mode = artifact.get("execution_mode", "split")
+      self.fused = self.execution_mode == "fused"
+      self.image_history_pipeline = artifact.get("image_history_pipeline", IMAGE_HISTORY_IN_WARP)
       if self.fused:
-        frame_info = get_nv12_info(cam_w, cam_h)
-        self.frame_copy_size = nv12_copy_size(*frame_info[:3])
-        self.input_queues, self.npy, self.frame_views = make_fused_supercombo_input_queues(
-          input_shapes,
-          self.frame_skip,
-          self.QUEUE_DEV,
-          self.frame_copy_size,
-        )
+        self.model_input_keys = tuple(artifact.get("input_keys", FUSED_MODELD_INPUTS))
+        self.fused_legacy = self.model_input_keys == FUSED_LEGACY_MODELD_INPUTS
+        self.run_model = artifact["run_model"][(cam_w, cam_h)]
+        self.can_prepare_only = False
       else:
-        self.input_queues, self.npy = make_supercombo_input_queues(input_shapes, self.frame_skip, self.QUEUE_DEV)
-    else:
-      if self.fused:
-        raise ValueError("Fused artifacts currently require a supercombo model")
-      vision_shapes = self.metadata["vision"]["input_shapes"]
-      primary_policy = "on_policy" if "on_policy" in self.policy_order else "policy"
-      self.policy_input_shapes = self.metadata[primary_policy]["input_shapes"]
-      self.input_queues, self.npy = make_split_input_queues(
-        vision_shapes, self.policy_input_shapes, self.frame_skip, self.QUEUE_DEV,
-      )
-      input_shapes = vision_shapes
+        self.warp_input_keys = tuple(artifact.get("warp_input_keys", LEGACY_WARP_INPUTS))
+        self.policy_input_keys = tuple(artifact["policy_input_keys"])
+        self.run_policy = artifact["run_policy"]
+        self.warp_enqueue = artifact[(cam_w, cam_h)]
+        self.can_prepare_only = self.image_history_pipeline == IMAGE_HISTORY_IN_WARP
 
-    self.road_key, self.wide_key = _detect_vision_keys(input_shapes)
-    self.vision_input_names = [self.road_key, self.wide_key]
-    self.warped_input_shape = (2, 6, *input_shapes[self.road_key][2:])
-    self.last_warp_output: Tensor | None = None
-    self.numpy_inputs, self.prev_desired_curv_key = self._build_policy_inputs(self.policy_input_shapes)
-    self.desire_key = next(key for key in self.numpy_inputs if key.startswith("desire"))
-    self.off_policy_enabled = "off_policy" in self.policy_order
-    self.off_policy_numpy_inputs = dict(self.numpy_inputs) if self.off_policy_enabled else {}
-    self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
-    self.prev_blinker_on = False
-    self.parser = Parser()
-    self.aux_parser = Parser(ignore_missing=True)
-    self.frame_buf_size = get_nv12_info(cam_w, cam_h)[3]
-    self._blob_cache: dict[tuple[str, int], Tensor] = {}
+      if self.model_type == "supercombo":
+        input_shapes = self.metadata["model"]["input_shapes"]
+        self.output_slices = self.metadata["model"]["output_slices"]
+        self.policy_input_shapes = input_shapes
+        if self.fused:
+          frame_info = get_nv12_info(cam_w, cam_h)
+          self.frame_copy_size = nv12_copy_size(*frame_info[:3])
+          if self.fused_legacy:
+            self.input_queues, self.npy, self.frame_views = make_fused_supercombo_input_queues(
+              input_shapes,
+              self.frame_skip,
+              self.QUEUE_DEV,
+              self.frame_copy_size,
+            )
+          else:
+            self.input_queues, self.npy = make_fused_supercombo_input_queues(
+              input_shapes,
+              self.frame_skip,
+              self.QUEUE_DEV,
+            )
+        else:
+          self.input_queues, self.npy = make_supercombo_input_queues(input_shapes, self.frame_skip, self.QUEUE_DEV)
+      else:
+        if self.fused:
+          raise ValueError("Fused artifacts currently require a supercombo model")
+        vision_shapes = self.metadata["vision"]["input_shapes"]
+        primary_policy = "on_policy" if "on_policy" in self.policy_order else "policy"
+        self.policy_input_shapes = self.metadata[primary_policy]["input_shapes"]
+        self.input_queues, self.npy = make_split_input_queues(
+          vision_shapes, self.policy_input_shapes, self.frame_skip, self.QUEUE_DEV,
+        )
+        input_shapes = vision_shapes
+
+      self.road_key, self.wide_key = _detect_vision_keys(input_shapes)
+      self.vision_input_names = [self.road_key, self.wide_key]
+      self.warped_input_shape = (2, 6, *input_shapes[self.road_key][2:])
+      # a model warped to its own image geometry (e.g. a wider field of view) carries it in its ONNX metadata
+      geometry_metadata = self.metadata["model" if self.model_type == "supercombo" else "vision"]
+      self.model_frame_corrections = model_frame_corrections(geometry_metadata.get("model_geometry"))
+      self.last_warp_output: Tensor | None = None
+      self.numpy_inputs, self.prev_desired_curv_key = self._build_policy_inputs(self.policy_input_shapes)
+      self.desire_key = next(key for key in self.numpy_inputs if key.startswith("desire"))
+      self.off_policy_enabled = "off_policy" in self.policy_order
+      self.off_policy_numpy_inputs = dict(self.numpy_inputs) if self.off_policy_enabled else {}
+      self.prev_desire = np.zeros(ModelConstants.DESIRE_LEN, dtype=np.float32)
+      self.prev_blinker_on = False
+      self.parser = Parser()
+      self.aux_parser = Parser(ignore_missing=True)
+      self.frame_buf_size = get_nv12_info(cam_w, cam_h)[3]
+      self._blob_cache: dict[tuple[str, int], Tensor] = {}
 
     model_version = str(model_version_override or "").strip()
     if not model_version:
@@ -701,8 +1091,8 @@ class ModelState:
         except Exception:
           pass
     if loaded_builtin:
-      model_version = str(artifact.get("behavior_version") or "v15")
-    self.policy_generation = model_version or ("v15" if loaded_builtin else "v8")
+      model_version = str(artifact.get("behavior_version") or BUILTIN_MODEL_VERSION)
+    self.policy_generation = model_version or (BUILTIN_MODEL_VERSION if loaded_builtin else "v8")
     self.is_v9 = self.policy_generation == "v9"
     self.is_v14 = self.policy_generation == "v14"
     self.is_v15 = self.policy_generation == "v15"
@@ -711,6 +1101,8 @@ class ModelState:
     if write_model_version:
       params.put("ModelVersion", self.policy_generation)
       params.put("DrivingModelVersion", self.policy_generation)
+      if loaded_builtin:
+        params.put("DrivingModelName", BUILTIN_MODEL_NAME)
 
     if self.prev_desired_curv_key is not None:
       self.full_prev_desired_curv = np.zeros(
@@ -770,14 +1162,34 @@ class ModelState:
     return parsed
 
   def _reset_state(self) -> None:
+    if getattr(self, "precompiled", False):
+      for name in self.state_pairs:
+        self.input_queues[name].assign(0).realize()
+      if getattr(self, "hidden_ring", None) is not None:
+        self.hidden_ring.fill(0)
+        self.hidden_ring_pos = 0
+      self.packed_input.fill(0)
+      self.prev_desire.fill(0)
+      self.prev_blinker_on = False
+      self._blob_cache.clear()
+      self.last_warp_output = None
+      return
+
     if self.model_type == "supercombo":
       if self.fused:
-        self.input_queues, self.npy, self.frame_views = make_fused_supercombo_input_queues(
-          self.policy_input_shapes,
-          self.frame_skip,
-          self.QUEUE_DEV,
-          self.frame_copy_size,
-        )
+        if self.fused_legacy:
+          self.input_queues, self.npy, self.frame_views = make_fused_supercombo_input_queues(
+            self.policy_input_shapes,
+            self.frame_skip,
+            self.QUEUE_DEV,
+            self.frame_copy_size,
+          )
+        else:
+          self.input_queues, self.npy = make_fused_supercombo_input_queues(
+            self.policy_input_shapes,
+            self.frame_skip,
+            self.QUEUE_DEV,
+          )
       else:
         self.input_queues, self.npy = make_supercombo_input_queues(
           self.policy_input_shapes, self.frame_skip, self.QUEUE_DEV,
@@ -801,7 +1213,7 @@ class ModelState:
       key: np.zeros(self.frame_buf_size, dtype=np.uint8)
       for key in self.vision_input_names
     }
-    if not self.fused:
+    if not getattr(self, "precompiled", False) and (not self.fused or not self.fused_legacy):
       # A host pointer is not a valid camera buffer for every warp backend. Match
       # upstream and substitute realized device buffers for warmup only.
       self._blob_cache.update({
@@ -819,16 +1231,81 @@ class ModelState:
     self.run(dummy_frames, dict.fromkeys(self.vision_input_names, eye), inputs, False)
     self._reset_state()
 
+  def _run_upstream_precompiled(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
+                                inputs: dict[str, np.ndarray], after_enqueue: Callable[[], None] | None,
+                                shared_warp: Tensor | None, blinker_on: bool) -> dict[str, np.ndarray]:
+    if shared_warp is not None:
+      raise RuntimeError("Comma precompiled artifacts cannot share a StarPilot warp graph")
+
+    for i, key in enumerate(self.vision_input_names):
+      np.copyto(self.frames[i], np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size))
+
+    for i, key in enumerate(self.vision_input_names):
+      self.npy["tfm"][i] = transforms[key]
+
+    # A desire is a rising-edge pulse; the model keeps its own history and decides when the action is complete, as
+    # upstream (no flush on blinker release: that was a workaround for older models).
+    self.prev_blinker_on = blinker_on
+
+    desire = np.asarray(inputs[self.desire_key], dtype=np.float32)
+    self.numpy_inputs[self.desire_key].fill(0)
+    self.numpy_inputs[self.desire_key].reshape(-1, ModelConstants.DESIRE_LEN)[-1] = np.where(
+      desire - self.prev_desire > 0.99,
+      desire,
+      0,
+    )
+    self.prev_desire[:] = desire
+    for name, value in self.numpy_inputs.items():
+      if name != self.desire_key and name in inputs:
+        value[:] = inputs[name]
+
+    self.input_device.copy_from(self.input_host)
+    self.input_queues["new_img"] = self.run_warp(**self.warp_inputs)
+    self.last_warp_output = None
+    self.run_model(output_buffers=self.model_outputs, **self.input_queues)
+    # The model is enqueued, not finished: the Chestnut telemetry's USB reads overlap its GPU work (comma #38704)
+    if after_enqueue is not None:
+      after_enqueue()
+    self.run_index = getattr(self, "run_index", 0) + 1
+    if self.uses_external_gpu:
+      if getattr(self, "telemetry_ring", None) is None:
+        self.telemetry_ring = deque(maxlen=200)
+      marks = getattr(getattr(after_enqueue, "__self__", None), "last_send", None) if after_enqueue is not None else None
+      self.telemetry_ring.append((self.run_index, time.monotonic(), after_enqueue is not None,
+                                  *((marks["smu"], marks["ina_amd"], marks["ltssm"]) if marks else (False, False, False))))
+    model_output = self.model_outputs["outputs"].numpy().reshape(-1)
+    if self.uses_external_gpu and (not np.all(np.isfinite(model_output)) or getattr(self, "capture_next_frame", False)):
+      requested = getattr(self, "capture_next_frame", False)
+      self.capture_next_frame = False   # set by tools/tests to capture a finite frame and check that it replays exactly
+      snapshot = _snapshot_nan_capture(self, model_output, download_queues=requested)
+      if snapshot is not None:   # the file is written off the inference path; the fallback below is not delayed by it
+        threading.Thread(target=_write_nan_capture, args=(snapshot, getattr(self, "model_id", "model")), daemon=True).start()
+    if self.uses_external_gpu:
+      _validate_external_gpu_outputs([model_output])
+    if getattr(self, "hidden_ring", None) is not None:
+      self.hidden_ring[self.hidden_ring_pos] = model_output[self.output_slices["hidden_state"]]
+      self.hidden_ring_pos = (self.hidden_ring_pos + 1) % len(self.hidden_ring)
+
+    parsed = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
+    if SEND_RAW_PRED:
+      parsed["raw_pred"] = model_output.copy()
+    return parsed
+
   def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray], prepare_only: bool,
-          after_output_sync: Callable[[], None] | None = None,
+          after_enqueue: Callable[[], None] | None = None,
           shared_warp: Tensor | None = None, *, blinker_on: bool = False) -> dict[str, np.ndarray] | None:
+    if getattr(self, "precompiled", False):
+      return self._run_upstream_precompiled(
+        bufs, transforms, inputs, after_enqueue, shared_warp, blinker_on,
+      )
+
     fused = getattr(self, "fused", False)
     if shared_warp is not None and (fused or self.image_history_pipeline != IMAGE_HISTORY_IN_POLICY):
       raise RuntimeError("shared camera warp requires a policy-history model artifact")
 
     frames: dict[str, Tensor] = {}
-    if fused:
+    if fused and self.fused_legacy:
       for key, buf in bufs.items():
         np.copyto(
           self.frame_views[key],
@@ -844,15 +1321,9 @@ class ModelState:
           )
         frames[key] = self._blob_cache[cache_key]
 
-    # A desire is edge-triggered into the model input, but the compiled policy keeps
-    # roughly five seconds of desire history in ``desire_q`` and max-pools it. When
-    # the blinker cancels, old turn/lane-change pulses would otherwise remain
-    # actionable until that history ages out. Flush only on the blinker falling edge;
-    # the caller keeps this asserted during an in-flight lane change.
-    blinker_released = getattr(self, "prev_blinker_on", False) and not blinker_on
+    # A desire is a rising-edge pulse; the model keeps its own history and decides when the action is complete, as
+    # upstream (no flush on blinker release: that was a workaround for older models).
     self.prev_blinker_on = blinker_on
-    if blinker_released and "desire_q" in self.input_queues:
-      self.input_queues["desire_q"].assign(0)
 
     inputs[self.desire_key][0] = 0
     self.numpy_inputs[self.desire_key].fill(0)
@@ -871,9 +1342,15 @@ class ModelState:
 
     if fused:
       self.last_warp_output = None
-      output_tensors = self.run_model(
-        **{key: self.input_queues[key] for key in self.model_input_keys},
-      )
+      queue_inputs = {key: self.input_queues[key] for key in self.model_input_keys if key in self.input_queues}
+      if self.fused_legacy:
+        output_tensors = self.run_model(**queue_inputs)
+      else:
+        output_tensors = self.run_model(
+          frame=frames[self.road_key],
+          big_frame=frames[self.wide_key],
+          **queue_inputs,
+        )
     else:
       if shared_warp is None:
         warp_output = self.warp_enqueue(
@@ -900,12 +1377,11 @@ class ModelState:
           img=img,
           big_img=big_img,
         )
+    # The model is enqueued, not finished: the Chestnut telemetry's USB reads overlap its GPU work (comma #38704).
+    # output.numpy() below is the synchronization.
+    if after_enqueue is not None:
+      after_enqueue()
     outputs = [output.numpy().flatten() for output in output_tensors]
-
-    # output.numpy() synchronizes the GPU queue. Keep USB telemetry reads after
-    # that synchronization so they cannot contend with in-flight model work.
-    if after_output_sync is not None:
-      after_output_sync()
 
     if self.uses_external_gpu:
       _validate_external_gpu_outputs(outputs)
@@ -962,6 +1438,46 @@ def _load_model_state(cam_w: int, cam_h: int, selected_model: str, external_gpu_
     )
 
 
+def _pin_chestnut_gfxclk() -> None:
+  """With AM_POWER_LIMIT the AM driver leaves every clock to the SMU (auto), which costs ~6 ms/frame on our graph; with no
+  limit it pins every domain at max, and pinned max memory/fabric clocks make our summarizer matmuls intermittently write
+  a wrong element (the action NaN; bench: 76/800 frames). Pin only the core clock at max: 0/800, +0.8 ms vs all-max."""
+  if os.getenv("CHESTNUT_PIN_GFXCLK", "1") != "1" or "AMD" not in Device._opened_devices:
+    return
+  try:
+    smu = Device["AMD"].iface.dev_impl.smu
+    clk = smu.smu_mod.PPCLK_GFXCLK
+    freq = smu.read_clocks((clk,))[clk][-1]
+    smu._send_msg(smu.smu_mod.PPSMC_MSG_SetSoftMinByFreq, clk << 16 | freq, timeout=20)
+    smu._send_msg(smu.smu_mod.PPSMC_MSG_SetSoftMaxByFreq, clk << 16 | freq)
+    cloudlog.info(f"chestnut: GFXCLK pinned at {freq} MHz, memory/fabric clocks left to the SMU")
+  except Exception:
+    cloudlog.exception("chestnut: pinning GFXCLK failed, clocks stay under the SMU")
+
+
+CHESTNUT_RETRY_MARKER = "/dev/shm/modeld_chestnut_retry"
+CHESTNUT_RETRY_WINDOW_S = 600.
+
+
+def _request_big_model_retry(params) -> bool:
+  """comma #39086: a failed big model load (e.g. the Chestnut re-enumerating during a flash, or a crank cutting its power)
+  is retried once with an onroad cycle. comma latches the retry in a ChestnutRetry param; this fork keeps it in a /dev/shm
+  marker (no params_keys.h change, no params rebuild): at most one retry per 10 minutes, cleared by a successful load."""
+  try:
+    if time.time() - os.path.getmtime(CHESTNUT_RETRY_MARKER) < CHESTNUT_RETRY_WINDOW_S:
+      return False
+  except OSError:
+    pass
+  try:
+    with open(CHESTNUT_RETRY_MARKER, "w") as f:
+      f.write(str(time.time()))
+  except OSError:
+    return False
+  cloudlog.error("big model load failed, cycling onroad to retry")
+  params.put_bool("OnroadCycleRequested", True)
+  return True
+
+
 def _load_external_gpu_model(cam_w: int, cam_h: int, selected_model: str, model_version: str = "",
                              CP=None, demo: bool = False) -> ModelState | None:
   """Load and warm the USB-GPU model without running another tinygrad model concurrently."""
@@ -981,6 +1497,7 @@ def _load_external_gpu_model(cam_w: int, cam_h: int, selected_model: str, model_
     )
     if not candidate.uses_external_gpu:
       raise RuntimeError("external GPU model resolved to the builtin model")
+    _pin_chestnut_gfxclk()
     candidate.warmup()
     return candidate
   except Exception:
@@ -1020,13 +1537,23 @@ def _load_model_lab_model(cam_w: int, cam_h: int, model_id: str, version: str) -
 
 def _model_lab_shared_warp_compatible(lateral: ModelState, longitudinal: ModelState) -> bool:
   return (
-    not getattr(lateral, "fused", False)
+    not getattr(lateral, "precompiled", False)
+    and not getattr(longitudinal, "precompiled", False)
+    and not getattr(lateral, "fused", False)
     and not getattr(longitudinal, "fused", False)
     and lateral.image_history_pipeline == IMAGE_HISTORY_IN_POLICY
     and longitudinal.image_history_pipeline == IMAGE_HISTORY_IN_POLICY
     and lateral.warped_input_shape == longitudinal.warped_input_shape
     and lateral.WARP_DEV == longitudinal.WARP_DEV
+    and _same_frame_corrections(getattr(lateral, "model_frame_corrections", None),
+                                getattr(longitudinal, "model_frame_corrections", None))
   )
+
+
+def _same_frame_corrections(a, b) -> bool:
+  if a is None or b is None:
+    return a is None and b is None
+  return all(np.allclose(x, y) for x, y in zip(a, b, strict=True))
 
 
 def _isolate_next_model_artifact_load() -> int:
@@ -1125,6 +1652,10 @@ def _runner_frame_args(model: ModelState, buf_main, buf_extra,
     model.road_key: buf_main,
     model.wide_key: buf_extra,
   }
+  corrections = getattr(model, "model_frame_corrections", None)
+  if corrections is not None:   # model with its own image geometry: stock transform @ correction
+    model_transform_main = (model_transform_main @ corrections[0]).astype(np.float32)
+    model_transform_extra = (model_transform_extra @ corrections[1]).astype(np.float32)
   transforms = {
     model.road_key: model_transform_main,
     model.wide_key: model_transform_extra,
@@ -1145,8 +1676,23 @@ def _runner_frame_args(model: ModelState, buf_main, buf_extra,
   return bufs, transforms, inputs
 
 
+def _enable_fault_log() -> None:
+  # A native crash (SIGSEGV) in modeld leaves no Python trace in the logs; write one where it survives a reboot.
+  if os.path.isdir("/data/media/0"):
+    import faulthandler
+    global _FAULT_LOG
+    _FAULT_LOG = open("/data/media/0/modeld_faults.log", "a")
+    _FAULT_LOG.write(f"=== modeld start {time.strftime('%Y-%m-%d %H:%M:%S')} pid {os.getpid()}\n")
+    _FAULT_LOG.flush()
+    faulthandler.enable(file=_FAULT_LOG, all_threads=True)
+
+
+_FAULT_LOG = None
+
+
 def main(demo=False):
   cloudlog.warning("modeld init")
+  _enable_fault_log()
 
   sentry.set_tag("daemon", PROCESS_NAME)
   cloudlog.bind(daemon=PROCESS_NAME)
@@ -1183,9 +1729,16 @@ def main(demo=False):
     error=model_lab_error or "",
   )
 
+  # Resolve the session camera path once. Every model state (big, small
+  # fallback, or Model Laboratory) is then loaded against this same concrete
+  # frame size; its artifact must contain that resolution's warp ABI. A
+  # transient Chestnut disconnect cannot change the server underneath clients.
+  reproject_session = select_reproject_session(params, chestnut_ready=usbgpu_present_now)
+  camera_server = "reproject" if reproject_session else "camerad"
+
   # visionipc clients
   while True:
-    available_streams = VisionIpcClient.available_streams("camerad", block=False)
+    available_streams = VisionIpcClient.available_streams(camera_server, block=False)
     if available_streams:
       use_extra_client = VisionStreamType.VISION_STREAM_WIDE_ROAD in available_streams and VisionStreamType.VISION_STREAM_ROAD in available_streams
       main_wide_camera = VisionStreamType.VISION_STREAM_ROAD not in available_streams
@@ -1193,8 +1746,8 @@ def main(demo=False):
     time.sleep(.1)
 
   vipc_client_main_stream = VisionStreamType.VISION_STREAM_WIDE_ROAD if main_wide_camera else VisionStreamType.VISION_STREAM_ROAD
-  vipc_client_main = VisionIpcClient("camerad", vipc_client_main_stream, True)
-  vipc_client_extra = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_WIDE_ROAD, False)
+  vipc_client_main = VisionIpcClient(camera_server, vipc_client_main_stream, True)
+  vipc_client_extra = VisionIpcClient(camera_server, VisionStreamType.VISION_STREAM_WIDE_ROAD, False)
   cloudlog.warning(f"vision stream set up, main_wide_camera: {main_wide_camera}, use_extra_client: {use_extra_client}")
 
   while not vipc_client_main.connect(False):
@@ -1205,6 +1758,14 @@ def main(demo=False):
   cloudlog.warning(f"connected main cam with buffer size: {vipc_client_main.buffer_len} ({vipc_client_main.width} x {vipc_client_main.height})")
   if use_extra_client:
     cloudlog.warning(f"connected extra cam with buffer size: {vipc_client_extra.buffer_len} ({vipc_client_extra.width} x {vipc_client_extra.height})")
+
+  camera_path = CameraPath(camera_server, (vipc_client_main.width, vipc_client_main.height))
+  if use_extra_client and (vipc_client_extra.width, vipc_client_extra.height) != camera_path.resolution:
+    raise RuntimeError(
+      f"Main and wide camera streams disagree: {camera_path.resolution} vs "
+      f"{(vipc_client_extra.width, vipc_client_extra.height)}"
+    )
+
 
   start_time = time.monotonic()
   cloudlog.warning("loading model")
@@ -1229,6 +1790,7 @@ def main(demo=False):
       small_model_version,
       False,
     )
+    camera_path.validate_model(small_model)
     versions = _model_versions()
     lateral_id = model_lab_config["lateralModel"]
     longitudinal_id = model_lab_config["longitudinalModel"]
@@ -1244,6 +1806,8 @@ def main(demo=False):
     )
     if pair is not None:
       model, model_lab_longitudinal = pair
+      for runner in pair:
+        camera_path.validate_model(runner)
       model_lab_active = True
       params.put("ModelVersion", model.policy_generation)
       params.put("DrivingModelVersion", model.policy_generation)
@@ -1278,7 +1842,15 @@ def main(demo=False):
       small_model_version,
       False,
     )
+    if big_model is None:
+      drop_chestnut()   # as comma master: a failed load must not leave the small model waiting on the Chestnut
+      if not demo:
+        _request_big_model_retry(params)
+    else:
+      with contextlib.suppress(OSError):
+        os.remove(CHESTNUT_RETRY_MARKER)
     model = big_model if big_model is not None else small_model
+    camera_path.validate_model(model)
     if big_model is not None:
       params.put("ModelVersion", model.policy_generation)
       params.put("DrivingModelVersion", model.policy_generation)
@@ -1318,7 +1890,8 @@ def main(demo=False):
   if external_gpu_requested:
     publish_services.append("chestnutState")
   pm = PubMaster(publish_services)
-  sm = SubMaster(["deviceState", "carState", "roadCameraState", "liveCalibration", "driverMonitoringState", "carControl", "liveDelay", "starpilotPlan"])
+  sm = SubMaster(["deviceState", "carState", "roadCameraState", "wideRoadCameraState", "liveCalibration", "driverMonitoringState", "carControl",
+                  "controlsState", "liveDelay", "starpilotPlan"])
 
   publish_state = PublishState()
   chestnut_state = ChestnutState(pm, external_gpu_active) if external_gpu_requested else None
@@ -1345,8 +1918,7 @@ def main(demo=False):
     else:
       CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
   cloudlog.info("modeld got CarParams: %s", CP.brand)
-  # the EPS controller's speed-scheduled lateral delay, the same one controlsd uses; None keeps liveDelay
-  lat_delay_schedule = eps_lateral_delay_schedule(CP, params)
+  lat_delay_schedule = lateral_delay_schedule(CP)
 
   lat_smooth_seconds = _model_smooth_seconds(params, "LatSmoothSeconds", LAT_SMOOTH_SECONDS)
   long_smooth_seconds = _model_smooth_seconds(params, "LongSmoothSeconds", LONG_SMOOTH_SECONDS)
@@ -1401,22 +1973,26 @@ def main(demo=False):
     lat_smooth_default = CP.lateralSmoothSeconds if (CP.brand == "rivian" or CP.lateralSmoothSeconds > 0.0) else LAT_SMOOTH_SECONDS
     lat_smooth_maximum = _model_smooth_seconds(params, "LatSmoothSeconds", lat_smooth_default)
     lat_smooth_seconds = get_car_lateral_smooth_seconds(CP.brand, v_ego, lat_smooth_maximum)
-    lat_delay = eps_lateral_delay(lat_delay_schedule, v_ego, sm["liveDelay"].lateralDelay) + lat_smooth_seconds
+    lateral_delay = scheduled_lateral_delay(lat_delay_schedule, v_ego) if lat_delay_schedule else sm["liveDelay"].lateralDelay
+    lat_delay = lateral_delay + lat_smooth_seconds
     lateral_control_params = np.array([v_ego, lat_delay], dtype=np.float32)
     if sm.frame % 60 == 0:
       camera_offset.set_target(params.get_float("CameraOffset", return_default=True))
 
     if sm.updated["liveCalibration"] and sm.seen['roadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["liveCalibration"].rpyCalib, dtype=np.float32)
-      dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor))]
+      warp_device_type, warp_sensor = camera_path.warp_geometry(
+        str(sm['deviceState'].deviceType), str(sm['roadCameraState'].sensor)
+      )
+      dc = DEVICE_CAMERAS[(warp_device_type, warp_sensor)]
       model_transform_main = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics if main_wide_camera else dc.fcam.intrinsics, False).astype(np.float32)
       model_transform_extra = get_warp_matrix(device_from_calib_euler, dc.ecam.intrinsics, True).astype(np.float32)
       camera_height = sm["liveCalibration"].height[0] if sm["liveCalibration"].height else DEFAULT_CAMERA_HEIGHT
       model_transform_main, model_transform_extra = camera_offset.update(
         model_transform_main,
         model_transform_extra,
-        str(sm["deviceState"].deviceType),
-        str(sm["roadCameraState"].sensor),
+        warp_device_type,
+        warp_sensor,
         camera_height,
         main_wide_camera,
       )
@@ -1437,29 +2013,33 @@ def main(demo=False):
       frames_dropped = 0.
     run_count = run_count + 1
 
-    if model_lab_active and run_count % ModelConstants.MODEL_FREQ == 0 and not usbgpu_present():
-      model_lab_active = False
-      model_lab_longitudinal = None
+    if external_gpu_active and run_count % ModelConstants.MODEL_FREQ == 0 and not usbgpu_present():
       if small_model is None:
-        raise RuntimeError("Model Laboratory has no active small fallback model")
+        raise RuntimeError("External-GPU model has no active small fallback model")
       model = small_model
+      camera_path.validate_model(model)
+      was_model_lab_active = model_lab_active
+      model_lab_active = False
+      drop_chestnut()
+      model_lab_longitudinal = None
       external_gpu_active = False
-      model_lab_error = "Chestnut disconnected; using the active small model"
+      model_lab_error = "Chestnut disconnected; using the active small model" if was_model_lab_active else model_lab_error
       params.put_bool("UsbGpuPresent", False)
       params.put_bool("UsbGpuActive", False)
       params.put("ModelVersion", model.policy_generation)
       params.put("DrivingModelVersion", model.policy_generation)
       set_runtime_model_params(params, model.model_id, model.policy_generation)
-      _set_model_lab_runtime(
-        params,
-        requested=model_lab_requested,
-        active=False,
-        config=model_lab_config,
-        error=model_lab_error,
-      )
+      if was_model_lab_active:
+        _set_model_lab_runtime(
+          params,
+          requested=model_lab_requested,
+          active=False,
+          config=model_lab_config,
+          error=model_lab_error,
+        )
       if chestnut_state is not None:
         chestnut_state.big = False
-      cloudlog.error(f"Model Laboratory stopped: {model_lab_error}")
+      cloudlog.error("External-GPU model stopped after Chestnut disconnect; using the active small model")
 
     frame_drop_ratio = frames_dropped / (1 + frames_dropped)
     dropped_frame = vipc_dropped_frames > 0
@@ -1488,9 +2068,14 @@ def main(demo=False):
       model.in_control = jetlink_adapter.in_control(sm)
       model.frame_drop_ratio = frame_drop_ratio
       handovers = getattr(model, 'handovers', 0)
+    big_model_behind = _big_model_behind(external_gpu_active, small_model is not None, frame_drop_ratio)
 
     mt1 = time.perf_counter()
     try:
+      if big_model_behind:
+        # through the failure fallback below: the small model drives from the next frame, and run_count = 0
+        # forgives the drops that decided it, so they never reach selfdrived
+        raise BigModelBehind(f"modeld dropped {frame_drop_ratio * 100:.2f} % of camera frames behind the big model")
       send_chestnut = (
         chestnut_state is not None and
         run_count % round(ModelConstants.MODEL_FREQ / SERVICE_LIST["chestnutState"].frequency) == 0
@@ -1521,7 +2106,7 @@ def main(demo=False):
           longitudinal_inputs,
           model_lab_longitudinal.can_prepare_only and dropped_frame,
           blinker_on=blinker_on,
-          after_output_sync=chestnut_state.send if send_chestnut else None,
+          after_enqueue=chestnut_state.send if send_chestnut else None,
           shared_warp=model.last_warp_output,
         )
         if (
@@ -1550,8 +2135,9 @@ def main(demo=False):
           inputs,
           model.can_prepare_only and dropped_frame,
           blinker_on=blinker_on,
-          after_output_sync=chestnut_state.send if send_chestnut else None,
+          after_enqueue=chestnut_state.send if send_chestnut else None,
         )
+
         lateral_model_output = model_output
     except Exception:
       if model_lab_active:
@@ -1559,6 +2145,7 @@ def main(demo=False):
         if small_model is None:
           raise RuntimeError("Model Laboratory has no active small fallback model") from None
         model = small_model
+        camera_path.validate_model(model)
         model_lab_longitudinal = None
         model_lab_active = False
         model_lab_error = "Model Laboratory inference failed; using the active small model"
@@ -1574,7 +2161,8 @@ def main(demo=False):
           raise
         cloudlog.exception("external GPU model failed, falling back to active small model")
         model = small_model
-        big_model = None
+        camera_path.validate_model(model)
+      drop_chestnut()
       params.put_bool("UsbGpuActive", False)
       external_gpu_active = False
       params.put("ModelVersion", model.policy_generation)
@@ -1610,7 +2198,7 @@ def main(demo=False):
         model_lab_timings = []
 
     if model_output is not None and vipc_dropped_frames > 0:
-      cloudlog.error(f"suppressing model output after dropping {vipc_dropped_frames} frames")
+      cloudlog.error(f"publishing completed model output after dropping {vipc_dropped_frames} frames; reporting gap in frameDropPerc")
 
     if _should_publish_model_output(model_output, vipc_dropped_frames, external_gpu_active):
       modelv2_send = messaging.new_message('modelV2')
@@ -1618,6 +2206,10 @@ def main(demo=False):
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
 
+      # comma #39091: while lateral is not active, smooth from the curvature the car is actually driving, not the model's
+      # last (unused) output, so engaging does not start from a stale curvature
+      if not sm['carControl'].latActive:
+        prev_action.desiredCurvature = sm['controlsState'].curvature
       if model_lab_active and longitudinal_model_output is not None:
         lateral_action = get_action_from_model(
           lateral_model_output, prev_action,

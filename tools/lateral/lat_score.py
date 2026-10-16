@@ -45,7 +45,7 @@ Toggles: the baseline and the candidate each run with NrdrLatEpsFirmwareFF / Nrd
 their kind (pid: EpsFF 0, PidFF as logged unless --set; clarity_eps: EpsFF 1, PidFF 0), so a route logged with one
 controller cannot leak it into the other's run. The resolved toggles are printed.
 
---clarity-const NAME=a,b sets a list constant of selfdrive/controls/lib/nrdr_eps_firmware_ff.py (FF_SPEED_BP, or
+--clarity-const NAME=a,b sets a list constant of selfdrive/controls/lib/honda_eps_firmware_ff.py (FF_SPEED_BP, or
 FF_CRAWL_ANGLE_BP / FF_CRAWL_SPEED_BP) for the candidate only, in the worker process. Sim only; the car cannot
 set these.
 
@@ -273,11 +273,11 @@ def _toggles(p):
 
 def _run(job):
   route, plant_path, kind, sets, consts = job
-  from openpilot.selfdrive.controls.lib import nrdr_eps_firmware_ff as F
+  from openpilot.selfdrive.controls.lib import honda_eps_firmware_ff as F
   saved = {}
   for name, vals in consts.items():
     if not hasattr(F, name):
-      raise AttributeError(f"nrdr_eps_firmware_ff has no {name} on this branch")
+      raise AttributeError(f"honda_eps_firmware_ff has no {name} on this branch")
     saved[name] = list(getattr(F, name))
     getattr(F, name)[:] = vals
   d, _ = load_route(route)

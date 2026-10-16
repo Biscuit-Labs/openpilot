@@ -23,10 +23,11 @@ restrictions remain in force; adding controller support does not validate flashi
 ## Selection and tables
 
 The modified fingerprint `39990-TLA,A220` is recognized as CR-V 5G. Exact
-normalized EPS ID `39990-TLA-A220` selects `CRV_5G_A220_FF45` in both
-`LatControlHondaEps` and the PID firmware-feedforward shadow. A040 retains its
-existing calibration. The firmware-controller enable toggle continues to apply.
-No additional command delay or PID trims are inferred for A220.
+normalized EPS ID `39990-TLA-A220` selects `CRV_TLA_A220` in `honda_eps_firmware_ff.py`, used by `LatControlHondaEps`.
+The former independent PID-shadow implementation is retired by D-133. A040 retains
+its separate calibration. `HondaEpsController` is the migrated enable toggle.
+The VFN shell supplies its inferred default 0.12 s command delay and Clarity-derived
+model-delay schedule; neither is an A220 timing measurement. P/I trims remain 1.0.
 
 `[CONFIRMED, static byte decode of the application hash above]`:
 
@@ -70,7 +71,18 @@ not an A220 vehicle measurement. The A280 attenuation change is not represented
 by a new fitted load model. See the source review for its rows-0–3-only scope.
 
 Unit tests verify the actual artifact, tables, firmware selection, VGR selection,
-inversion math and real controller/PID-shadow construction. They do not verify
+inversion math and production controller selection. They do not verify
 A220 live row selection, steering response, timing, physical stability, or the
 closed loop. No firmware was modified or flashed and no controller was deployed
 to the comma as part of this change.
+
+## VFN integration boundary (D-133)
+
+VFN `8715c7de4422163b8f686be1d60c6197072ef172` includes a calibration for a corrected
+A220 firmware (full-image prefix `bead3bd4`, RWD prefix `d62490b3`). It reports the
+same `39990-TLA,A220` ID as the retained artifact above, so the ID cannot identify
+which command/P tables are installed. This branch keeps the artifact-bound
+`8f175250…` tables, exact constant R6 transfer, and stored speed envelope. The
+corrected-image mapping is not selectable here. No firmware update is implied,
+and the source review's DO_NOT_FLASH restriction remains. A change of physical
+firmware requires matching controller calibration and fresh artifact evidence.

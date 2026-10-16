@@ -11,6 +11,10 @@ The owner selected James's `vfn` branch and PR incorporation only into their own
 | VFN tinygrad pin | `d3f09c9bbd542fbfbe68c8569a1173550c408969` |
 
 All three tips were fetched/queried again before finalizing; they were unchanged.
+Every currently tracked model artifact matches VFN by Git blob ID. Eight old
+standalone split vision/policy files already retired on this fork remain absent;
+the native runtime loads the unified driving artifact and camera-specific warps,
+not those obsolete split files.
 Tinygrad's runtime package is byte-identical to VFN's; three extra-tool files receive
 EOF whitespace cleanup only. See D-131–D-134 for integration decisions and exceptions.
 

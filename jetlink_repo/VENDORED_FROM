@@ -1,1 +1,10 @@
-zoompilot/jetlink 4b747aebad3d8d96ab26d76f1668f2b2ecb1b667 (v0.8.5, the pin zoompilot develop uses). Vendored: jetlink/, scripts/comma/, LICENSE, pyproject.toml, README.md — what runs on the comma (zoompilot release_files keeps the same subset).
+zoompilot/jetlink 491cf1ef8d6786ed51cf995e18fc8721389066c6 (v0.8.7 plus USB power fix), API 3.
+Vendored subset: jetlink/, scripts/comma/, LICENSE, pyproject.toml, README.md, tests/, catalog/.
+Local compatibility: warp.py accepts adapter-validated four-input StarPilot warp captures
+and supports StarPilot's queue-based small-model reset. Legacy capture build/runtime
+lives in starpilot/jetlink_adapter/legacy_warp.py
+(from upstream 4b747aebad3d8d96ab26d76f1668f2b2ecb1b667).
+Native upstream dict warps and reset paths remain available for their respective model ABI.
+Local route-backed HOLDS_ALLOWED=40 retained from Trung's existing port (route 00000313;
+see model_state.py), rather than reverting silently to upstream's 20.
+Whitespace-only EOF cleanup in comma/owner.py and onnx_meta.py.

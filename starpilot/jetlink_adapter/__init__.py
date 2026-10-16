@@ -1,7 +1,7 @@
 """
 Jetlink on StarPilot: the one module that holds every openpilot import jetlink
 needs, and the functions the hooks call. Ported from zoompilot's
-openpilot/sunnypilot/jetlink_adapter (develop, jetlink API 2; jetlink_repo
+openpilot/sunnypilot/jetlink_adapter (main, jetlink API 3; jetlink_repo
 pinned in jetlink_repo/VENDORED_FROM). Original copyright Zeph Leggett, MIT.
 
 Differences from zoompilot: no sunnypilot model manager. StarPilot's manifest
@@ -25,7 +25,7 @@ from pathlib import Path
 
 # the version of jetlink.openpilot's API this adapter is written to; any other
 # is treated as jetlink being absent, with the reason as the offroad alert
-API = 2
+API = 3
 
 # the gadget owner, as manager names the process and selfdrived lists it
 OWNER = 'jetlinkd'
@@ -95,7 +95,7 @@ def main() -> None:
 
 def adapter() -> Adapter:
   """The adapter, for jetlink's entry points that run as their own process:
-  the provisioning run and the warp build."""
+  the provisioning run."""
   return Adapter()
 
 
@@ -114,6 +114,7 @@ class Adapter:
     # 110 us for the read, and the UI reads several five times a second. By
     # store, since a test or a bench runs under its own prefix
     self._stores: dict[Path, object] = {}
+    self._sm = None
 
   # -- params ---------------------------------------------------------------
 
@@ -188,6 +189,28 @@ class Adapter:
     return ModelFace(parser=Parser, frame_size=lambda w, h: get_nv12_info(w, h)[3], desire_len=ModelConstants.DESIRE_LEN,
                      constants=ModelConstants, lat_smooth_seconds=LAT_SMOOTH_SECONDS,
                      long_smooth_seconds=LONG_SMOOTH_SECONDS, get_action_from_model=get_action_from_model)
+
+  def in_control(self) -> bool:
+    """Called on modeld's frame thread; stale or missing controls hold the swap off."""
+    try:
+      if self._sm is None:
+        from cereal import messaging
+        self._sm = messaging.SubMaster(list(IN_CONTROL))
+      self._sm.update(0)
+      return in_control(self._sm)
+    except Exception:
+      return True
+
+  def load_legacy_warp(self, jit, model_w: int, model_h: int):
+    """Validate the fork's four-input warp before handing it to the frame loop."""
+    from jetlink.openpilot.warp import LegacyWarp
+    from openpilot.starpilot.jetlink_adapter.legacy_warp import Warp, WARP_INPUT_NAMES
+    captured = getattr(jit, 'captured', None)
+    if captured is None or list(getattr(captured, 'expected_names', [])) != WARP_INPUT_NAMES:
+      raise RuntimeError('legacy warp has no valid four-input capture')
+    if tuple(getattr(captured.ret, 'shape', ())) != (2, 6, model_h // 2, model_w // 2):
+      raise RuntimeError('legacy warp output does not match the model geometry')
+    return LegacyWarp(lambda frame_size: Warp(jit, frame_size, self.log))
 
   def event(self, name: str, **fields) -> None:
     self.log.event(name, **fields)

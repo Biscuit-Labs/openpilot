@@ -3014,3 +3014,29 @@ NvM overrides, A150 applicability, and physical range origin remain unverified.
 The incoming camera bounds publish a degraded bound rather than deleting points; they can
 soften or delay braking when camera acceleration is wrong. Imported replay costs remain in
 D-123/D-124. Navigation exit auto-take defaults off. No road validation in this integration.
+
+## D-132 — Update JetLink API 3 with an explicit StarPilot camera-ABI adapter (2026-10-16)
+
+[CONFIRMED by static diff and unit tests] Vendor ZoomPilot JetLink through
+`491cf1ef8d6786ed51cf995e18fc8721389066c6` (v0.8.7 plus USB power fix).
+API 3 asks Adapter.in_control() on every inference frame. The callback reads fresh
+carState/carControl and holds off joining when either service is stale, invalid, or fails.
+The fork's current small-model artifacts use a four-input warp, while new upstream
+JetLink expects a two-input dictionary warp. Keep the active four-input build/runtime
+in `starpilot/jetlink_adapter/legacy_warp.py`, sourced from JetLink `4b747aeb`, and
+accept it only after validating captured input names and output geometry. Preserve the
+queue-based small-model history reset as well. Native dictionary artifacts retain the
+upstream validation path. Replacing the vendored files without this adapter is rejected:
+it would break warp loading and history reset in the currently shipped ModelState.
+
+Keep the existing HOLDS_ALLOWED=40 and its evidence comment (route 00000313; imported
+Trung port), rather than silently restoring upstream's 20. The API 3 import adds the USB
+no-draw behavior, wake/sleep and catalog updates; no runtime link is enabled by the update.
+No live comma/USB/Jetson/phone handoff or road result is claimed. The checked-in camera
+warp artifacts are unchanged; PR JamesL787/openpilot#19 carries different bytes and a
+`f6fc4e3f` tinygrad build record, so importing it blindly is rejected.
+
+Validation: upstream openpilot, comma-owner, registry and queue suites 606 passed plus
+60 subtests; adapter/join tests 16 passed, including actual tinygrad CPU execution and
+actual history-buffer reset. Disabling production warp replay makes the CPU frame test
+fail (negative control). Lint passes under the owning root and vendored configs.

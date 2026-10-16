@@ -11,8 +11,8 @@ Repo: StarPilot / openpilot fork `openpilot-radar`. Working branch
 2026-09-30 and survives as tag `archive/claude/radar-testing-state-88vt2t`.) Branches deleted in that
 cleanup are cited below as their `archive/<name>` tags. For the current tip, trust `git log`, not this line.
 
-**Latest work (2026-10-16), start here:** Trung integration in progress through
-`217688cc8` (items 262–268, imported upstream replay/static evidence). Prior local work: item 261 (A220 PTM controller calibration and
+**Latest work (2026-10-16), start here:** Trung sync through
+`217688cc8` and JetLink API 3 update (items 269–270). Prior local work: item 261 (A220 PTM controller calibration and
 firmware VGR support, static/unit tests only). Then item 259 (bind the JetLink icon to live per-frame
 big-model telemetry). Then item 258 (comma 3X JetLink onroad status icon).
 Then item 257 (synced Trung through
@@ -11655,3 +11655,37 @@ Tests:
 - `test_exp_close_lead_cap_deepens_past_chill_floor_at_bounded_rate`: the cap may now step past 0.25 only while it follows
   a target that is already deeper (D-128). The cold first solve converges deeper.
 - The controls suite gives 2200 passed, 2 failed; both failures are the pre-existing latcontrol ones.
+
+## 269. Trung integration through `217688cc88c7e230e488555533db6992b94e1ded` (2026-10-16).
+
+Implementation: `66ab08638c23ffdc6034dc0801f3e70f76689753`.
+[CONFIRMED, static merge review and unit tests] Merge retains the local A220 calibration
+and live JetLink icon telemetry. Incoming decisions are D-123–D-130; source replay claims
+remain bound to Trung's source history and routes, not to a new replay of this merge.
+429 Honda tests passed. 868 focused controls/model-join tests passed, covering radard Bosch
+semantics, lead behavior, lead-follow policy, following distance, turn leads, longitudinal
+planner, QP cap re-solve, radar lead-switch bounds, stock-stop feel, and brake onset.
+
+The prescribed native build succeeded on this Apple-silicon Mac using `.venv-codex`;
+transformations.so required an explicit clean/rebuild because scons initially considered
+the checked-in ELF current. Installing the already-documented python-dateutil and
+parameterized dependencies resolved subsequent collection errors. Device artifacts are
+retained in the committed tree; native build outputs are local only. This supersedes the
+earlier claim that the control tests could not run on this Mac. No replay, real radar,
+live fusion timing, closed-loop vehicle response, or road validation was run.
+
+## 270. JetLink v0.8.7/API 3 plus latest USB power fix (D-132, 2026-10-16).
+
+Upstream source: `491cf1ef8d6786ed51cf995e18fc8721389066c6`.
+[CONFIRMED, static integration and unit tests] Imports catalog/export fixes, sleep/wake
+behavior, API 3 per-frame control-state callback, and USB draw prevention in every link
+mode. Explicit compatibility retains the fork's four-input camera warp and queue-history
+reset. Existing warp binaries, 40-held-frame allowance and live big-model UI telemetry
+are retained. Vendored provenance records every local deviation; upstream tests and
+catalog fixtures are included to make the checks reproducible.
+
+606 upstream tests and 60 subtests passed. Adapter/join tests pass 16 cases, including a
+real CPU TinyJit frame and actual history reset; skipping the production frame replay
+fails its test. Root adapter lint and vendored runtime/script lint pass. This does not
+exercise the QCOM GPU, physical USB charger behavior, actual host/comma model handoffs,
+realtime process scheduling or vehicle response. No live JetLink or road validation.

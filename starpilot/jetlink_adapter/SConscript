@@ -16,7 +16,7 @@ Import('env', 'arch')
 
 basedir = env.Dir("#").abspath
 jetlink_repo = env.Dir("#jetlink_repo").abspath
-capture = os.path.join(jetlink_repo, 'jetlink', 'openpilot', 'warp.py')
+capture = os.path.join(basedir, 'starpilot', 'jetlink_adapter', 'legacy_warp.py')
 
 # comma GPU only: the pickle is captured against Device.DEFAULT and only modeld
 # on the device loads one. And only with a jetlink checked out that has the
@@ -63,6 +63,6 @@ if arch == 'larch64' and os.path.isfile(capture):
     # on the small model, the link's alert says why, and the next build tries
     # again. A release fails here instead: it installs on devices that never
     # build
-    cmd = (f'{"" if prebuilt else "-"}python3 -m jetlink.openpilot.warp --adapter {jetlink_adapter.__name__} '
+    cmd = (f'{"" if prebuilt else "-"}python3 -m openpilot.starpilot.jetlink_adapter.legacy_warp --adapter {jetlink_adapter.__name__} '
            f'--camera {cam_w}x{cam_h} --model {model_w}x{model_h} --output {pkl}')
     lenv.Command(pkl, tinygrad_files + script_files, Action(cmd, "  [JETLINK WARP] $TARGET"))

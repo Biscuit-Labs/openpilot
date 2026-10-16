@@ -1,5 +1,5 @@
 venv/
-.venv/
+.venv
 .ci_cache
 .env
 .clang-format
@@ -12,10 +12,10 @@ venv/
 .sconsign.dblite
 a.out
 .hypothesis
-.cache/
+.cache
 .host_runtime/
-.comma_sysroot/
-.venv-linux-arm64/
+.comma_sysroot
+.venv-linux-arm64
 compiledmodels/
 
 /docs_site/

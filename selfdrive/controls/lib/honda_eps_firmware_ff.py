@@ -342,9 +342,10 @@ CIVIC_TEG_A010 = EpsFirmwareCalibration(**{**{k: getattr(CIVIC_TBA_A030, k) for 
                                        "r5_key_bp": (0, 222, 333, 495, 656, 887, 1108, 1552, 1774),
                                        "kp_key_bp": CIVIC_TBA_C120_P_KEYS,
                                        "r6_per_deg_s": CIVIC_TEG_A010_R6_CENTRE,
-                                       # plan_timing on routes 12e/134/137/139 with nrdr's 0.145 s low-speed delay
-                                       # active: -0.05 s weighted (+0.02/-0.06/-0.06/-0.08), so ~0.19 s in all;
-                                       # 0.15 stays below it (the C020 family's value). Mostly highway drives.
+                                       # plan_timing on routes 12e/134/137/139 with nrdr's fixed Civic delay applied
+                                       # (0.175 s = 0.15 + its 0.025 model-action compensation, which this branch does
+                                       # not need): -0.05 s weighted (+0.02/-0.06/-0.06/-0.08), so ~0.20 s in this
+                                       # branch's terms; 0.15 stays below it (the C020 family's value). Mostly highway.
                                        "cmd_delay_s": 0.15,
                                        "rack": CIVIC_TEG_A010_RACK})
 # Civic Bosch 39990-TBA-C120, 08-11 C020Profile Trk4250 (bin sha256 3d88d5ea). Its variants select rows 0-4, all
@@ -499,7 +500,7 @@ CALIBRATION_PROVENANCE = {
     "r6": "measured: telemetry -152.5 per deg/s on route 00000139 (angle shape from its A table)",
     "load": "measured: the owner's 11 telemetry routes 0000012d-00000139 (fit_column_load.py --source teg)",
     "trims": "inferred: the C020 owner's",
-    "cmd_delay": "measured: plan_timing on routes 12e/134/137/139, sized below the ~0.19 s measured",
+    "cmd_delay": "measured: plan_timing on routes 12e/134/137/139, sized below the ~0.20 s measured",
     "model_delay": "default: the Clarity's schedule",
     "rack": "measured: VSA yaw (GPS-checked scale), routes 0000012d-00000139",
   },

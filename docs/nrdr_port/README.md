@@ -71,7 +71,9 @@ drift, `test_leads::test_radar_fault` params path). Anything beyond those 30 is 
 | 10-17 | `Lat*Scale` defaults stay P 100/100/100, I 20/100/0 (params_keys), **not** vfn's manager seed (P 100/135/200, I 20/135/0) | The seed dates from 06-28, before the banding moved into interface.py (07-26); on a fresh vfn install it double-bands highway kp. A vfn bug |
 | 10-17 | N-BOX modified tune dropped; Civic 2022 modified branch kept (inert until an image is on the allow-list) | User call / nothing to remove yet |
 | 10-17 | "Linear-max" wording replaced by "modified-EPS command map" (output × the image's cap) | Naming |
-| 10-16 | **Open, safety:** `HondaSafetyFlags` allocation | Our `NIDEC_HYBRID=64` collides with 7.0's `BOSCH_CANFD_MVL=64`. 7.0 also has `AOL_BOSCH_LONG` and `GAS_INTERCEPTOR` both at 32. Resolve with the panda safety port, against panda's own flag table |
+| 10-17 | **Nidec-hybrid brake (Clarity), slice 4.** Safety takes the larger of `COMPUTER_BRAKE` and `COMPUTER_BRAKE_HYBRID` on every Nidec (TX brake limit and stock-AEB forwarding), so there is **no `NIDEC_HYBRID` safety param** | Stock 7.0 would brake the Clarity on the wrong field (the 06-30 "no braking" bug). A new param bit would have had to thread 7.0's exact-word checks: the interceptor enables only on param 32/36, so the Clarity's 96 would have silently lost the pedal. Non-hybrids are unchanged (nothing else in those bits). Option A (vfn's bit 64) is the fallback if ever needed |
+| 10-17 | `hondacan.create_brake_command(..., hybrid=)` writes `COMPUTER_BRAKE_HYBRID`/`BRAKE_PUMP_REQUEST_HYBRID` for `HondaFlags.HYBRID`; carstate reads the hybrid stock-AEB field, `blockPcmEnable` from brake hold, and `BRAKE_HOLD_HYBRID_ALT` (0x223) under new `HYBRID_ALT_BRAKEHOLD = 1048576` (16384 is 7.0's GAS_INTERCEPTOR) | vfn 5f5e384660 / 4eccd1a858. vfn's `car_specific` belowEngageSpeed is not needed: 7.0's `brakeHold` event already blocks an OP-long engage in brake hold |
+| 10-17 | Panda app firmware rebuilt (DEBUG, debug-signed, as 7.0 builds it); bootstub and body binaries left as 7.0's | Only the version stamp changed in those |
 
 ## Slices
 
@@ -80,7 +82,7 @@ drift, `test_leads::test_radar_fault` params path). Anything beyond those 30 is 
 | 1 | Honda EPS lateral modules land and their pure tests pass (`honda_eps_firmware_ff`, `honda_eps_rack_map`, `honda_lateral_common`, `latcontrol_honda_eps`, `steer_ratio`, VGR flags, `get_eps_modified_steering_pressed`, `PIDController` integrator scale/reset) | **done** |
 | 2 | Honda interface: EPS image allow-list + VGR flags, per-car PID tune, command maps; params keys; capnp `eps*`; `create_lateral_controller` hook; controlsd telemetry copy | **done** (params lib rebuild pending) |
 | 3 | Modified-EPS PID path (banded kf/scales, VGR/road-curve target, rate limit, press detector, override fade, output LPF) as `LatControlHondaModifiedPID`; NNFF dropped | **done** |
-| 4 | Panda safety: Clarity Nidec-hybrid brake + safety flag allocation; panda rebuild | todo |
+| 4 | Clarity Nidec-hybrid brake: safety (larger brake field), brake command, car state, alt brake hold; panda rebuild | **done** |
 | 5 | controlsd hooks: rack-map curvature, turn-hold shaping, delay schedule, stopped-model guard | todo |
 | 6 | Rest of the Honda car layer (learners, 0x94 yaw, carstate), rebased on 7.0's split Honda modules | todo |
 | 7 | Settings UI + Galaxy in 7.0's feature-registration design | todo |

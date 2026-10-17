@@ -151,8 +151,8 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `opendbc_repo/opendbc/car/honda/interface.py` | bosch+vfn | 139 | mod | `opendbc_repo/opendbc/car/honda/interface.py` | PORT onto 7.0 refactored Honda | wip (slice 2 lateral done; Bosch-A radar default, vEgoStopping, Nidec hybrid safety still todo) |
 | `opendbc_repo/opendbc/car/honda/yaw_rate.py` | bosch+vfn | 87 | new | **gone** | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/tests/test_steer_ratio.py` | bosch+vfn | 74 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
-| `opendbc_repo/opendbc/car/honda/carstate.py` | bosch+vfn | 29 | mod | `opendbc_repo/opendbc/car/honda/carstate.py` | PORT onto 7.0 refactored Honda | todo |
-| `opendbc_repo/opendbc/car/honda/hondacan.py` | bosch+vfn | 16 | mod | `opendbc_repo/opendbc/car/honda/hondacan.py` | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/carstate.py` | bosch+vfn | 29 | mod | `opendbc_repo/opendbc/car/honda/carstate.py` | PORT onto 7.0 refactored Honda | wip (slice 4 hybrid stockAeb/brake hold done; rest slice 6) |
+| `opendbc_repo/opendbc/car/honda/hondacan.py` | bosch+vfn | 16 | mod | `opendbc_repo/opendbc/car/honda/hondacan.py` | PORT onto 7.0 refactored Honda | wip (slice 4 hybrid brake done; create_acc_commands brake bit todo, slice 8) |
 | `opendbc_repo/opendbc/car/honda/values.py` | bosch+vfn | 14 | mod | `opendbc_repo/opendbc/car/honda/values.py` | PORT onto 7.0 refactored Honda | wip (VGR flags done; safety flags: see README) |
 | `opendbc_repo/opendbc/car/honda/fingerprints.py` | bosch+vfn | 2 | mod | `opendbc_repo/opendbc/car/honda/fingerprints.py` | PORT onto 7.0 refactored Honda | done (slice 2) |
 
@@ -258,7 +258,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/car/redneck_cruise.py` | bosch+vfn | 9 | mod | **gone** | REVIEW | todo |
 | `common/tests/test_params.py` | bosch+vfn | 7 | mod | `openpilot/common/tests/test_params.py` | REVIEW | todo |
 | `common/pid.py` | bosch+vfn | 6 | mod | `openpilot/common/pid.py` | REVIEW | done (slice 1) |
-| `selfdrive/car/car_specific.py` | bosch+vfn | 6 | mod | **gone** | REVIEW | todo |
+| `selfdrive/car/car_specific.py` | bosch+vfn | 6 | mod | **gone** | REVIEW | dropped: 7.0 brakeHold event covers it |
 | `system/updated/updated.py` | bosch+vfn | 5 | mod | `openpilot/system/updated/updated.py` | REVIEW | todo |
 | `selfdrive/car/card.py` | bosch+vfn | 1 | mod | `openpilot/selfdrive/car/card.py` | REVIEW | todo |
 | `selfdrive/car/tests/test_car_specific.py` | bosch+vfn | 1 | mod | **gone** | REVIEW | todo |
@@ -361,8 +361,8 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `opendbc_repo/opendbc/safety/tests/test_honda.py` | bosch+vfn | 17 | mod | `opendbc_repo/opendbc/safety/tests/test_honda.py` | PORT - safety critical (Nidec hybrid brake) | todo |
-| `opendbc_repo/opendbc/safety/modes/honda.h` | bosch+vfn | 10 | mod | `opendbc_repo/opendbc/safety/modes/honda.h` | PORT - safety critical (Nidec hybrid brake) | todo |
+| `opendbc_repo/opendbc/safety/tests/test_honda.py` | bosch+vfn | 17 | mod | `opendbc_repo/opendbc/safety/tests/test_honda.py` | PORT - safety critical (Nidec hybrid brake) | done (slice 4: TestHondaNidecHybridSafety) |
+| `opendbc_repo/opendbc/safety/modes/honda.h` | bosch+vfn | 10 | mod | `opendbc_repo/opendbc/safety/modes/honda.h` | PORT - safety critical (Nidec hybrid brake) | done (slice 4: larger of both brake fields, no hybrid param) |
 
 ### opendbc other
 

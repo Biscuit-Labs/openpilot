@@ -156,6 +156,11 @@ class CarState(CarStateBase):
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(
       250, cp.vl["SCM_FEEDBACK"]["LEFT_BLINKER"], cp.vl["SCM_FEEDBACK"]["RIGHT_BLINKER"])
     ret.brakeHoldActive = cp.vl["VSA_STATUS"]["BRAKE_HOLD_ACTIVE"] == 1
+    # NRDR: some Nidec hybrids (Clarity) report brake hold on a different message; VSA_STATUS stays 0
+    if self.CP.flags & HondaFlags.HYBRID_ALT_BRAKEHOLD:
+      ret.brakeHoldActive = cp.vl["BRAKE_HOLD_HYBRID_ALT"]["BRAKE_HOLD_ACTIVE"] == 1
+    if (self.CP.flags & HondaFlags.NIDEC) and (self.CP.flags & HondaFlags.HYBRID):
+      ret.blockPcmEnable = ret.brakeHoldActive  # Nidec hybrids fault if cruise resumes from brake hold
     ret.parkingBrake = bool(cp.vl[self.car_state_scm_msg]["PARKING_BRAKE_ON"])
 
     if self.CP.transmissionType == TransmissionType.manual:
@@ -214,7 +219,9 @@ class CarState(CarStateBase):
       if not (self.CP.flags & HondaFlags.BOSCH_RADARLESS):
         ret.stockAeb = (not self.CP.openpilotLongitudinalControl) and bool(cp.vl["ACC_CONTROL"]["AEB_STATUS"] and cp.vl["ACC_CONTROL"]["ACCEL_COMMAND"] < -1e-5)
     else:
-      ret.stockAeb = bool(cp_cam.vl["BRAKE_COMMAND"]["AEB_REQ_1"] and cp_cam.vl["BRAKE_COMMAND"]["COMPUTER_BRAKE"] > 1e-5)
+      # NRDR: a Nidec hybrid's stock brake is in COMPUTER_BRAKE_HYBRID
+      stock_brake_signal = "COMPUTER_BRAKE_HYBRID" if self.CP.flags & HondaFlags.HYBRID else "COMPUTER_BRAKE"
+      ret.stockAeb = bool(cp_cam.vl["BRAKE_COMMAND"]["AEB_REQ_1"] and cp_cam.vl["BRAKE_COMMAND"][stock_brake_signal] > 1e-5)
 
     self.acc_hud = False
     self.lkas_hud = False

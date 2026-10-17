@@ -89,6 +89,9 @@ class CarInterface(CarInterfaceBase):
 
     if 0x184 in fingerprint[CAN.pt]:
       ret.flags |= HondaFlags.HYBRID.value
+    # NRDR: some Nidec hybrids (Clarity) report brake hold via BRAKE_HOLD_HYBRID_ALT (0x223) instead of VSA_STATUS
+    if (ret.flags & HondaFlags.NIDEC) and (ret.flags & HondaFlags.HYBRID) and 0x223 in fingerprint[CAN.pt]:
+      ret.flags |= HondaFlags.HYBRID_ALT_BRAKEHOLD.value
 
     if candidate in MANUAL_TRANS_CARS and all(msg not in fingerprint[CAN.pt] for msg in (0x191, 0x1A3)):
       ret.transmissionType = TransmissionType.manual

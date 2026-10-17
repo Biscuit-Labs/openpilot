@@ -133,6 +133,8 @@ class HondaFlags(IntFlag):
   VGR_INSIGHT_TXM_A040 = 131072
   VGR_CRV_TLA_A040 = 262144
   VGR_CIVIC_TBA_C120 = 524288
+  # NRDR: some Nidec hybrids (Clarity) report brake hold on BRAKE_HOLD_HYBRID_ALT (0x223) instead of VSA_STATUS
+  HYBRID_ALT_BRAKEHOLD = 1048576
 
 
 # Car button codes

@@ -333,6 +333,25 @@ class TestHondaNidecPcmSafety(HondaPcmEnableBase, TestHondaNidecSafetyBase):
     pass
 
 
+class TestHondaNidecHybridSafety(TestHondaNidecPcmSafety):
+  """
+    NRDR: Nidec hybrids (Clarity) carry the brake in COMPUTER_BRAKE_HYBRID. Every inherited brake test runs with the
+    brake in that field; safety checks the larger of the two fields, so no hybrid safety param is needed.
+  """
+
+  def _send_brake_msg(self, brake, aeb_req=0, bus=0):
+    values = {"COMPUTER_BRAKE_HYBRID": brake, "AEB_REQ_1": aeb_req}
+    return self.packer.make_can_msg_safety("BRAKE_COMMAND", bus, values)
+
+  def test_the_larger_brake_field_is_limited(self):
+    self.safety.set_controls_allowed(True)
+    for standard, hybrid in ((self.MAX_BRAKE, 0), (0, self.MAX_BRAKE), (self.MAX_BRAKE + 1, 0), (0, self.MAX_BRAKE + 1),
+                             (self.MAX_BRAKE + 1, self.MAX_BRAKE)):
+      values = {"COMPUTER_BRAKE": standard, "COMPUTER_BRAKE_HYBRID": hybrid}
+      msg = self.packer.make_can_msg_safety("BRAKE_COMMAND", self.PT_BUS, values)
+      self.assertEqual(max(standard, hybrid) <= self.MAX_BRAKE, self._tx(msg), msg=(standard, hybrid))
+
+
 class TestHondaNidecPcmAltSafety(TestHondaNidecPcmSafety):
   """
     Covers the Honda Nidec safety mode with alt SCM messages

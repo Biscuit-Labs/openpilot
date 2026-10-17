@@ -99,6 +99,15 @@ static uint8_t honda_get_counter(const CANPacket_t *msg) {
   return (msg->data[counter_byte] >> 4U) & 0x3U;
 }
 
+// NRDR: Nidec BRAKE_COMMAND (0x1FA) carries the brake in COMPUTER_BRAKE (bytes 0-1), except on Nidec hybrids
+// (Clarity), whose brake module reads COMPUTER_BRAKE_HYBRID (bytes 6-7). Nothing else occupies those hybrid bits, so a
+// non-hybrid leaves them 0 and the larger of the two is the brake the car will apply, with no hybrid safety param.
+static int honda_nidec_brake(const CANPacket_t *msg) {
+  int brake = (msg->data[0] << 2) + ((msg->data[1] >> 6) & 0x3U);
+  int brake_hybrid = (msg->data[6] << 2) + ((msg->data[7] >> 6) & 0x3U);
+  return SAFETY_MAX(brake, brake_hybrid);
+}
+
 static void honda_rx_hook(const CANPacket_t *msg) {
   const bool pcm_cruise = ((honda_hw == HONDA_BOSCH) && !honda_bosch_long) || ((honda_hw == HONDA_NIDEC) && !honda_interceptor);
   unsigned int pt_bus = honda_get_pt_bus();
@@ -193,7 +202,7 @@ static void honda_rx_hook(const CANPacket_t *msg) {
   if (!(alternative_experience & ALT_EXP_DISABLE_STOCK_AEB)) {
     if (msg_matches(msg, 0x1FAU, 2U)) {
       bool honda_stock_aeb = GET_BIT(msg, 29U);
-      int honda_stock_brake = (msg->data[0] << 2) | (msg->data[1] >> 6);
+      int honda_stock_brake = honda_nidec_brake(msg);
 
       // Forward AEB when stock braking is higher than openpilot braking
       // only stop forwarding when AEB event is over
@@ -245,7 +254,7 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
 
   // BRAKE: safety check (nidec)
   if (msg_matches(msg, 0x1FAU, bus_pt)) {
-    honda_brake = (msg->data[0] << 2) + ((msg->data[1] >> 6) & 0x3U);
+    honda_brake = honda_nidec_brake(msg);
     if (longitudinal_brake_checks(honda_brake, HONDA_NIDEC_LONG_LIMITS)) {
       tx = false;
     }

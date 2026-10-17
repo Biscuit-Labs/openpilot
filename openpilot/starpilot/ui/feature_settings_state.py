@@ -51,6 +51,7 @@ class FeaturePage(StrEnum):
   CONDITIONAL = "conditional"
   CONDITIONAL_CEM = "conditional/cem"
   CONDITIONAL_CCM = "conditional/ccm"
+  NIGHT_STAR = "night_star"
 
 
 TORQUE_CONFIRM_ACTIONS = frozenset(("torque_adopt", "torque_reset", "torque_reset_profile", "torque_rebase", "torque_prepare_firestar", "torque_gain_rebase"))

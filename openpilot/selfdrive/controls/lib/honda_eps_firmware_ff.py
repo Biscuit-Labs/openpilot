@@ -646,7 +646,7 @@ INTEGRATOR_MIN_SPEED = 2.0  # m/s, below this the integrator is held at zero (as
 # were in that window. So the held I bleeds toward 0 during the fade instead, as LatControlPID does (PR #14, Peter
 # Nguyen). Pressed frames, and a limit with no recent press, still freeze.
 OVERRIDE_FADE_I_BLEED_TAU = 0.5   # s: 37 % of the held I is left after a 0.5 s fade
-OVERRIDE_FADE_UP_S_DEFAULT = 1.5  # s, the carcontroller's HondaOverrideFadeUpSecs default
+OVERRIDE_FADE_UP_S_DEFAULT = 0.5  # s, the carcontroller's HondaOverrideFadeUpSecs default
 
 # The feedforward asks for the torque that moves the wheel ALONG the desired path, so it is only right
 # once the wheel is on it. Engaging mid-turn at low speed routinely starts 20-70 deg off (45 engagements on

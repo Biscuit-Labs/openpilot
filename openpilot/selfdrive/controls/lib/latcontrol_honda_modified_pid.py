@@ -53,7 +53,7 @@ MODIFIED_EPS_KF_CARS = frozenset({
 # that window. The held I now bleeds toward 0 during the fade instead. 0.5 s leaves 37 % of it
 # after a 0.5 s fade.
 OVERRIDE_FADE_I_BLEED_TAU = 0.5
-OVERRIDE_FADE_UP_S_DEFAULT = 1.5   # carcontroller's HondaOverrideFadeUpSecs default
+OVERRIDE_FADE_UP_S_DEFAULT = 0.5   # carcontroller's HondaOverrideFadeUpSecs default
 
 
 def use_honda_modified_pid(CP) -> bool:
@@ -118,11 +118,10 @@ class LatControlHondaModifiedPID(LatControlPID):
     self.angle_rate_limit_deg_s = HONDA_ANGLE_RATE_LIMIT_DEG_S
     # The rate limiter needs its own reference so its allowance is independent of the output LPF.
     self.prev_rate_limited_angle = 0.0
-    self.torque_output_lpf = FirstOrderFilter(0.0, HONDA_TORQUE_OUTPUT_LPF_TAU, dt)
+    self.torque_output_lpf = FirstOrderFilter(0.0, HONDA_TORQUE_OUTPUT_LPF_TAU[0], dt)
     self.torque_output_lpf_enabled = True
-    self.torque_output_lpf_tau_low = HONDA_TORQUE_OUTPUT_LPF_TAU
-    self.torque_output_lpf_tau_standard = HONDA_TORQUE_OUTPUT_LPF_TAU
-    self.torque_output_lpf_tau_highway = HONDA_TORQUE_OUTPUT_LPF_TAU
+    self.torque_output_lpf_tau_low, self.torque_output_lpf_tau_standard, self.torque_output_lpf_tau_highway = \
+      HONDA_TORQUE_OUTPUT_LPF_TAU
     self.override_fade_up_s = OVERRIDE_FADE_UP_S_DEFAULT
     self.since_press_s = math.inf  # time since the modified-EPS press detector last fired
 
@@ -149,13 +148,13 @@ class LatControlHondaModifiedPID(LatControlPID):
                                                OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
     self.torque_output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
     self.torque_output_lpf_tau_low = _get_param_float(
-      self.params, "HondaTorqueOutputLpfTauLowSpeed", HONDA_TORQUE_OUTPUT_LPF_TAU, 0.0, 5.0,
+      self.params, "HondaTorqueOutputLpfTauLowSpeed", HONDA_TORQUE_OUTPUT_LPF_TAU[0], 0.0, 5.0,
     )
     self.torque_output_lpf_tau_standard = _get_param_float(
-      self.params, "HondaTorqueOutputLpfTauStandard", HONDA_TORQUE_OUTPUT_LPF_TAU, 0.0, 5.0,
+      self.params, "HondaTorqueOutputLpfTauStandard", HONDA_TORQUE_OUTPUT_LPF_TAU[1], 0.0, 5.0,
     )
     self.torque_output_lpf_tau_highway = _get_param_float(
-      self.params, "HondaTorqueOutputLpfTauHighway", HONDA_TORQUE_OUTPUT_LPF_TAU, 0.0, 5.0,
+      self.params, "HondaTorqueOutputLpfTauHighway", HONDA_TORQUE_OUTPUT_LPF_TAU[2], 0.0, 5.0,
     )
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited,

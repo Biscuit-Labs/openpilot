@@ -21,8 +21,8 @@ STOCK_STEER_THRESHOLD = 1200
 class ModifiedEpsSettings:
   override_threshold: int = 2000         # HondaDriverOverrideThreshold, driver torque for steeringPressed (stock 1200)
   min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this
-  fade_down_s: float = 0.1               # HondaOverrideFadeDownSecs, torque fade on a press (0 = cut at once)
-  fade_up_s: float = 1.5                 # HondaOverrideFadeUpSecs, torque fade back in after a press
+  fade_down_s: float = 0.0               # HondaOverrideFadeDownSecs, torque fade on a press (0 = cut at once)
+  fade_up_s: float = 0.5                 # HondaOverrideFadeUpSecs, torque fade back in after a press
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
   assist_during_override: bool = False   # HondaDriverAssistDuringOverride, keep LKAS active while pressed
   delta_limiter: bool = False            # HondaSteerDeltaLimiter, the stock steer rate limit, opt-in

@@ -188,7 +188,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/ui/layouts/settings/starpilot/nrdr_tuning.py` | bosch+vfn | 500 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
+| `selfdrive/ui/layouts/settings/starpilot/nrdr_tuning.py` | bosch+vfn | 500 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | done: Night Star page; tune report dropped |
 | `selfdrive/assets/fonts/como-heavy.fnt` | bosch+vfn | 96 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
 | `selfdrive/ui/mici/tests/test_mici_device_reboot.py` | bosch+vfn | 55 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
 | `selfdrive/ui/widgets/exp_mode_button.py` | bosch+vfn | 55 | mod | `openpilot/selfdrive/ui/widgets/exp_mode_button.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |

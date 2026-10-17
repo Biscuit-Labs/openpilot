@@ -81,14 +81,13 @@ class CommandDelay:
     return newer + frac * (older - newer)
 
 
-def eps_firmware_calibration(CP, params=None) -> EpsFirmwareCalibration | None:
-  """The EPS image calibration this car should steer with, or None to keep LatControlPID."""
+def matching_eps_firmware_calibration(CP) -> EpsFirmwareCalibration | None:
+  """The calibration for this car's EPS image whether or not HondaEpsController is on (the settings page asks)."""
   if not (bool(CP.flags & HondaFlags.EPS_MODIFIED) and CP.lateralTuning.which() == "pid"):
     return None
   eps_fw = next((normalize_honda_eps_fw(fw.fwVersion) for fw in CP.carFw if fw.ecu == "eps"), None)
   if eps_fw is None:
     return None
-  params = params if params is not None else Params()
   calibration = select_eps_firmware_calibration(str(CP.carFingerprint), eps_fw)
   if calibration is None:
     return None
@@ -98,6 +97,15 @@ def eps_firmware_calibration(CP, params=None) -> EpsFirmwareCalibration | None:
   ccp = CarControllerParams(CP)
   if [float(x) for x in ccp.STEER_LOOKUP] != [-cap, 0.0, cap] or [float(x) for x in ccp.STEER_LOOKUP_V] != [-cap, 0.0, cap]:
     return None
+  return calibration
+
+
+def eps_firmware_calibration(CP, params=None) -> EpsFirmwareCalibration | None:
+  """The EPS image calibration this car should steer with, or None to keep LatControlPID."""
+  calibration = matching_eps_firmware_calibration(CP)
+  if calibration is None:
+    return None
+  params = params if params is not None else Params()
   if not calibration.default_on and not _get_param_bool(params, "HondaEpsController", False):
     return None
   return calibration
@@ -161,8 +169,9 @@ class LatControlHondaEps(LatControl):
     self.angle_rate_limit_deg_s = _get_param_float(self.params, "HondaEpsAngleRateLimit", HONDA_ANGLE_RATE_LIMIT_DEG_S, 0.0, 2000.0)
     self.core.output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
     self.core.output_lpf_tau = tuple(
-      _get_param_float(self.params, key, HONDA_TORQUE_OUTPUT_LPF_TAU, 0.0, 5.0)
-      for key in ("HondaTorqueOutputLpfTauLowSpeed", "HondaTorqueOutputLpfTauStandard", "HondaTorqueOutputLpfTauHighway")
+      _get_param_float(self.params, key, default, 0.0, 5.0)
+      for key, default in zip(("HondaTorqueOutputLpfTauLowSpeed", "HondaTorqueOutputLpfTauStandard", "HondaTorqueOutputLpfTauHighway"),
+                              HONDA_TORQUE_OUTPUT_LPF_TAU, strict=True)
     )
     self.core.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs", OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
 

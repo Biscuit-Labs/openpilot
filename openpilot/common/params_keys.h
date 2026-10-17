@@ -277,7 +277,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Offset7", {PERSISTENT, FLOAT, "0.0"}},
     {"PandaHeartbeatLost", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
     {"PairingEmail", {PERSISTENT, STRING}},
-    {"ConnectProvider", {PERSISTENT, STRING, "comma"}},
+    {"ConnectProvider", {PERSISTENT, STRING, "konik"}},  // Night Star: Konik only
     {"PairingProvider", {PERSISTENT, STRING}},
     {"PedalsOnUI", {PERSISTENT, BOOL, "0"}},
     {"PrimeType", {PERSISTENT, INT}},
@@ -359,15 +359,16 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaEpsController", {PERSISTENT, BOOL, "0"}},  // steer the PTM EPS cars without default_on with LatControlHondaEps (read when controlsd starts)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
-    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.5"}},
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // fixed by design; no settings UI
+    {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
     {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "1"}},  // on unless set off (vfn seeded it on at first start)
-    {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.1"}},
-    {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1"}},
-    {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.1"}},
+    {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.01"}},
+    {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.07"}},
+    {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.05"}},
     // Honda modified-EPS steering in the car controller and car state (opendbc/car/honda/modified_eps.py)
     {"HondaDriverOverrideThreshold", {PERSISTENT, INT, "2000"}},  // driver torque for steeringPressed on a modified EPS (stock 1200)
     {"HondaMinSteerSpeed", {PERSISTENT, INT, "1"}},  // mph; no steering torque below this
-    {"HondaOverrideFadeDownSecs", {PERSISTENT, FLOAT, "0.1"}},
+    {"HondaOverrideFadeDownSecs", {PERSISTENT, FLOAT, "0.0"}},  // fixed by design; no settings UI
     {"HondaOverrideTorqueScale", {PERSISTENT, INT, "0"}},  // percent of torque kept while the driver overrides
     {"HondaDriverAssistDuringOverride", {PERSISTENT, BOOL, "0"}},
     {"HondaSteerDeltaLimiter", {PERSISTENT, BOOL, "0"}},  // the stock steer rate limit, opt-in on a modified EPS

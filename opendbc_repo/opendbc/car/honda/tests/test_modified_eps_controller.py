@@ -15,7 +15,7 @@ def test_actual_modified_factory_controller_consumes_separate_lookup(identity, f
   cc = structs.CarControl(latActive=True)
   cc.actuators.torque = 1.0
   emitted = []
-  for tick in range(250):   # the engage fade-in takes HondaOverrideFadeUpSecs (1.5 s)
+  for tick in range(250):   # the engage fade-in takes HondaOverrideFadeUpSecs (0.5 s)
     actuators, frames = ci.apply(cc.as_reader(), 1_000_000_000 + tick * 10_000_000)
     assert frames
     emitted.append(actuators.torqueOutputCan)

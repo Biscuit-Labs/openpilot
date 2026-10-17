@@ -76,6 +76,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.vehicle_selection import startup_candidate
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
 from openpilot.starpilot.controller_extensions import configure_controller
+from openpilot.starpilot.car.seatbelt_check import SeatbeltCheck
 from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
 from openpilot.starpilot.controllers.wheel_actions import WheelPublisher, key_for
 from openpilot.starpilot.controllers.cruise_action import CruiseActionConsumer, eligible as cruise_action_eligible
@@ -155,6 +156,7 @@ class Car:
     prewarm_cache_contracts(("CarParamsCache", "CarParamsPersistent", "CarParamsPrevRoute"))
     self.can_sock = messaging.sub_sock('can', timeout=20)
     self.params = Params()
+    self.seatbelt_check = SeatbeltCheck(self.params)
     self.slc_replay = os.getenv('SLC_REPLAY_RUNTIME') == '1' or feature_requested(self.params, 'slc')
     self.curve_replay = os.getenv('CURVE_REPLAY_RUNTIME') == '1' or feature_requested(self.params, 'curve')
     self.aol_replay = os.getenv('AOL_REPLAY_RUNTIME') == '1' or feature_requested(self.params, 'aol')
@@ -475,6 +477,9 @@ class Car:
 
     # Update carState from CAN
     CS = self.CI.update(can_list)
+    seatbelt_check = getattr(self, 'seatbelt_check', None)
+    if seatbelt_check is not None:
+      seatbelt_check.apply(CS)
     cancel_boot_ns = (time.clock_gettime_ns(time.CLOCK_BOOTTIME)
                       if (getattr(self.CI.CS, 'ev6_aol_source_healthy', False) or
                           qualified_honda_stock_aol(self.CP, marked_only=True) or

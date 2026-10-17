@@ -152,7 +152,8 @@ HONDA_ANGLE_RATE_LIMIT_DEG_S = 300.0  # 0 disables
 
 # time constant for smoothing the final modified-EPS torque command, seconds.
 # Speed-banded so the former carcontroller tune carries over without filtering the target.
-HONDA_TORQUE_OUTPUT_LPF_TAU = 0.1
+# s, low (<25 mph) / standard (25-50 mph) / highway; the bands the Clarity has driven on for months
+HONDA_TORQUE_OUTPUT_LPF_TAU = (0.07, 0.05, 0.01)
 
 def rate_limit_desired_angle(angle_deg: float, prev_angle_deg: float, max_rate_deg_s: float, dt: float) -> float:
   if max_rate_deg_s <= 0.0 or not math.isfinite(angle_deg):

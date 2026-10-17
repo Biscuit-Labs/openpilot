@@ -53,6 +53,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.wheel_feature import WheelFeature, PREFIX as WHEEL_PREFIX
 from openpilot.starpilot.longitudinal.output_max import KEY as OUTPUT_MAX_KEY
 from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
+from openpilot.starpilot.ui.night_star_feature import NightStarFeature, KEYS as NIGHT_STAR_KEYS
 from openpilot.starpilot.ui.ford_lateral_feature import FordLateralFeature
 from openpilot.starpilot.ui.gm_tune_feature import GmTuneFeature, GmTruckFeature, GmEvPresetFeature
 from openpilot.starpilot.car.gm.tune_preferences import KEY as GM_TUNE_KEY
@@ -151,6 +152,7 @@ class FeatureSettingsOwner:
                                       configuration_longitudinal=self.configuration_longitudinal)
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
+    self.night_star = NightStarFeature(self)
     self.gm_tune = GmTuneFeature(self)
     self.gm_truck = GmTruckFeature(self)
     self.gm_ev_preset = GmEvPresetFeature(self)
@@ -707,7 +709,8 @@ class FeatureSettingsOwner:
               FeatureRow("", "Conditional Driving Modes", "Choose when to switch between Chill and Experimental", page=FeaturePage.CONDITIONAL, available=True),
               FeatureRow("", "Steering and Torque", "Select the steering controller and tune its response", page=FeaturePage.TORQUE, available=True),
               FeatureRow("", "Always On Lateral", "Keep steering assistance active independently of cruise control", page=FeaturePage.AOL, available=True),
-              FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True)]
+              FeatureRow("", "Wheel Controls", "Assign steering-wheel buttons and cruise behavior", page=FeaturePage.WHEEL, available=True),
+              FeatureRow("", "Night Star", "Modified-EPS steering and this fork's own settings", page=FeaturePage.NIGHT_STAR, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_radar_capability() is not None or self._pedal_setup_capability() is not None or
           self._gm_stop_capability("VoltSNG") is not None or
@@ -904,6 +907,9 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.WHEEL:
       title = "Wheel Controls"
       rows.extend(self.wheel.rows())
+    elif page == FeaturePage.NIGHT_STAR:
+      title = "Night Star"
+      rows.extend(self.night_star.rows(parked))
     elif page == FeaturePage.SLC:
       system_long = (system_long if self.vehicle_params() is None else self.longitudinal_available()) and self.authority("slc")
       allowed = configurable and system_long
@@ -1180,6 +1186,8 @@ class FeatureSettingsOwner:
       return self._apply_pedal_setup(request)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
+    if key in NIGHT_STAR_KEYS:
+      return self.night_star.apply(request)
     if key == GM_TUNE_KEY:
       return self.gm_tune.apply(request)
     if key in PANDA_WAKE_KEYS:

@@ -163,7 +163,7 @@ def test_controller_reads_the_override_fade_time(monkeypatch):
   lac, _, _ = _controller(monkeypatch, {"HondaOverrideFadeUpSecs": "0.8"})
   assert lac.core.override_fade_up_s == 0.8
   lac, _, _ = _controller(monkeypatch)
-  assert lac.core.override_fade_up_s == eps_ff.OVERRIDE_FADE_UP_S_DEFAULT == 1.5
+  assert lac.core.override_fade_up_s == eps_ff.OVERRIDE_FADE_UP_S_DEFAULT == 0.5
 
 
 def test_feedforward_waits_for_the_wheel_to_join_the_path():

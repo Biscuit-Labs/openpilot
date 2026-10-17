@@ -39,7 +39,7 @@ from openpilot.starpilot.ui.vasm_owner import ANNOTATION as VASM_ANNOTATION, RES
 
 PAGES = frozenset(("hub", "developer", "vehicle", "slc", "lane", "lane_change", "profiles", "traffic", "aggressive", "standard", "relaxed",
                    "curve", "torque", "aol", "wheel", "appearance", "display", "data", "sounds", "pip", "sentry", "vasm",
-                   "conditional", "conditional/cem", "conditional/ccm",
+                   "conditional", "conditional/cem", "conditional/ccm", "night_star",
                    *(f"{name}/{category}" for name in ("traffic", "aggressive", "standard", "relaxed")
                      for category in ("acceleration", "braking", "following"))))
 CONFIRM_ACTIONS = FEATURE_CONFIRM_ACTIONS

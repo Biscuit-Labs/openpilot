@@ -19,13 +19,13 @@ class TestModifiedEpsPreferences(unittest.TestCase):
   def test_saved_values_are_read_and_clamped(self):
     self.params.put("HondaDriverOverrideThreshold", 1840, block=True)
     self.params.put("HondaMinSteerSpeed", 0, block=True)
-    self.params.put("HondaOverrideFadeUpSecs", 0.5, block=True)
+    self.params.put("HondaOverrideFadeUpSecs", 0.8, block=True)
     self.params.put("HondaOverrideTorqueScale", 250, block=True)
     self.params.put_bool("HondaSteerDeltaLimiter", True, block=True)
     settings = read_settings(self.params)
     self.assertEqual(settings.override_threshold, 1840)
     self.assertEqual(settings.min_steer_speed_mph, 0)
-    self.assertAlmostEqual(settings.fade_up_s, 0.5)
+    self.assertAlmostEqual(settings.fade_up_s, 0.8)
     self.assertEqual(settings.torque_scale, 1.0)
     self.assertTrue(settings.delta_limiter)
 

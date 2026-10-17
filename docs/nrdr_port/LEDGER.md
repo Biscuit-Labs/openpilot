@@ -143,15 +143,15 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `opendbc_repo/opendbc/car/honda/carcontroller.py` | bosch+vfn | 586 | mod | `opendbc_repo/opendbc/car/honda/carcontroller.py` | PORT onto 7.0 refactored Honda | wip (get_eps_modified_steering_pressed done) |
+| `opendbc_repo/opendbc/car/honda/carcontroller.py` | bosch+vfn | 586 | mod | `opendbc_repo/opendbc/car/honda/carcontroller.py` | PORT onto 7.0 refactored Honda | wip (slices 4+6 lateral done; long side is slice 8) |
 | `opendbc_repo/opendbc/car/honda/tests/test_carcontroller_learners.py` | bosch+vfn | 526 | new | **gone** | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | bosch+vfn | 327 | mod | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/steer_ratio.py` | bosch+vfn | 292 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
 | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | bosch+vfn | 194 | mod | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/interface.py` | bosch+vfn | 139 | mod | `opendbc_repo/opendbc/car/honda/interface.py` | PORT onto 7.0 refactored Honda | wip (slice 2 lateral done; Bosch-A radar default, vEgoStopping, Nidec hybrid safety still todo) |
-| `opendbc_repo/opendbc/car/honda/yaw_rate.py` | bosch+vfn | 87 | new | **gone** | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/yaw_rate.py` | bosch+vfn | 87 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 6) |
 | `opendbc_repo/opendbc/car/honda/tests/test_steer_ratio.py` | bosch+vfn | 74 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
-| `opendbc_repo/opendbc/car/honda/carstate.py` | bosch+vfn | 29 | mod | `opendbc_repo/opendbc/car/honda/carstate.py` | PORT onto 7.0 refactored Honda | wip (slice 4 hybrid stockAeb/brake hold done; rest slice 6) |
+| `opendbc_repo/opendbc/car/honda/carstate.py` | bosch+vfn | 29 | mod | `opendbc_repo/opendbc/car/honda/carstate.py` | PORT onto 7.0 refactored Honda | wip (slices 4+6 done; long side slice 8) |
 | `opendbc_repo/opendbc/car/honda/hondacan.py` | bosch+vfn | 16 | mod | `opendbc_repo/opendbc/car/honda/hondacan.py` | PORT onto 7.0 refactored Honda | wip (slice 4 hybrid brake done; create_acc_commands brake bit todo, slice 8) |
 | `opendbc_repo/opendbc/car/honda/values.py` | bosch+vfn | 14 | mod | `opendbc_repo/opendbc/car/honda/values.py` | PORT onto 7.0 refactored Honda | wip (VGR flags done; safety flags: see README) |
 | `opendbc_repo/opendbc/car/honda/fingerprints.py` | bosch+vfn | 2 | mod | `opendbc_repo/opendbc/car/honda/fingerprints.py` | PORT onto 7.0 refactored Honda | done (slice 2) |
@@ -255,7 +255,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `common/transformations/model.py` | vfn | 16 | mod | `openpilot/common/transformations/model.py` | REVIEW | todo |
 | `tools/StarPilot/derive_feasible_params.py` | bosch+vfn | 12 | mod | **gone** | REVIEW | todo |
 | `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | todo |
-| `selfdrive/car/redneck_cruise.py` | bosch+vfn | 9 | mod | **gone** | REVIEW | todo |
+| `selfdrive/car/redneck_cruise.py` | bosch+vfn | 9 | mod | **gone** | REVIEW | dropped: 7.0 removed redneck cruise |
 | `common/tests/test_params.py` | bosch+vfn | 7 | mod | `openpilot/common/tests/test_params.py` | REVIEW | todo |
 | `common/pid.py` | bosch+vfn | 6 | mod | `openpilot/common/pid.py` | REVIEW | done (slice 1) |
 | `selfdrive/car/car_specific.py` | bosch+vfn | 6 | mod | **gone** | REVIEW | dropped: 7.0 brakeHold event covers it |
@@ -292,7 +292,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/controls/tests/test_controlsd.py` | bosch+vfn | 120 | new | **gone** | PORT hooks into rewritten controlsd | dropped: steer_limited_by_safety fix is native in 7.0 |
 | `selfdrive/selfdrived/selfdrived.py` | bosch+vfn | 37 | mod | `openpilot/selfdrive/selfdrived/selfdrived.py` | PORT hooks into rewritten controlsd | wip (steerSaturated suppression done; reproject ignores are slice 9) |
 | `selfdrive/selfdrived/events.py` | bosch+vfn | 27 | mod | `openpilot/selfdrive/selfdrived/events.py` | PORT hooks into rewritten controlsd | todo |
-| `selfdrive/controls/lib/desire_helper.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/controls/lib/desire_helper.py` | PORT hooks into rewritten controlsd | wip (turn_stop_hold moot in 7.0; nudge threshold waits on slice 6) |
+| `selfdrive/controls/lib/desire_helper.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/controls/lib/desire_helper.py` | PORT hooks into rewritten controlsd | done (slice 6: Honda-only nudge torque) |
 | `selfdrive/selfdrived/alerts_offroad.json` | bosch | 4 | mod | `openpilot/selfdrive/selfdrived/alerts_offroad.json` | PORT hooks into rewritten controlsd | todo |
 
 ### docs

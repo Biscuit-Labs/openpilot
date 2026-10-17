@@ -17,6 +17,8 @@ NRDR_KEY_RENAMES = {
   "NrdrLatEpsFirmwareFF": "HondaEpsController",
   "NrdrLatUseFirmwareVgr": "HondaEpsFirmwareVgr",
   "NrdrLatAngleRateLimit": "HondaEpsAngleRateLimit",
+  "NrdrDriverOverrideThreshold": "HondaDriverOverrideThreshold",
+  "NrdrMinSteerSpeed": "HondaMinSteerSpeed",
 }
 
 NRDR_PRESERVED_KEYS = frozenset({
@@ -26,6 +28,8 @@ NRDR_PRESERVED_KEYS = frozenset({
   "LatPScaleLowSpeed", "LatPScaleStandard", "LatPScaleHighway",
   "LatIScaleLowSpeed", "LatIScaleStandard", "LatIScaleHighway",
   "LatFScaleLowSpeed", "LatFScaleStandard", "LatFScaleHighway",
+  "HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
+  "HondaDriverAssistDuringOverride", "HondaSteerDeltaLimiter", "HondaSteerDeltaUp", "HondaSteerDeltaDown",
 })
 
 

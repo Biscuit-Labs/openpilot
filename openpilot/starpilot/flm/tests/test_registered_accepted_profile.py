@@ -293,7 +293,7 @@ def test_registered_controls_computed_profile_is_used_and_revoked(vehicle, mode,
     assert candidate.params.get_type('AutomaticSteeringProfiles') == ParamKeyType.BYTES
     assert candidate.params.check_key('UseVOACC')
     assert candidate.params.check_key('DeveloperSidebar')
-    assert len(candidate.params.all_keys()) == 347
+    assert len(candidate.params.all_keys()) == 347 + 25  # NRDR: 25 Honda EPS keys (docs/nrdr_port)
     runtime = candidate.global_learning
     assert runtime.identity and runtime.eligible
     assert candidate.sm['selfdriveState'].active and candidate.sm['selfdriveState'].enabled

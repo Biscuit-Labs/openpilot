@@ -37,8 +37,8 @@ before any native build.
 Known environment failure, not ours: `openpilot/common/tests/test_params_fork_lock.py` (6 tests) needs 7.0's native
 regression target built.
 
-Baseline as of slice 3 (honda car tests + controls tests + car interfaces + params): 2204 pass, **30 fail, and all 30 also
-fail on pristine 7.0** (27 `stock_intent` `standard_active`, `test_stock_aol`, `test_adjacent_radar_schema` schema-policy
+Baseline (honda car + safety tests, controls, selfdrived, car interfaces, params, state migration, starpilot honda, FLM):
+**36 fail, and all 36 also fail on pristine 7.0** (the 30 below plus 6 FLM `test_operation_owner` environment failures) (27 `stock_intent` `standard_active`, `test_stock_aol`, `test_adjacent_radar_schema` schema-policy
 drift, `test_leads::test_radar_fault` params path). Anything beyond those 30 is ours.
 
 ## Decisions log
@@ -71,6 +71,12 @@ drift, `test_leads::test_radar_fault` params path). Anything beyond those 30 is 
 | 10-17 | `Lat*Scale` defaults stay P 100/100/100, I 20/100/0 (params_keys), **not** vfn's manager seed (P 100/135/200, I 20/135/0) | The seed dates from 06-28, before the banding moved into interface.py (07-26); on a fresh vfn install it double-bands highway kp. A vfn bug |
 | 10-17 | N-BOX modified tune dropped; Civic 2022 modified branch kept (inert until an image is on the allow-list) | User call / nothing to remove yet |
 | 10-17 | "Linear-max" wording replaced by "modified-EPS command map" (output × the image's cap) | Naming |
+| 10-17 | **Slice 6 (car layer):** every Honda on a recognized modified EPS steers through `opendbc/car/honda/modified_eps.py` in the car controller: the shared override detector, override fade (down/up, kept torque, LKAS during override), `HondaMinSteerSpeed`, and the stock steer rate limit made opt-in (`HondaSteerDeltaLimiter`). It replaces 7.0's Civic Bosch-only `ModifiedCivicSteering`, whose car-controller low-pass read as safety limiting and froze the integrator. Stock-EPS Hondas keep 7.0's path | vfn applied the override stage to every Honda; non-fleet cars keep 7.0 behavior. 7.0's `modified_civic_steering.py` stays (FLM replay helpers import it) but nothing steers through it; delete in the naming cleanup |
+| 10-17 | Settings reach opendbc 7.0's way: `starpilot/car/honda/modified_eps.py` (`ModifiedEpsPreferences`, refreshed once a second) attached by `controller_extensions.configure_controller` to the car controller and car state; opendbc reads no Params | vfn imported openpilot `Params` into opendbc |
+| 10-17 | `HondaDriverOverrideThreshold` (was `NrdrDriverOverrideThreshold`), modified EPS only, default **2000** (vfn 2400); the lane-change nudge still counts the stock 1200 on those cars (`DesireHelper(nudge_torque=)`, Honda-only, where vfn applied a raw 1200 to every brand). `HondaMinSteerSpeed` (was `NrdrMinSteerSpeed`). Both renamed and carried over | User calls. UI toggle for the threshold in slice 7 |
+| 10-17 | VSA yaw decode (`yaw_rate.py`, `KINEMATICS.YAW_RATE`, `LONG_ACCEL` scale −0.049) on modified-EPS cars only | Reading KINEMATICS makes the parser require 0x94; it is confirmed on the fleet (Clarity, Civic Bosch, CR-V, Insight, TEG) but not on every stock car. In 7.0 only Ford reads `yawRate`, so for Hondas it is telemetry for tools/lateral |
+| 10-17 | Not ported (slice 6): redneck cruise (7.0 removed it), the old Civic Bosch graded detector/filter, the static Clarity `HYBRID` flag (the Clarity sends 0x184, so 7.0 detects it; the Insight is detected the same way and only its ACC-fault message changes, as on vfn) | User calls / not needed |
+| 10-17 | **Goal: no "NRDR" naming** in params or code. Params are done; a cleanup pass renames the rest (`NRDR_*` constants, `nrdr_settings.py`, `_nrdr_modified_eps_tune`, `docs/nrdr_port`, comments) | User direction |
 | 10-17 | **Slice 5 (controlsd):** LatControlHondaEps cars measure curvature through their rack map and tell the model the calibration's delay schedule; no lateral while `modelV2` is not alive (route 000003bb); `steerSaturated` suppressed on modified-EPS Hondas | `steer_limited_by_safety` tied to `latActive` is already in 7.0 |
 | 10-17 | **Not ported (slice 5):** model-action interpolation (`NrdrLatModelActionInterp`), the low-speed turn hold and its shaping (7.0's `ModelTurnAssist` is Ioniq-6-only, so our cars have no turn hold), the `NrdrLearn*` paramsd freeze toggles, the NNFF `torque_carparams` path | User calls. `desire_helper` `turn_stop_hold` is gone in 7.0 too; the lane-change nudge torque threshold waits on slice 6's override threshold |
 | 10-17 | **Future:** a "clean" branch with openpilot's own steer-saturated and driver-monitoring alert behavior | User plan; the suppression above is for this port |
@@ -88,7 +94,7 @@ drift, `test_leads::test_radar_fault` params path). Anything beyond those 30 is 
 | 3 | Modified-EPS PID path (banded kf/scales, VGR/road-curve target, rate limit, press detector, override fade, output LPF) as `LatControlHondaModifiedPID`; NNFF dropped | **done** |
 | 4 | Clarity Nidec-hybrid brake: safety (larger brake field), brake command, car state, alt brake hold; panda rebuild | **done** |
 | 5 | controlsd: rack-map curvature, delay schedule, stopped-model guard; steerSaturated suppression; settings carry-over | **done** |
-| 6 | Rest of the Honda car layer (learners, 0x94 yaw, carstate), rebased on 7.0's split Honda modules | todo |
+| 6 | Car layer, lateral side: modified-EPS steering stage, override threshold, min steer speed, yaw decode | **done** (long-side carcontroller pieces are slice 8) |
 | 7 | Settings UI + Galaxy in 7.0's feature-registration design | todo |
 | 8 | Longitudinal: Bosch-A fixes into `bosch_a_radar.py`, BLoT, MLT, close-lead cap | todo |
 | 9 | modeld extras: C3X→C4 reprojection, Chestnut fallback/NaN capture, per-model warps | todo |

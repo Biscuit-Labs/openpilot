@@ -21,6 +21,7 @@ import numpy as np
 import openpilot.cereal.messaging as messaging
 from openpilot.cereal import log
 from opendbc.car.structs import car
+from opendbc.car.honda.modified_eps import lane_change_nudge_torque
 from openpilot.cereal.messaging import PubMaster, SubMaster
 from openpilot.cereal.services import SERVICE_LIST
 from openpilot.cereal.visionipc import VisionStreamType
@@ -422,7 +423,7 @@ def main(demo=False):
   runtime_lane_policy = session_policy(saved_lane_policy, auto_vehicle_capable)
   initial_mono_ns, initial_boot_ns, initial_skew_ns = paired_clocks_ns()
   lane_clock_guard = ClockEpochGuard(initial_mono_ns, initial_boot_ns, initial_skew_ns)
-  DH = DesireHelper(runtime_lane_policy)
+  DH = DesireHelper(runtime_lane_policy, nudge_torque=lane_change_nudge_torque(CP))
   navigation_turn = TurnIntent()
   lane_status_session = uuid.uuid4().hex
   lane_status_sequence = 0

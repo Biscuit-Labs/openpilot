@@ -252,20 +252,17 @@ def test_rivian_captures_actual_dynamic_max(speed, expected):
   check_packet(ci, frames, witness)
 
 
-def test_modified_civic_has_actual_filter_and_lookup_context():
+def test_modified_civic_has_no_controller_filter_and_lookup_context():
+  # NRDR: a modified-EPS Honda's car controller no longer filters the command (the old Civic Bosch low-pass read as
+  # safety limiting in controlsd), so the projection carries no filter state for it
   firmware = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0, fwVersion=b'39990-TGG,A020\x00\x00', brand='honda')
   ci = make_interface(HONDA.HONDA_CIVIC_BOSCH, (firmware,))
-  assert ci.CC.modified_civic_steering is not None
+  assert ci.CC.modified_eps_steering is not None
   assert install_observer(ci)
   cc = control(0.005)
   output, frames, witness = settle(ci, cc)[-1]
-  assert len(witness.shape) == 7
+  assert not witness.shape
   assert witness.mapping_kind == 'honda_lookup'
-  assert project_request(witness, cc.actuators.torque) == witness.final_raw
-  assert inspect_projection(ci, cc, output, witness) is True
-  assert project_request(witness, 0.006) is None
-  assert project_request(witness, 0.006, shape=witness.shape) is not None
-  check_packet(ci, frames, witness)
 
 
 def test_changed_configuration_and_fabricated_observation_refused():

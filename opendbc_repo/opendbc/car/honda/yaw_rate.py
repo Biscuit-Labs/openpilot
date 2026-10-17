@@ -1,0 +1,87 @@
+"""Honda VSA yaw rate (0x94 KINEMATICS YAW_RATE) with each car's zero learned at standstill.
+
+The DBC decodes against the nominal zero, 512 counts, but a unit can sit a few counts off it (2019 Civic Bosch 513, 2017 CR-V 5G 509.5; the
+2018 Clarity sat at 508 until its VSA yaw bias was recalibrated, 512.00 since) and holds that offset exactly at every
+stop. With the wheels stopped the true yaw rate is zero, so the average reading there is the zero. The scale is not
+learnable that way and is measured per model against GPS heading, using only stretches that start and end driving straight (there the ~0.4 s lag of the 1 Hz
+GPS bearing and the car's sideslip cancel; fits over arbitrary windows are biased by both).
+
+The Clarity's sensor also under-reads clockwise (right) turns by ~0.24 deg/s from about 1 deg/s up, while left
+turns and small rates read true (mechanism unknown). Measured on GPS windows where the yaw rate is steady at
+both ends: straights +0.007 +/- 0.004, right 0.75-1.5 deg/s +0.17..0.18, right 1.5-2.5 deg/s +0.21..0.23
+(at 0.25/count; ~0.02 more at 0.246), left 0.75-2.5 deg/s +0.03..0.06, which the scale below accounts for.
+It ramps in across +3..+5 counts.
+
+Clarity scale 0.246 (not 0.25): 12 whole turns, straight before and after, 0.2456-0.2470; 1670 straight-to-
+straight GPS pairs on 9 routes, 0.2468 +/- 0.0008 with the clockwise correction (every route 0.244-0.250). Left
+and right turns agree only with the correction (without it, 0.2514 right vs 0.2447 left). On those pairs the
+heading error falls from 1.81 deg rms (0.25, no correction) to ~0.9 deg.
+"""
+from opendbc.car.honda.values import CAR
+
+DBC_SCALE = 0.25   # deg/s per count, as the DBC decodes it
+DBC_ZERO = 512.0   # counts
+
+# (deg/s per count, standstill zero in counts until this drive's own standstill replaces it, clockwise
+# under-read in deg/s)
+YAW_RATE_CALIBRATION = {
+  # Clarity zero: 508.00 at every stop on 19 routes, then 512.00 (+/- 0.02) at every stop after the VSA yaw-bias
+  # recalibration on 2026-10-02 (routes 38a, 38b; scale vs rear-wheel-speed yaw unchanged). The learned zero replaces
+  # this after the first stop either way; seeding the current value keeps the first minute of a drive right.
+  # The clockwise under-read was measured at zero 508, where +3..+5 counts sits on the 512 midpoint; re-check it.
+  CAR.HONDA_CLARITY: (0.246, 512.0, 0.24),
+  CAR.HONDA_CIVIC_BOSCH: (0.244, 513.0, 0.0),   # GPS 0.2446 / 0.2412 on two routes; 513 at every stop; not checked
+  # Route 00000013--da43527a2c, build 2f1f2aadef649c3c8c3ae1582ce26bb6cb259a50: 24 full-rlog
+  # segments, 143904 bus-1 0x94 frames, 217 straight-to-straight GPS windows. Joint integration fit:
+  # 0.24455 deg/s/count + 0.4902 deg/s clockwise correction; stopped mean 509.531 (44082 frames).
+  # Rounded to the sensor's useful resolution (the CR-V owner's docs/honda_crv_5g_yaw_calibration.md).
+  CAR.HONDA_CRV_5G: (0.245, 509.5, 0.49),
+  # Insight: owner's konik route 0000001e, 70k straight-to-straight GPS pairs (tools/lateral/fit_yaw_scale.py):
+  # 0.2428 deg/s per count + 0.157 clockwise (heading rms 0.72 deg against 1.09 for one scale); stopped mean 511.75.
+  CAR.HONDA_INSIGHT: (0.243, 512.0, 0.16),
+  # Civic (Nidec) TEG-A010: the owner's 11 routes 0000012d-00000139 (2026-10-14/15, dongle d7cee79a4d45d4cf), 0x94 on
+  # bus 0, 359k straight-to-straight GPS pairs (tools/lateral/fit_yaw_scale.py): 0.2414 deg/s per count + 0.098 clockwise
+  # (heading rms 2.10 deg against 2.24 for one scale 0.2428; per-route scales 0.2417-0.2458); stopped means 511.9-512.8.
+  CAR.HONDA_CIVIC: (0.241, 512.0, 0.10),
+}
+RIGHT_LOSS_BP = (3.0, 5.0)  # counts from zero over which the clockwise under-read comes in
+
+SETTLE_FRAMES = 50    # 0.5 s after the wheels stop before readings count
+LEARN_FRAMES = 200    # 2 s of standstill readings before the zero is replaced
+MAX_ZERO_OFFSET = 8.0  # counts (2 deg/s) from nominal; anything further is a fault, not a zero
+
+
+def yaw_rate_deg_s(counts_from_zero: float, scale: float, right_loss: float = 0.0) -> float:
+  """Yaw rate in deg/s, clockwise-positive, from counts relative to the zero."""
+  lo, hi = RIGHT_LOSS_BP
+  return counts_from_zero * scale + right_loss * min(max((counts_from_zero - lo) / (hi - lo), 0.0), 1.0)
+
+
+class YawRateCalibration:
+  def __init__(self, scale: float, zero: float, right_loss: float = 0.0):
+    self.scale = scale
+    self.zero = zero
+    self.right_loss = right_loss
+    self.stopped_frames = 0
+    self.total = 0.0
+    self.samples = 0
+
+  def update(self, dbc_yaw_rate_deg_s: float, standstill: bool) -> float:
+    """Returns the yaw rate in deg/s, clockwise-positive like the DBC signal."""
+    counts = DBC_ZERO + dbc_yaw_rate_deg_s / DBC_SCALE
+    if standstill:
+      self.stopped_frames += 1
+      if self.stopped_frames > SETTLE_FRAMES:
+        self.total += counts
+        self.samples += 1
+        zero = self.total / self.samples
+        if self.samples >= LEARN_FRAMES and abs(zero - DBC_ZERO) <= MAX_ZERO_OFFSET:
+          self.zero = zero
+    else:
+      self.stopped_frames, self.total, self.samples = 0, 0.0, 0
+    return yaw_rate_deg_s(counts - self.zero, self.scale, self.right_loss)
+
+
+def get_yaw_rate_calibration(car_fingerprint) -> YawRateCalibration | None:
+  calibration = YAW_RATE_CALIBRATION.get(car_fingerprint)
+  return YawRateCalibration(*calibration) if calibration is not None else None

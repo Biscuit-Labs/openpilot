@@ -6,6 +6,8 @@ from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda.hondacan import CanBus
+from opendbc.car.honda.modified_eps import current_settings, modified_eps, steering_pressed_threshold
+from opendbc.car.honda.yaw_rate import get_yaw_rate_calibration
 from opendbc.car.honda.values import CAR, DBC, STEER_THRESHOLD, HondaFlags, CruiseButtons, CruiseSettings, \
                                                  GearShifter, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
@@ -38,6 +40,13 @@ class CarState(CarStateBase):
     self.brake_error_msg = "HYBRID_BRAKE_ERROR" if CP.flags & HondaFlags.HYBRID else "STANDSTILL"
 
     self.steer_status_values = defaultdict(lambda: "UNKNOWN", can_define.dv["STEER_STATUS"]["STEER_STATUS"])
+
+    # NRDR: a modified EPS raises the steering-pressed threshold (openpilot attaches modified_eps_settings), and on those
+    # cars the GPS-checked VSA yaw rate fills yawRate. Only there: reading KINEMATICS makes the parser require 0x94,
+    # which is confirmed on the modified-EPS fleet but not on every stock car of the same models.
+    self.modified_eps = modified_eps(CP)
+    self.modified_eps_settings = None
+    self.yaw_rate = get_yaw_rate_calibration(CP.carFingerprint) if self.modified_eps else None
 
     self.brake_switch_prev = False
     self.brake_switch_active = False
@@ -176,7 +185,14 @@ class CarState(CarStateBase):
       ret.gasPressed = cp.vl["POWERTRAIN_DATA"]["PEDAL_GAS"] > 1e-5
 
     ret.steeringTorque = cp.vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"]
-    ret.steeringPressed = abs(ret.steeringTorque) > STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
+    if self.modified_eps:
+      steer_threshold = steering_pressed_threshold(self.CP, current_settings(self.modified_eps_settings).override_threshold)
+    else:
+      steer_threshold = STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
+    ret.steeringPressed = abs(ret.steeringTorque) > steer_threshold
+    # VSA yaw sensor. The DBC signal is clockwise-positive; yawRate is left-positive like steeringAngleDeg.
+    if self.yaw_rate is not None:
+      ret.yawRate = -self.yaw_rate.update(cp.vl["KINEMATICS"]["YAW_RATE"], ret.standstill) * CV.DEG_TO_RAD
 
     if self.CP.flags & HondaFlags.BOSCH:
       # The PCM always manages its own cruise control state, but doesn't publish it

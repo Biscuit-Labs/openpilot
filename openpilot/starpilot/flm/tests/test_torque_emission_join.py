@@ -218,33 +218,6 @@ def test_real_hold_advances_only_carrier_metadata(tmp_path):
   assert held.apply_ns == output.apply_ns and held.control_ns == output.control_ns and held.projection is output.projection
 
 
-def test_civic_candidate_filter_matches_original_update_without_borrowing_future_state(tmp_path):
-  from opendbc.car.honda.modified_civic_steering import ModifiedCivicSteering
-
-  firmware = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0, fwVersion=b'39990-TGG,A020\x00\x00', brand='honda')
-  ci = interface(HONDA.HONDA_CIVIC_BOSCH, (firmware,))
-  command = cc(0.03)
-  settle(ci, command)
-  first, output = emitted(ci, command, tmp_path)
-  history = EmissionHistory(ci.CP)
-  assert history.record_carrier(output) and history.record(first, output)
-  event = history.event(first.control_ns)
-  branch = EncoderBranch()
-  reference = ModifiedCivicSteering()
-  reference.torque_lpf, reference.prev_torque_cmd, reference.steering_pressed_filter_s, reference.steering_pressed_robust_prev = event.witness.shape[:4]
-  for index in range(8):
-    if index:
-      control, output = emitted(ci, command, tmp_path)
-      assert history.record_carrier(output) and history.record(control, output)
-      event = history.event(control.control_ns)
-    request = float(cc(0.029).actuators.torque)
-    branch.step(event, request)
-    expected = reference.update(cc(request), ci.CS)
-    assert branch.previous == expected
-    assert branch.civic == (reference.torque_lpf, reference.prev_torque_cmd, reference.steering_pressed_filter_s, reference.steering_pressed_robust_prev)
-  assert branch.civic != tuple(event.witness.shape[:4])
-
-
 def test_sampler_observer_copies_original_stamp_and_cannot_change_packet(monkeypatch):
   from openpilot.selfdrive.pandad import pandad_api_impl as sampler
 

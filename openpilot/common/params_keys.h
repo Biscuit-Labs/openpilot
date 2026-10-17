@@ -364,6 +364,15 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.1"}},
     {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1"}},
     {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.1"}},
+    // Honda modified-EPS steering in the car controller and car state (opendbc/car/honda/modified_eps.py)
+    {"HondaDriverOverrideThreshold", {PERSISTENT, INT, "2000"}},  // driver torque for steeringPressed on a modified EPS (stock 1200)
+    {"HondaMinSteerSpeed", {PERSISTENT, INT, "1"}},  // mph; no steering torque below this
+    {"HondaOverrideFadeDownSecs", {PERSISTENT, FLOAT, "0.1"}},
+    {"HondaOverrideTorqueScale", {PERSISTENT, INT, "0"}},  // percent of torque kept while the driver overrides
+    {"HondaDriverAssistDuringOverride", {PERSISTENT, BOOL, "0"}},
+    {"HondaSteerDeltaLimiter", {PERSISTENT, BOOL, "0"}},  // the stock steer rate limit, opt-in on a modified EPS
+    {"HondaSteerDeltaUp", {PERSISTENT, FLOAT, "3.0"}},
+    {"HondaSteerDeltaDown", {PERSISTENT, FLOAT, "3.0"}},
 
     // NRDR modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
     // The base banding is in interface.py; these stay 100 (I: 20 low / 0 highway) unless trimming.

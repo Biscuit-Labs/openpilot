@@ -46,7 +46,7 @@ def test_complete_original_cohort_exact_and_fuzzy_keep_correct_controller(versio
     assert list(cp.lateralTuning.pid.kiV) == pytest.approx([0.24])
     assert CarControllerParams(cp).STEER_LOOKUP == [-2560, 0, 2560]
   ci = CarInterface(cp)
-  assert ci.CC.modified_civic_steering is None
+  assert (ci.CC.modified_eps_steering is not None) == modified   # NRDR: the modified-EPS steering stage
 
 
 @pytest.mark.parametrize("ecu", (Ecu.eps, Ecu.vsa, Ecu.fwdRadar))

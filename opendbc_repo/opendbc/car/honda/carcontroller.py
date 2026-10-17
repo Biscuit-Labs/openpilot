@@ -4,7 +4,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, structs
 from opendbc.car.honda import hondacan
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
-from opendbc.car.honda.modified_civic_steering import ModifiedCivicSteering
+from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
 from opendbc.car.honda.nidec_interceptor import NidecInterceptor, create_command, qualified as interceptor_qualified
 from opendbc.car.honda.bosch_longitudinal import BoschLongitudinal, qualified as bosch_long_qualified
 from opendbc.car.honda.values import CAR, CruiseButtons, HondaFlags, CarControllerParams
@@ -12,24 +12,6 @@ from opendbc.car.interfaces import CarControllerBase
 
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
 LongCtrlState = structs.CarControl.Actuators.LongControlState
-
-
-def get_eps_modified_steering_pressed(
-  raw_pressed: bool, steering_torque: float, torque_cmd: float, filter_s: float, previous_pressed: bool
-) -> tuple[float, bool]:
-  # NRDR: on a modified EPS the column torque the EPS itself produces trips steeringPressed. A press that pushes
-  # against the command, or one with almost no command, is the driver at once; one that agrees with the command must
-  # hold for 0.28 s first.
-  if not raw_pressed:
-    return 0.0, False
-
-  torque_product = float(steering_torque) * float(torque_cmd)
-  torque_cmd_abs = abs(float(torque_cmd))
-  if previous_pressed or torque_cmd_abs < 0.10 or torque_product < 0.0:
-    return 1.0, True
-
-  filter_s = min(1.0, filter_s + DT_CTRL)
-  return filter_s, filter_s >= 0.28
 
 
 def compute_gb_honda_bosch(accel, speed):
@@ -121,8 +103,11 @@ class CarController(CarControllerBase):
     self.interceptor_learning_params = None
     self.accord_mvl_stock = AccordMvlStock() if mvl_stock_qualified(CP) else None
     self.tja_control = bool(CP.flags & HondaFlags.BOSCH_TJA_CONTROL)
-    self.modified_civic_steering = (ModifiedCivicSteering() if CP.carFingerprint == CAR.HONDA_CIVIC_BOSCH and
-                                    CP.flags & HondaFlags.EPS_MODIFIED and not CP.passive and not CP.dashcamOnly and not CP.notCar else None)
+    # NRDR: every modified-EPS Honda steers through ModifiedEpsSteering (override detector and fade, minimum steer
+    # speed, opt-in rate limit). It replaces 7.0's Civic Bosch-only ModifiedCivicSteering, whose torque low-pass here
+    # read as safety limiting in controlsd and froze the lateral integrator. openpilot attaches modified_eps_settings.
+    self.modified_eps_steering = ModifiedEpsSteering() if modified_eps(CP) else None
+    self.modified_eps_settings = None
 
     self.braking = False
     self.brake_steady = 0.
@@ -157,10 +142,14 @@ class CarController(CarControllerBase):
 
     # *** rate limit steer ***
     if _projection is not None:
-      _projection.capture_honda(self.modified_civic_steering, CS)
-    torque_cmd = self.modified_civic_steering.update(CC, CS) if self.modified_civic_steering is not None else actuators.torque
-    limited_torque = rate_limit(torque_cmd, self.last_torque, -self.params.STEER_DELTA_DOWN * DT_CTRL,
-                                self.params.STEER_DELTA_UP * DT_CTRL)
+      _projection.capture_honda(None, CS)
+    torque_cmd = actuators.torque
+    if self.modified_eps_steering is not None:
+      limited_torque, lkas_active, _ = self.modified_eps_steering.update(CC, CS, current_settings(self.modified_eps_settings))
+    else:
+      limited_torque = rate_limit(torque_cmd, self.last_torque, -self.params.STEER_DELTA_DOWN * DT_CTRL,
+                                  self.params.STEER_DELTA_UP * DT_CTRL)
+      lkas_active = CC.latActive
     _projection_previous = self.last_torque if _projection is not None else 0.
     self.last_torque = limited_torque
 
@@ -193,9 +182,9 @@ class CarController(CarControllerBase):
         can_sends.append(make_tester_present_msg(0x18DAB0F1, 1, suppress_response=True))
 
     # Send steering command.
-    can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, CC.latActive, self.tja_control))
+    can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control))
     if _projection is not None:
-      _projection.emit('honda.STEERING_CONTROL', apply_torque, CC.latActive, can_sends[-1])
+      _projection.emit('honda.STEERING_CONTROL', apply_torque, lkas_active, can_sends[-1])
 
     # wind brake from air resistance decel at high speed
     wind_brake = np.interp(CS.out.vEgo, [0.0, 2.3, 35.0], [0.001, 0.002, 0.15])

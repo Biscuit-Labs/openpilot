@@ -239,13 +239,6 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.HONDA_INSIGHT and eps_modified:
       _nrdr_modified_eps_tune(ret)
 
-    elif candidate == CAR.HONDA_NBOX_2G and eps_modified:
-      # NRDR: JDM kei car, unrelated to the modified-EPS fleet; kept on its own pre-split numbers rather than the Clarity's
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.06], [0.02]]
-      ret.lateralTuning.pid.kf = 0.000024
-      ret.steerAtStandstill, ret.autoResumeSng = True, True
-      ret.minEnableSpeed, ret.minSteerSpeed = -1.0, -1.0
-
     elif candidate in (CAR.HONDA_INSIGHT, CAR.HONDA_NBOX_2G):
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.6], [0.18]]
 

@@ -72,15 +72,15 @@ class CarControllerParams:
     from opendbc.car.honda.parameter_profiles import apply_steering_profile
     apply_steering_profile(self, CP)
     if CP.flags & HondaFlags.EPS_MODIFIED:
-      # NRDR modified-EPS command maps (nrdr vfn interface.py torqueBP/torqueV). The linear-max images ramp straight
-      # to the firmware cap, so the stock piecewise breakpoints collapse to one segment.
+      # NRDR modified-EPS command maps (nrdr vfn interface.py torqueBP/torqueV): the steering command is the output
+      # times the image's cap, one straight segment, where the stock maps are piecewise.
       eps_map = None
-      if CP.carFingerprint in (CAR.HONDA_CIVIC, CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT, CAR.HONDA_NBOX_2G):
+      if CP.carFingerprint in (CAR.HONDA_CIVIC, CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT):
         eps_map = ([0, 3840], [0, 3840])
       elif CP.carFingerprint in (CAR.HONDA_CRV_5G, CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR):
         eps_map = ([0, 4096], [0, 4096])
       elif CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL):
-        # C020 keeps its native 4096 range and rack model; only the C120 image is linear-max to the 3840 cap
+        # C020 keeps its native 4096 range and rack model; the C120 image caps at 3840
         eps_map = ([0, 3840], [0, 3840]) if CP.flags & HondaFlags.VGR_CIVIC_TBA_C120 else ([0, 4096], [0, 4096])
       elif CP.carFingerprint == CAR.HONDA_CIVIC_2022:
         eps_map = ([0, 2564, 8000], [0, 2564, 3840])

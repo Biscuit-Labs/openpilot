@@ -242,6 +242,7 @@ CRV_TLA_A040_I_SCALE = (1.0, 1.0, 1.0)
 TARGET_MAP_D_R5 = (0, 1926, 4938, 8455, 12036, 15926, 20138, 26955, 30000)
 CLARITY_TRW_A020_R5 = (0, 2000, 4000, 6000, 8000, 12000, 16000, 20000, 30000)
 P_ROW_PMINUS5 = (117, 148, 184, 220, 245, 257, 263, 265, 265)
+CLARITY_TRW_A020_P_KEYS = (0, 222, 443, 665, 887, 1108, 1330, 1552, 1774)  # P row 0 key axis (0x13B5E)
 FLAT_ENVELOPE = ((0, 50, 100, 150, 200, 250, 300, 350, 400), (1774,) * 9)
 # C020 / TEG / A030 speed envelope (axis 0x13644, values 0x136C2 on the C020): 1552 from 120 km/h, 1108 from 160
 CIVIC_TBA_C020_ENVELOPE = ((0, 50, 100, 150, 200, 240, 300, 321, 400), (1774, 1774, 1774, 1774, 1774, 1552, 1219, 1108, 1108))
@@ -268,8 +269,17 @@ CIVIC_TBA_C020_R6_GAIN = (1.0, 0.99347, 1.01175, 1.05875, 1.09269, 1.10248, 1.10
 # C120 / A030 / TEG-A010 A table (centre divisor 20972), computed
 CIVIC_TBA_C120_R6_CENTRE = -156.16
 # TEG-A010 measured: its telemetry R6 (0x6A1 w1) on steeringRateDeg, hands off, route 00000139: -152.5 at 0 lag
-# (R^2 0.943; -143 at 20 ms). The C120 A table's angle shape is kept.
+# (R^2 0.943; -143 at 20 ms).
 CIVIC_TEG_A010_R6_CENTRE = -152.5
+# TEG-A010 measured angle shape, per published deg/s (the rate this feedforward differentiates): the telemetry R6
+# (0x6A1 w1 = tracker-1's filtered output) against d(0x14A angle)/dt, both as 0.2 s window means, routes 00000133,
+# 00000134 and 00000137 (centre -149.8 / -152.4 / -151.9). By |angle| band 0-15 / 15-45 / 45-90 / 90-150 / 150-250 /
+# 250-420 deg: 1.000 / 1.006 / 1.094 / 1.126 / 1.165 / 1.093 (the three routes agree within 0.02-0.04 up to 250 deg;
+# 250-420 spreads 1.03-1.17 on few frames). The C120 A table's computed shape it replaces read 1.08 / 1.11 / 1.20 /
+# 1.19 in the same bands, 2-9% strong past 150 deg. Same CAN layout as the Clarity: 0x18F is the raw rate (R6 flat
+# against it to 150 deg), 0x14A angle and rate are published.
+CIVIC_TEG_A010_R6_BP = (0.0, 30.0, 67.5, 120.0, 200.0, 335.0)
+CIVIC_TEG_A010_R6_GAIN = (1.0, 1.006, 1.094, 1.126, 1.165, 1.093)
 CIVIC_TBA_C120_R6_GAIN = (1.0, 0.9838, 0.9927, 1.0254, 1.0699, 1.097, 1.1244, 1.1465, 1.1099, 1.1222, 1.1905, 1.257, 1.1758,
                 1.1618, 1.1702, 1.1787, 1.196, 1.2137, 1.2317)
 # Insight TXM-A040 A table (centre divisor 17613), computed
@@ -294,7 +304,7 @@ CLARITY_TRW_A020 = EpsFirmwareCalibration(
   # 1774 up to 100 km/h, so the 1663 key clamp binds first until ~107 km/h; 1330 from 130 km/h (0x13660 / 0x136DE)
   envelope_bp=(0, 50, 100, 150, 200, 260, 300, 350, 400), envelope_v=(1774, 1774, 1774, 1774, 1774, 1330, 1330, 1330, 1330),
   # P row 0 (0x13B5E / 0x13BDC)
-  kp_key_bp=(0, 222, 443, 665, 887, 1108, 1330, 1552, 1774), kp_v=P_ROW_PMINUS5,
+  kp_key_bp=CLARITY_TRW_A020_P_KEYS, kp_v=P_ROW_PMINUS5,
   r6_per_deg_s=CLARITY_TRW_A020_R6_CENTRE, r6_angle_bp=CLARITY_TRW_A020_R6_BP, r6_angle_gain=CLARITY_TRW_A020_R6_GAIN,
   load=CLARITY_TRW_A020_LOAD, p_scale=CLARITY_TRW_A020_P_SCALE, i_scale=CLARITY_TRW_A020_I_SCALE,
   r5_per_key=18.04,
@@ -334,14 +344,26 @@ CIVIC_TBA_A030 = EpsFirmwareCalibration(**{**{k: getattr(CIVIC_TBA_C020, k) for 
                                    "r6_angle_gain": CIVIC_TBA_C120_R6_GAIN, "load": CIVIC_TEG_A010_LOAD,
                                    "cmd_delay_s": CMD_DELAY_DEFAULT_S,  # Nidec Civic: not measured
                                    "rack": None})  # its own A table, not identified
-# TEG-A010: the owner's car runs ROW 3 (TEGA2), measured on its telemetry (tools/lateral/live_row_fit.py teg, routes
-# 0000012f and 00000139: median |R5 - row 3| 9 counts, rows 0-2 1046-1325). Row 3's command axis and its P axis
-# (= the C120's P keys); Kp values, D, clamps and envelope are those of every row.
+# TEG-A010, the CORRECTED Proper Torque Mod of 2026-10-16, revision b (RWD sha256 04147917, payload 110e29ba; KB
+# PTM_FIX_FAMILY_20261016/out/TEG, proof/), a data-only fix of the Tracker1-3200 build (10-03 A280-flat, bin 4fa7c252):
+# 177 bytes, the command-map Y and P key axes of rows 0-5, row 6 (map, P, D) back to stock, and the two checksums.
+# That build pasted TargetMap-D onto row 3's key axis (3.1x incremental gain at key 222, u ~0.13) with P on the row's
+# own knots. Rev b keeps every row's own key axis and writes the Clarity's R5 for each key (a knot past the 1663 clamp
+# on the line through the Clarity's 30000 at 1663), and puts rows 0-5 P on the Clarity's knots, so rows 2 and 3 now make
+# the same R5 per key and the TEGA1/TEGA2 variant no longer changes the command. The owner's car runs ROW 3 (TEGA2),
+# measured on its telemetry on the earlier build (tools/lateral/live_row_fit.py teg, routes 0000012f and 00000139:
+# median |R5 - row 3| 9 counts, rows 0-2 1046-1325). Kp values, D, clamps and envelope are those of every row. R6, load
+# and rack were measured on the earlier build; the fix touches neither the rate path nor the column, so they carry
+# over. Both builds report 39990-TEG,A010: a car still on the earlier image must be reflashed with this calibration
+# (on it the car would make about half the R5 this expects up to key 222).
+CIVIC_TEG_A010_R5 = (0, 4000, 6000, 8937, 11838, 16000, 20000, 28000, 32000)  # rev b row 3 (0x137D0)
 CIVIC_TEG_A010 = EpsFirmwareCalibration(**{**{k: getattr(CIVIC_TBA_A030, k) for k in CIVIC_TBA_A030.__dataclass_fields__
                                           if k != "kp_pieces"}, "name": "civic_teg_a010",
                                        "r5_key_bp": (0, 222, 333, 495, 656, 887, 1108, 1552, 1774),
-                                       "kp_key_bp": CIVIC_TBA_C120_P_KEYS,
-                                       "r6_per_deg_s": CIVIC_TEG_A010_R6_CENTRE,
+                                       "r5_v": CIVIC_TEG_A010_R5,
+                                       "kp_key_bp": CLARITY_TRW_A020.kp_key_bp,
+                                       "r6_per_deg_s": CIVIC_TEG_A010_R6_CENTRE, "r6_angle_bp": CIVIC_TEG_A010_R6_BP,
+                                       "r6_angle_gain": CIVIC_TEG_A010_R6_GAIN,
                                        # plan_timing on routes 12e/134/137/139 with nrdr's fixed Civic delay applied
                                        # (0.175 s = 0.15 + its 0.025 model-action compensation, which this branch does
                                        # not need): -0.05 s weighted (+0.02/-0.06/-0.06/-0.08), so ~0.20 s in this
@@ -372,18 +394,24 @@ CIVIC_TGG_A120 = EpsFirmwareCalibration(
   load=CIVIC_TBA_C020_LOAD, p_scale=CIVIC_TBA_C020_P_SCALE, i_scale=CIVIC_TBA_C020_I_SCALE,
   cmd_delay_s=0.15,  # the C020's (same Civic Bosch chassis)
 )
-# Insight 39990-TXM-A040, 08-08 C020Surface Trk1-4000 Trk2-3869 (bin sha256 1f1cfe6b). Rows 0-1 keep the Clarity-
-# style axis ending at the 1663 clamp and rows 2-5 are 2x it at low command. Row 0 is live: all three variant records
-# (TXMA0/1/2, at 0xECF7, laid out among the part-number strings) select row 0, and rows 0 and 1 are identical anyway.
-# Every Insight image we have (08-01 through 08-08) carries the same row-0 axis and variant records (TXMA0/1 enabled
-# -> row 0, TXMA2 disabled -> row 0), so the row holds whichever build the car runs. The envelope was not located;
-# flat is assumed (the 1663 clamp binds). Load measured (INSIGHT_TXM_A040_LOAD); R6 computed from its A table. Not measured:
-# envelope.
+# Insight 39990-TXM-A040, the CORRECTED Proper Torque Mod of 2026-10-16, revision b (payload sha256 089a8a72, RWD 7ba37432;
+# KB PTM_FIX_FAMILY_20261016/out/TXM, proof/), on the released PTM 39990-TXM,A040-PTM.rwd (rwd 833a41bf, the 08-08 C020Surface Trk1-4000
+# Trk2-3869 build, full image 1f1cfe6b). The release wrote TargetMap-D, a curve made for the C020's axis, onto row 0's
+# key axis, which IS the Clarity's (0x11B3C: 0,111,222,...,1663 at the same E4 3840 per unit output). So it ran
+# 1.14 / 1.32 / 1.53 / 1.50x the Clarity at outputs 0.10 / 0.15 / 0.20 / 0.30, and the residual PID ~1.5-1.9x hotter there.
+# The corrected build puts the Clarity's own map values on rows 0-5 (0x11BBA, each on its own stock axis) and the
+# Clarity's own P table (knots and values, 0x11E8A/0x11F08), returns row 6 (forced override) to stock and flattens
+# A280 rows 0-3. Rows 0-1 are then the Clarity's tables exactly: the executed firmware (SH-2A emulation) matches the
+# Clarity's output at every u. Both builds report 39990-TXM,A040: a car on the
+# released image must be reflashed together with this calibration (on it the released image runs up to 1.5x hot).
+# Row 0 is live: all three variant records (TXMA0/1/2, at 0xECF7) select row 0. The envelope was not located; flat is
+# assumed (the 1663 clamp binds). Load measured (INSIGHT_TXM_A040_LOAD, in firmware output counts, so it holds across
+# the reflash); R6 computed from its A table. Not measured: envelope.
 INSIGHT_TXM_A040 = EpsFirmwareCalibration(
   name="insight_txm_a040", e4_per_output=3840.0,
-  r5_key_bp=(0, 111, 222, 333, 443, 665, 887, 1108, 1663), r5_v=TARGET_MAP_D_R5, key_clamp=1663,
+  r5_key_bp=(0, 111, 222, 333, 443, 665, 887, 1108, 1663), r5_v=CLARITY_TRW_A020_R5, key_clamp=1663,
   envelope_bp=FLAT_ENVELOPE[0], envelope_v=FLAT_ENVELOPE[1],
-  kp_key_bp=(0, 222, 333, 665, 887, 1104, 1317, 1441, 1663), kp_v=P_ROW_PMINUS5,
+  kp_key_bp=CLARITY_TRW_A020_P_KEYS, kp_v=P_ROW_PMINUS5,
   r6_per_deg_s=INSIGHT_TXM_A040_R6_CENTRE, r6_angle_bp=R6_GAIN_BP, r6_angle_gain=INSIGHT_TXM_A040_R6_GAIN,
   load=INSIGHT_TXM_A040_LOAD, p_scale=CIVIC_TBA_C020_P_SCALE, i_scale=CIVIC_TBA_C020_I_SCALE,
   # Inferred: on LatControlPID its route 0000001e ran the plan 0.06 s early (exit 0.12), and this controller runs
@@ -391,6 +419,7 @@ INSIGHT_TXM_A040 = EpsFirmwareCalibration(
   # with plan_timing.py after a drive on this controller.
   cmd_delay_s=0.15,
   rack=INSIGHT_TXM_A040_RACK,
+  default_on=True,  # NRDR 7.0 port: on by default for the modified TXM,A040 image, like the Clarity
 )
 # CR-V 5G 39990-TLA-A040, the owner's 08-24 Clarity_FF_tune_telemety_8cf8e537 (decoded full image sha256 d5dc04a8):
 # TargetMap-D, P117..265, D737, KFF45, Norm1650, Trk3200, clamps 7373/1774/9000 on the CR-V's stock axes. Key clamp
@@ -502,9 +531,9 @@ CALIBRATION_PROVENANCE = {
     "cmd_delay": "default", "model_delay": "default: the Clarity's schedule", "rack": "none",
   },
   "civic_teg_a010": {
-    "row": "measured: row 3 (TEGA2), telemetry R5 vs E4 on routes 0000012f/00000139 (live_row_fit.py teg)",
+    "row": "measured: row 3 (TEGA2), telemetry R5 vs E4 on routes 0000012f/00000139 (live_row_fit.py teg); rev b rows 2-3 agree",
     "kp_axis": "firmware", "key_clamp": "firmware", "envelope": "firmware",
-    "r6": "measured: telemetry -152.5 per deg/s on route 00000139 (angle shape from its A table)",
+    "r6": "measured: telemetry -152.5 per deg/s on route 00000139; angle shape measured on routes 133/134/137",
     "load": "measured: the owner's 11 telemetry routes 0000012d-00000139 (fit_column_load.py --source teg)",
     "trims": "inferred: the C020 owner's",
     "cmd_delay": "measured: plan_timing on routes 12e/134/137/139, sized below the ~0.20 s measured",

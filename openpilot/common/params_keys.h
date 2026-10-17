@@ -360,7 +360,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.5"}},
-    {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "0"}},
+    {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "1"}},  // on unless set off (vfn seeded it on at first start)
     {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.1"}},
     {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1"}},
     {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.1"}},

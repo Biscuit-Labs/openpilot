@@ -13,7 +13,6 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.steer_ratio import HONDA_VGR_INVERSE_BY_PROFILE
 from opendbc.car.honda.values import CAR, CarControllerParams, HondaFlags
 from openpilot.common.pid import PIDController
-from openpilot.selfdrive.controls.lib.honda_lateral_common import HONDA_SR_CURVE_BY_FP
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from openpilot.selfdrive.controls.lib.latcontrol_honda_modified_pid import (
@@ -89,15 +88,18 @@ def test_stock_eps_hondas_keep_7_0s_stock_pid(candidate):
   (CAR.HONDA_CLARITY, b'39990-TRW,A020\x00\x00', "clarity_trw_a020"),
   (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00', "civic_tba_c020"),
   (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00', "insight_txm_a040"),
+  (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00', "crv_tla_a040"),   # the A220 carries the A040's table
 ])
-def test_road_measured_curve_defaults_over_exact_firmware_profile(candidate, fw_version, profile):
+def test_the_nrdr_pid_steers_on_the_exact_firmware_vgr_table(candidate, fw_version, profile):
+  # NRDR 7.0 port: the firmware VGR table is this controller's geometry; the road-fit curves are not ported
   lat = _controller(candidate, fw_version)
-  assert profile in HONDA_VGR_INVERSE_BY_PROFILE
-  assert lat.sr_curve is HONDA_SR_CURVE_BY_FP[str(candidate)]
-  # The road curve is the default, but retain the exact firmware inverse for the
-  # runtime VGR A/B setting instead of discarding a valid traced profile at init.
-  assert not lat.use_firmware_vgr
   assert lat.vgr_inverse is HONDA_VGR_INVERSE_BY_PROFILE[profile]
+  assert not hasattr(lat, "sr_curve")
+
+
+@pytest.mark.parametrize("candidate", [CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR])
+def test_an_image_without_a_table_keeps_paramsds_ratio(candidate):
+  assert _controller(candidate).vgr_inverse is None
 
 
 def test_modified_eps_runtime_scales_match_defaults():

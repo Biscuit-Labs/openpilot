@@ -100,7 +100,7 @@ NRDR_LINEAR_CAP = {CAR.HONDA_CLARITY: 3840, CAR.HONDA_CIVIC: 3840, CAR.HONDA_INS
 
 
 def assert_nrdr_modified_eps(candidate, version, cp):
-  # NRDR: the shared four-point modified-EPS tune and the linear-max command maps
+  # NRDR: the shared four-point modified-EPS tune and the modified-EPS command maps
   assert list(cp.lateralTuning.pid.kpV) == pytest.approx(NRDR_KP)
   assert list(cp.lateralTuning.pid.kiV) == pytest.approx(NRDR_KI)
   lookup = CarControllerParams(cp)

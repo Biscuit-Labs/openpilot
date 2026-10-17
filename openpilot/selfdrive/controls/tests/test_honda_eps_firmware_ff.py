@@ -304,9 +304,11 @@ def _controller(monkeypatch, values=None):
   return honda_eps.LatControlHondaEps(CP, None, DT_CTRL), VehicleModel(CP), CP
 
 
-def test_only_the_modified_eps_clarity_gets_this_controller_by_default():
+def test_only_the_modified_eps_clarity_and_insight_get_this_controller_by_default():
   assert honda_eps.use_honda_eps_controller(_params(CLARITY_MODIFIED_FW), _Params())
   assert not honda_eps.use_honda_eps_controller(_params(CLARITY_STOCK_FW), _Params())
+  assert honda_eps.use_honda_eps_controller(_params(b'39990-TXM,A040\x00\x00', CAR.HONDA_INSIGHT), _Params())
+  assert not honda_eps.use_honda_eps_controller(_params(b'39990-TXM-A040\x00\x00', CAR.HONDA_INSIGHT), _Params())
   assert not honda_eps.use_honda_eps_controller(_params(b'39990-TBA,A030\x00\x00', CAR.HONDA_CIVIC_BOSCH), _Params())
 
 
@@ -331,12 +333,20 @@ def test_lateral_delay_dips_in_town_and_rises_from_there():
   assert all(b >= a for a, b in zip(delays, delays[1:], strict=False))
 
 
+def test_the_output_lpf_is_on_when_nothing_is_set(monkeypatch):
+  # vfn's manager seeded HondaTorqueOutputLowPassFilter on; 7.0 has no seeding, so an unset key must read as on
+  lac, _, _ = _controller(monkeypatch, {})
+  assert lac.core.output_lpf_enabled
+  lac, _, _ = _controller(monkeypatch, {"HondaTorqueOutputLowPassFilter": "0"})
+  assert not lac.core.output_lpf_enabled
+
+
 def test_nrdr_settings_are_read(monkeypatch):
   lac, _, _ = _controller(monkeypatch, {
     "HondaEpsFirmwareVgr": "1", "HondaEpsAngleRateLimit": "219", "HondaTorqueOutputLowPassFilter": "1",
     "HondaTorqueOutputLpfTauLowSpeed": "0.07", "HondaTorqueOutputLpfTauStandard": "0.05", "HondaTorqueOutputLpfTauHighway": "0.01",
   })
-  assert lac.use_firmware_vgr and lac.vgr_inverse is not None
+  assert not hasattr(lac, "use_firmware_vgr")   # NRDR 7.0 port: HondaEpsFirmwareVgr is inert, the geometry is fixed
   assert lac.angle_rate_limit_deg_s == 219.0
   assert lac.core.output_lpf_enabled
   assert lac.core.output_lpf_tau == (0.07, 0.05, 0.01)
@@ -404,7 +414,7 @@ def test_calibration_matches_the_cars_torque_map_and_is_selected_only_when_enabl
   ccp = CarControllerParams(CP)
   assert list(ccp.STEER_LOOKUP) == [-cal.e4_per_output, 0, cal.e4_per_output] == list(ccp.STEER_LOOKUP_V)
   assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is cal
-  if candidate != CAR.HONDA_CLARITY:
+  if candidate not in (CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT):
     assert honda_eps.eps_firmware_calibration(CP, _Params()) is None
 
 
@@ -449,16 +459,25 @@ def test_clarity_trw_a020_profile_is_the_validated_build():
 
 
 def test_nidec_civics_carry_the_teg_measurements():
-  # both Nidec images take the column load measured on the TEG-A010 telemetry routes and R6's shape from their A table
+  # both Nidec images take the column load measured on the TEG-A010 telemetry routes; the A030 takes R6's shape from
+  # its A table, the TEG its own measured shape
   for cal in (eps_ff.CIVIC_TBA_A030, eps_ff.CIVIC_TEG_A010):
-    assert cal.r6_angle_gain == eps_ff.CIVIC_TBA_C120_R6_GAIN and cal.load == eps_ff.CIVIC_TEG_A010_LOAD and cal.e4_per_output == 3840.0
+    assert cal.load == eps_ff.CIVIC_TEG_A010_LOAD and cal.e4_per_output == 3840.0
+  assert eps_ff.CIVIC_TBA_A030.r6_angle_gain == eps_ff.CIVIC_TBA_C120_R6_GAIN
+  teg = eps_ff.CIVIC_TEG_A010
+  assert teg.r6_angle_bp == eps_ff.CIVIC_TEG_A010_R6_BP and teg.r6_angle_gain == eps_ff.CIVIC_TEG_A010_R6_GAIN
+  # the measured R6 per published deg/s by |angle| band (routes 133/134/137), within 1.5%
+  for angle, measured in ((7.5, -151.4), (30., -152.2), (67.5, -165.7), (120., -170.4), (200., -176.4)):
+    assert eps_ff.firmware_r6(1.0, angle, teg) == pytest.approx(measured, rel=.015)
   # the A030's row is not read: it keeps the C020's row 1 and R6 computed from the A table
   a030 = eps_ff.CIVIC_TBA_A030
   assert (a030.r5_key_bp, a030.kp_key_bp, a030.r6_per_deg_s) == (eps_ff.CIVIC_TBA_C020.r5_key_bp, eps_ff.CIVIC_TBA_C020.kp_key_bp,
                                                                   eps_ff.CIVIC_TBA_C120_R6_CENTRE)
-  # the TEG owner's car runs row 3 (TEGA2), measured on its telemetry, with that row's P axis and its own R6
+  # the TEG owner's car runs row 3 (TEGA2), measured on its telemetry; the corrected (rev b) image's row 3 carries the
+  # Clarity's R5 per key on that row's axis and the Clarity's P knots
   teg = eps_ff.CIVIC_TEG_A010
-  assert teg.r5_key_bp == (0, 222, 333, 495, 656, 887, 1108, 1552, 1774) and teg.kp_key_bp == eps_ff.CIVIC_TBA_C120_P_KEYS
+  assert teg.r5_key_bp == (0, 222, 333, 495, 656, 887, 1108, 1552, 1774) and teg.kp_key_bp == eps_ff.CLARITY_TRW_A020.kp_key_bp
+  assert teg.r5_v == (0, 4000, 6000, 8937, 11838, 16000, 20000, 28000, 32000) and teg.kp_v == eps_ff.CLARITY_TRW_A020.kp_v
   assert teg.r6_per_deg_s == eps_ff.CIVIC_TEG_A010_R6_CENTRE and teg.rack is eps_ff.CIVIC_TEG_A010_RACK
   # the Nidec column is stiffer than the C020's at low speed (1.29x at 3 m/s, 1.07x at 8) and alike by 15 m/s
   teg, c020 = eps_ff.CIVIC_TEG_A010_LOAD, eps_ff.CIVIC_TBA_C020_LOAD
@@ -644,9 +663,23 @@ def test_cars_without_a_yaw_fit_have_no_rack_map(candidate, fw):
 @pytest.mark.parametrize("firmware_vgr", ["0", "1"])
 def test_a_rack_map_is_the_geometry_whatever_the_firmware_vgr_setting(monkeypatch, firmware_vgr):
   lac, VM, _ = _controller(monkeypatch, {"HondaEpsFirmwareVgr": firmware_vgr})
-  assert lac.use_firmware_vgr == (firmware_vgr == "1")
   for k in (-0.05, -0.01, 0.002, 0.03):
     assert lac._desired_angle_no_offset(VM, 8.0, 0.0, k) == pytest.approx(lac.rack_map.angle_from_curvature(k, 8.0, 0.0))
+
+
+@pytest.mark.parametrize("candidate,fw", [(CAR.HONDA_CRV_5G, b'39990-TLA,A040\x00\x00'),
+                                          (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00'),
+                                          (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C120\x00\x00')])
+def test_without_a_rack_map_the_firmware_vgr_table_is_the_geometry(monkeypatch, candidate, fw):
+  # NRDR 7.0 port: rack map, else the exact image's firmware VGR table (A220 uses the A040's), else paramsd's ratio.
+  # The road-fit steer-ratio curves are not used.
+  CP, cal = _ptm_cp(candidate, fw)
+  monkeypatch.setattr(honda_eps, "Params", lambda: _Params())
+  lac, VM = honda_eps.LatControlHondaEps(CP, None, DT_CTRL, cal), VehicleModel(CP)
+  assert lac.rack_map is None and lac.vgr_inverse is not None
+  for k in (-0.05, -0.01, 0.002, 0.03):
+    linear = math.degrees(VM.get_steer_from_curvature(-k, 8.0, 0.0))
+    assert lac._desired_angle_no_offset(VM, 8.0, 0.0, k) == pytest.approx(vgr_linear_to_physical(linear, lac.vgr_inverse))
 
 
 @pytest.mark.parametrize("v", [0.0, 7.0, 15.0, 30.0])
@@ -698,6 +731,14 @@ def test_insight_carries_its_own_measured_load_on_row_0():
   cal = eps_ff.INSIGHT_TXM_A040
   assert cal.load is eps_ff.INSIGHT_TXM_A040_LOAD and cal.load != eps_ff.CIVIC_TBA_C020_LOAD
   assert cal.r5_key_bp == (0, 111, 222, 333, 443, 665, 887, 1108, 1663)  # row 0, every Insight build and variant
+  # the corrected PTM: the Clarity's own map and P table, so the firmware law is the Clarity's
+  assert cal.r5_v == eps_ff.CLARITY_TRW_A020_R5 and cal.key_clamp == 1663
+  clarity = eps_ff.CLARITY_TRW_A020
+  assert (cal.kp_key_bp, cal.kp_v) == (clarity.kp_key_bp, clarity.kp_v)
+  def out(c, u):
+    return abs(eps_ff.firmware_output(eps_ff.r5_from_output(u, 10.0, c), 0.0, c))
+  for u in (0.03, 0.05, 0.1, 0.15, 0.2, 0.3, 0.45, 0.6, 0.8, 1.0):
+    assert out(cal, u) / out(clarity, u) == pytest.approx(1.0, abs=0.01), u
   assert cal.e4_per_output == 3840.0 and cal.r6_per_deg_s == eps_ff.INSIGHT_TXM_A040_R6_CENTRE and cal.r6_angle_gain == eps_ff.INSIGHT_TXM_A040_R6_GAIN
   # the fitted column is lighter than the C020's at speed, which the carried-over load over-asked
   insight = eps_ff.column_load(10., 0., 25., 0., load=eps_ff.INSIGHT_TXM_A040_LOAD)
@@ -740,3 +781,15 @@ def test_every_calibration_says_where_every_value_came_from(name):
   if cal.cmd_delay_s == eps_ff.CMD_DELAY_DEFAULT_S and not prov["cmd_delay"].startswith("measured"):
     assert prov["cmd_delay"].startswith(("default", "inferred")), name
   assert eps_ff.provenance_summary(cal)
+
+
+@pytest.mark.parametrize("u", np.linspace(.02, 1.0, 50))
+def test_teg_rev_b_asks_the_clarity_r5_and_kp(u):
+  # the PTM rule at the TEG's 3840 E4 per unit: the same output gives the Clarity's R5 and Kp, rows 2 and 3 alike
+  teg, clarity = eps_ff.CIVIC_TEG_A010, eps_ff.CLARITY_TRW_A020
+  key = min(abs(eps_ff.command_key(-u * 3840.0)), 1663)
+  r5_teg, r5_cla = float(np.interp(key, teg.r5_key_bp, teg.r5_v)), float(np.interp(key, clarity.r5_key_bp, clarity.r5_v))
+  assert r5_teg == pytest.approx(r5_cla, rel=.005, abs=2.)
+  row2 = float(np.interp(key, (0, 111, 222, 333, 499, 665, 887, 1108, 1774), (0, 2000, 4000, 6000, 9009, 12000, 16000, 20000, 32000)))
+  assert row2 == pytest.approx(r5_teg, rel=.005, abs=2.)
+  assert eps_ff.firmware_kp(r5_teg, teg) == pytest.approx(eps_ff.firmware_kp(r5_cla, clarity), rel=.005)

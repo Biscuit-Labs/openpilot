@@ -18,7 +18,7 @@ def test_actual_modified_factory_controller_consumes_separate_lookup(identity, f
     actuators, frames = ci.apply(cc.as_reader(), 1_000_000_000 + tick * 10_000_000)
     assert frames
     emitted.append(actuators.torqueOutputCan)
-  expected_max = ci.CC.params.STEER_LOOKUP_V[-1]  # NRDR: the map's output cap (linear-max maps have no 3840 knee)
+  expected_max = ci.CC.params.STEER_LOOKUP_V[-1]  # NRDR: the map's output cap (modified-EPS maps have no 3840 knee)
   assert max(abs(value) for value in emitted) <= expected_max
   assert abs(emitted[-1]) >= expected_max - 1
   assert (ci.CC.modified_civic_steering is not None) == (identity == CAR.HONDA_CIVIC_BOSCH)

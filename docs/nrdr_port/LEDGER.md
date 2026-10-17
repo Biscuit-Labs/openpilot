@@ -45,12 +45,12 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
 | `starpilot/assets/nnff_models/HONDA_CLARITY.json` | bosch+vfn | 1824 | mod | **gone** | PORT - plug into lateral_controller_factory | dropped: NNFF not ported (7.0 removed it) |
-| `selfdrive/controls/lib/honda_eps_firmware_ff.py` | bosch+vfn | 810 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1) |
+| `selfdrive/controls/lib/honda_eps_firmware_ff.py` | bosch+vfn | 810 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1; synced to ns-bosch @ 9d8de58075 on 10-17; Insight default_on) |
 | `selfdrive/controls/tests/test_honda_eps_firmware_ff.py` | bosch+vfn | 733 | new | **gone** | PORT - plug into lateral_controller_factory | done (slices 1-3) |
 | `selfdrive/controls/lib/latcontrol_pid.py` | bosch+vfn | 333 | mod | `openpilot/selfdrive/controls/lib/latcontrol_pid.py` | PORT - plug into lateral_controller_factory | done (slice 3: ported as latcontrol_honda_modified_pid.py; 7.0 file untouched) |
 | `selfdrive/controls/lib/latcontrol_honda_eps.py` | bosch+vfn | 239 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 2) |
 | `selfdrive/controls/lib/tests/test_latcontrol_pid_eps_modified.py` | bosch+vfn | 224 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 3; moved to selfdrive/controls/tests/) |
-| `selfdrive/controls/lib/honda_lateral_common.py` | bosch+vfn | 191 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1) |
+| `selfdrive/controls/lib/honda_lateral_common.py` | bosch+vfn | 191 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1; SR curves kept as data only, not used by controllers) |
 | `selfdrive/controls/tests/test_latcontrol_pid_override_fade.py` | bosch+vfn | 99 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 3) |
 | `selfdrive/controls/lib/honda_eps_rack_map.py` | bosch+vfn | 92 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1) |
 | `system/manager/test/test_honda_eps_param_migration.py` | bosch+vfn | 52 | new | **gone** | PORT - plug into lateral_controller_factory | todo |

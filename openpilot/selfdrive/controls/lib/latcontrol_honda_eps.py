@@ -49,13 +49,10 @@ from openpilot.selfdrive.controls.lib.honda_eps_rack_map import HondaEpsRackMap
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.honda_lateral_common import (
   HONDA_ANGLE_RATE_LIMIT_DEG_S,
-  HONDA_SR_CURVE_BY_FP,
-  HONDA_SR_CURVE_INVERSE_BY_FP,
   HONDA_TORQUE_OUTPUT_LPF_TAU,
   _get_param_bool,
   _get_param_float,
   rate_limit_desired_angle,
-  solve_angle_from_ratio_curve,
 )
 
 SETTINGS_REFRESH_FRAMES = 300
@@ -150,8 +147,6 @@ class LatControlHondaEps(LatControl):
     self.core = HondaEpsLateralCore([float(x) for x in pid.kpBP], [float(x) for x in pid.kpV],
                                        [float(x) for x in pid.kiBP], [float(x) for x in pid.kiV], dt,
                                        ff=HondaEpsFirmwareFeedforward(dt, cal=self.calibration))
-    self.sr_curve = HONDA_SR_CURVE_BY_FP.get(str(CP.carFingerprint))
-    self.sr_curve_inverse = HONDA_SR_CURVE_INVERSE_BY_FP.get(str(CP.carFingerprint))
     self.vgr_inverse = get_honda_vgr_inverse(CP.flags)
     self.rack_map = get_rack_map(CP, self.calibration)
     self.cmd_delay = CommandDelay(dt, self.calibration.cmd_delay_s)
@@ -163,7 +158,6 @@ class LatControlHondaEps(LatControl):
     self._read_settings()
 
   def _read_settings(self):
-    self.use_firmware_vgr = _get_param_bool(self.params, "HondaEpsFirmwareVgr")
     self.angle_rate_limit_deg_s = _get_param_float(self.params, "HondaEpsAngleRateLimit", HONDA_ANGLE_RATE_LIMIT_DEG_S, 0.0, 2000.0)
     self.core.output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
     self.core.output_lpf_tau = tuple(
@@ -179,18 +173,12 @@ class LatControlHondaEps(LatControl):
     self.steering_pressed_prev = False
 
   def _desired_angle_no_offset(self, VM, v_ego, roll, desired_curvature):
-    # A yaw-identified rack map, where the car has one, is the geometry: road-measured against the car's own yaw
-    # sensor on the exact firmware table. Otherwise the same selection as LatControlPID (road curve, or the firmware
-    # table with HondaEpsFirmwareVgr).
+    # NRDR 7.0 geometry: the yaw-identified rack map where the car has one (road-measured against the car's own yaw
+    # sensor on the exact firmware table), else the exact image's firmware VGR table, else paramsd's fixed ratio. The
+    # road-fit steer-ratio curves are no longer used (they read ~12% high at centre against yaw), so
+    # HondaEpsFirmwareVgr is inert.
     if self.rack_map is not None:
       return self.rack_map.angle_from_curvature(desired_curvature, v_ego, roll)
-    if self.sr_curve is not None and not (self.use_firmware_vgr and self.vgr_inverse is not None):
-      sr_bp, sr_v = self.sr_curve
-      VM.sR = 1.0
-      unit_ratio_angle = math.degrees(VM.get_steer_from_curvature(-desired_curvature, v_ego, roll))
-      angle = solve_angle_from_ratio_curve(unit_ratio_angle, sr_bp, sr_v, self.sr_curve_inverse)
-      VM.sR = float(np.interp(abs(angle), sr_bp, sr_v))
-      return angle
     linear = math.degrees(VM.get_steer_from_curvature(-desired_curvature, v_ego, roll))
     return vgr_linear_to_physical(linear, self.vgr_inverse)
 

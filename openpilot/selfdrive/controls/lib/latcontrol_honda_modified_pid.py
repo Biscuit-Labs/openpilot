@@ -17,11 +17,8 @@ from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.params import Params
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from openpilot.selfdrive.controls.lib.honda_lateral_common import (
-  HONDA_SR_CURVE_BY_FP,
-  HONDA_SR_CURVE_INVERSE_BY_FP,
   HONDA_ANGLE_RATE_LIMIT_DEG_S,
   HONDA_TORQUE_OUTPUT_LPF_TAU,
-  solve_angle_from_ratio_curve,
   rate_limit_desired_angle,
   _get_param_float,
   _get_param_bool,
@@ -99,20 +96,9 @@ class LatControlHondaModifiedPID(LatControlPID):
     super().__init__(CP, CI, dt)
     self.is_eps_modified = use_honda_modified_pid(CP)
     self.is_modified_eps_kf_car = self.is_eps_modified and str(CP.carFingerprint) in NRDR_MODIFIED_EPS_KF_CARS
-    # A car with a road-measured curve uses it. The firmware position map is a partial
-    # correction (rack-to-steering-wheel only) and is the fallback for a mapped rack that
-    # has no measured curve yet.
-    self.sr_curve = HONDA_SR_CURVE_BY_FP.get(str(CP.carFingerprint))
-    self.sr_curve_inverse = HONDA_SR_CURVE_INVERSE_BY_FP.get(str(CP.carFingerprint))
-    # Selected at runtime by HondaEpsFirmwareVgr so the two maps can be A/B'd on the road.
-    # They are NOT the same measurement: the road curve is the absolute effective ratio across
-    # the whole chain and ignores what paramsd learned, while the firmware map is only a
-    # relative warp applied on top of paramsd's scalar. Switching therefore moves the centre
-    # gain as well as the taper -- see the comment at the selection in update().
-    self.use_firmware_vgr = False
-    # VGR is selected by exact EPS firmware. There is intentionally no vehicle-family
-    # fallback: another rack's table is not interchangeable, so this stays None for a car
-    # whose image was never traced and the toggle below is then inert.
+    # NRDR 7.0 geometry: the exact image's firmware VGR table on top of paramsd's learned ratio, else that fixed ratio.
+    # There is intentionally no vehicle-family fallback: another rack's table is not interchangeable. The road-fit
+    # steer-ratio curves vfn used here are not ported, so HondaEpsFirmwareVgr is inert.
     self.vgr_inverse = get_honda_vgr_inverse(CP.flags)
     self.prev_angle_steers_des_no_offset = 0.0
     self.eps_modified_steering_pressed_filter_s = 0.0
@@ -171,7 +157,6 @@ class LatControlHondaModifiedPID(LatControlPID):
     self.torque_output_lpf_tau_highway = _get_param_float(
       self.params, "HondaTorqueOutputLpfTauHighway", HONDA_TORQUE_OUTPUT_LPF_TAU, 0.0, 5.0,
     )
-    self.use_firmware_vgr = _get_param_bool(self.params, "HondaEpsFirmwareVgr")
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited,
              lat_delay, calibrated_pose=None, model_data=None, starpilot_toggles=None):
@@ -180,38 +165,11 @@ class LatControlHondaModifiedPID(LatControlPID):
     pid_log.steeringAngleDeg = float(CS.steeringAngleDeg)
     pid_log.steeringRateDeg = float(CS.steeringRateDeg)
 
-    # Which rack map converts curvature into a wheel angle. Only the A (position) table is
-    # ever a candidate: the firmware's B table divides the RATE input on a separate path and
-    # is not a position curve, which is why it is traced but not tabulated in steer_ratio.py.
-    #
-    # These two are not interchangeable calibrations of the same thing:
-    #   road curve  absolute effective ratio, 19.680 at centre tapering 1.55x to 12.720. Fitted
-    #               end to end, so it spans the VGR pinion, rack, linkage, Ackermann, compliance
-    #               and tyres. It sets VM.sR itself and ignores what paramsd learned.
-    #   firmware A  a relative warp only, about 1.13x across the same span, applied on top of
-    #               paramsd's learned scalar (17.67 on route 00000278). It describes the VGR
-    #               pinion alone, which is why it under-tapers.
-    # So flipping the toggle moves the centre gain by roughly -10% AND flattens the taper; it
-    # is not a pure taper swap, and the two effects partly cancel near centre.
-    use_firmware_vgr = self.use_firmware_vgr and self.vgr_inverse is not None
-    if self.sr_curve is not None and not use_firmware_vgr:
-      # Road-measured effective ratio, solved at the DESIRED angle. Selecting sR at the MEASURED angle closed a
-      # d(theta_des)/d(theta_meas) path through the setpoint, which fed the 70-90 deg limit cycle.
-      # get_steer_from_curvature is linear in sR, so asking for the angle at sR = 1 and solving the curve for its
-      # own fixed point costs one interpolation and removes the loop. controlsd refreshes VM every frame.
-      sr_bp, sr_v = self.sr_curve
-      VM.sR = 1.0
-      unit_ratio_angle = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll))
-      angle_steers_des_no_offset = solve_angle_from_ratio_curve(unit_ratio_angle, sr_bp, sr_v, self.sr_curve_inverse)
-      # Leave the model holding the ratio at the angle actually being asked for.
-      VM.sR = float(np.interp(abs(angle_steers_des_no_offset), sr_bp, sr_v))
-    elif self.vgr_inverse is not None:
-      # Firmware VGR path. VehicleModel keeps the scalar sR paramsd learned, so it returns the angle a
-      # constant-ratio rack would need; the measured rack curve is then inverted to get the angle this rack needs.
-      linear_des_no_offset = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll))
-      angle_steers_des_no_offset = vgr_linear_to_physical(linear_des_no_offset, self.vgr_inverse)
-    else:
-      angle_steers_des_no_offset = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll))
+    # Firmware VGR: VehicleModel keeps the scalar sR paramsd learned, so it returns the angle a constant-ratio rack
+    # would need; the image's measured position table is then inverted to the angle this rack needs (identity when
+    # the image has no traced table). Solving at the DESIRED angle keeps measurement wobble out of the target.
+    linear_des_no_offset = math.degrees(VM.get_steer_from_curvature(-desired_curvature, CS.vEgo, params.roll))
+    angle_steers_des_no_offset = vgr_linear_to_physical(linear_des_no_offset, self.vgr_inverse)
 
     # Shape the target before it becomes error or feedforward: the angle-rate ceiling handles target continuity,
     # while the single speed-banded LPF below acts on the final torque command.

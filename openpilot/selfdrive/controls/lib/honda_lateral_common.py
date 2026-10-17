@@ -185,7 +185,16 @@ def _get_param_float(params, key, default, min_value=None, max_value=None, scale
 
 
 def _get_param_bool(params, key, default=False):
+  # An unset key is the default. Params.get_bool reads an unset key as False whatever its params_keys default, which
+  # on 7.0 (no vfn manager seeding) would silently turn a default-on setting like the output LPF off.
   try:
-    return bool(params.get_bool(key))
+    value = params.get(key)
   except Exception:
     return default
+  if value is None:
+    return default
+  if isinstance(value, bytes):
+    value = value.decode("utf-8", "replace")
+  if isinstance(value, str):
+    return value.strip().lower() in ("1", "true")
+  return bool(value)

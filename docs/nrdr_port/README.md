@@ -2,7 +2,7 @@
 
 Branch `sp7-port` (worktree `~/nrdr/openpilot-sp7`), started 2026-10-16 from `starpilot/SecretGoodStarPilot` @ `89430a70da`.
 7.0 is not released: it moves SGSP → `Dom` (dev/testing) → `StarPilot` (release). This branch gets us ready ahead of that.
-`sp7-port` has **no upstream** on purpose. Never push it to the `starpilot` remote.
+`sp7-port` tracks `origin/sp7-port` (our fork). Never push it to the `starpilot` remote.
 
 `sp7-port` starts from **one snapshot commit** of the 7.0 tree (`e2d325132e`), not 7.0's history: that history
 references ~5.3 GB of comma-master LFS models GitHub would demand in our fork's LFS store. The full-history version is

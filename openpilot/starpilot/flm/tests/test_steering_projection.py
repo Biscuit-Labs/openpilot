@@ -253,7 +253,7 @@ def test_rivian_captures_actual_dynamic_max(speed, expected):
 
 
 def test_modified_civic_has_no_controller_filter_and_lookup_context():
-  # NRDR: a modified-EPS Honda's car controller no longer filters the command (the old Civic Bosch low-pass read as
+  # a modified-EPS Honda's car controller no longer filters the command (the old Civic Bosch low-pass read as
   # safety limiting in controlsd), so the projection carries no filter state for it
   firmware = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0, fwVersion=b'39990-TGG,A020\x00\x00', brand='honda')
   ci = make_interface(HONDA.HONDA_CIVIC_BOSCH, (firmware,))

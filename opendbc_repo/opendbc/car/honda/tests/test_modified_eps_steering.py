@@ -1,4 +1,4 @@
-"""NRDR (from vfn): modified-EPS steering in the car controller, the steering-pressed threshold, and the VSA yaw decode."""
+"""modified-EPS steering in the car controller, the steering-pressed threshold, and the VSA yaw decode."""
 from dataclasses import replace
 from types import SimpleNamespace
 

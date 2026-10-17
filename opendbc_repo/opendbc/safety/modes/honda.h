@@ -99,7 +99,7 @@ static uint8_t honda_get_counter(const CANPacket_t *msg) {
   return (msg->data[counter_byte] >> 4U) & 0x3U;
 }
 
-// NRDR: Nidec BRAKE_COMMAND (0x1FA) carries the brake in COMPUTER_BRAKE (bytes 0-1), except on Nidec hybrids
+// Nidec BRAKE_COMMAND (0x1FA) carries the brake in COMPUTER_BRAKE (bytes 0-1), except on Nidec hybrids
 // (Clarity), whose brake module reads COMPUTER_BRAKE_HYBRID (bytes 6-7). Nothing else occupies those hybrid bits, so a
 // non-hybrid leaves them 0 and the larger of the two is the brake the car will apply, with no hybrid safety param.
 static int honda_nidec_brake(const CANPacket_t *msg) {

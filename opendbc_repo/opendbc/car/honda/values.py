@@ -72,7 +72,7 @@ class CarControllerParams:
     from opendbc.car.honda.parameter_profiles import apply_steering_profile
     apply_steering_profile(self, CP)
     if CP.flags & HondaFlags.EPS_MODIFIED:
-      # NRDR modified-EPS command maps (nrdr vfn interface.py torqueBP/torqueV): the steering command is the output
+      # Modified-EPS command maps (vfn interface.py torqueBP/torqueV): the steering command is the output
       # times the image's cap, one straight segment, where the stock maps are piecewise.
       eps_map = None
       if CP.carFingerprint in (CAR.HONDA_CIVIC, CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT):
@@ -127,13 +127,13 @@ class HondaFlags(IntFlag):
   EPS_MODIFIED = 8192
   GAS_INTERCEPTOR = 16384
 
-  # NRDR: exact EPS firmware profiles with traced variable-gear-ratio tables (same bits as nrdr vfn).
+  # exact EPS firmware profiles with traced variable-gear-ratio tables (same bits as vfn).
   VGR_CLARITY_TRW_A020 = 32768
   VGR_CIVIC_TBA_C020 = 65536
   VGR_INSIGHT_TXM_A040 = 131072
   VGR_CRV_TLA_A040 = 262144
   VGR_CIVIC_TBA_C120 = 524288
-  # NRDR: some Nidec hybrids (Clarity) report brake hold on BRAKE_HOLD_HYBRID_ALT (0x223) instead of VSA_STATUS
+  # some Nidec hybrids (Clarity) report brake hold on BRAKE_HOLD_HYBRID_ALT (0x223) instead of VSA_STATUS
   HYBRID_ALT_BRAKEHOLD = 1048576
 
 
@@ -512,13 +512,13 @@ class CAR(Platforms):
 
 MODIFIED_EPS_FW = {
   CAR.HONDA_CLARITY: (b'39990-TRW,A020\x00\x00',),
-  # NRDR: TEG-A010 shares the Civic fingerprint (its own measured calibration lives in honda_eps_firmware_ff)
+  # TEG-A010 shares the Civic fingerprint (its own measured calibration lives in honda_eps_firmware_ff)
   CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00'),
   CAR.HONDA_ACCORD: (b'39990-TVA,A150\x00\x00',),
-  # NRDR: C020 and C120 are modified Civic Bosch images with their own calibrations
+  # C020 and C120 are modified Civic Bosch images with their own calibrations
   CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00', b'39990-TBA,C020\x00\x00', b'39990-TBA,C120\x00\x00'),
   CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00'),
-  # NRDR: modified-EPS fleet beyond 7.0's list
+  # modified-EPS fleet beyond 7.0's list
   CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00',),
   CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00',),  # PTM; stock A220 accepts every RDX 3G image as a source
   CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00',),

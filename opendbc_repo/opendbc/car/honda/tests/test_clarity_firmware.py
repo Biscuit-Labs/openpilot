@@ -37,7 +37,7 @@ def test_complete_original_cohort_exact_and_fuzzy_keep_correct_controller(versio
   modified = any(b"," in version for version in versions)
   assert bool(cp.flags & HondaFlags.EPS_MODIFIED) == modified
   if modified:
-    # NRDR: the modified Clarity runs the four-point modified-EPS tune on its linear 3840 map
+    # the modified Clarity runs the four-point modified-EPS tune on its linear 3840 map
     assert list(cp.lateralTuning.pid.kpV) == pytest.approx([0.018, 0.024, 0.048, 0.060])
     assert list(cp.lateralTuning.pid.kiV) == pytest.approx([0.006, 0.008, 0.016, 0.020])
     assert CarControllerParams(cp).STEER_LOOKUP == [-3840, 0, 3840]
@@ -46,7 +46,7 @@ def test_complete_original_cohort_exact_and_fuzzy_keep_correct_controller(versio
     assert list(cp.lateralTuning.pid.kiV) == pytest.approx([0.24])
     assert CarControllerParams(cp).STEER_LOOKUP == [-2560, 0, 2560]
   ci = CarInterface(cp)
-  assert (ci.CC.modified_eps_steering is not None) == modified   # NRDR: the modified-EPS steering stage
+  assert (ci.CC.modified_eps_steering is not None) == modified   # the modified-EPS steering stage
 
 
 @pytest.mark.parametrize("ecu", (Ecu.eps, Ecu.vsa, Ecu.fwdRadar))

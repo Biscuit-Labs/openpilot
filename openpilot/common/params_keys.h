@@ -355,7 +355,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"JetlinkRuntime", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | DONT_LOG, JSON}},
     {"Version", {PERSISTENT, STRING}},
 
-    // NRDR Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
+    // Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
     {"HondaEpsController", {PERSISTENT, BOOL, "0"}},  // steer the PTM EPS cars without default_on with LatControlHondaEps (read when controlsd starts)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
@@ -374,7 +374,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaSteerDeltaUp", {PERSISTENT, FLOAT, "3.0"}},
     {"HondaSteerDeltaDown", {PERSISTENT, FLOAT, "3.0"}},
 
-    // NRDR modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
+    // Modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
     // The base banding is in interface.py; these stay 100 (I: 20 low / 0 highway) unless trimming.
     {"LatPScaleLowSpeed", {PERSISTENT, INT, "100"}},
     {"LatPScaleStandard", {PERSISTENT, INT, "100"}},

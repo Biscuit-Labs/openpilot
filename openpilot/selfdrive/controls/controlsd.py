@@ -125,7 +125,7 @@ class Controls:
 
     self.global_learning = GlobalRuntime(self.CP, self.CI, self.LaC)
 
-    # NRDR: a car on LatControlHondaEps measures curvature through the rack map it steers through, and tells the model
+    # a car on LatControlHondaEps measures curvature through the rack map it steers through, and tells the model
     # its calibration's measured delay schedule instead of lagd's learned delay
     honda_eps = isinstance(self.LaC, LatControlHondaEps)
     self.rack_map = get_rack_map(self.CP, self.LaC.calibration) if honda_eps else None
@@ -182,7 +182,7 @@ class Controls:
 
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - lp.angleOffsetDeg)
     if self.rack_map is not None:
-      # NRDR: the same map the controller steers through, so a held or seeded curvature comes back as the same angle
+      # the same map the controller steers through, so a held or seeded curvature comes back as the same angle
       self.curvature = self.rack_map.curvature_from_angle(CS.steeringAngleDeg - lp.angleOffsetDeg, CS.vEgo, lp.roll)
     else:
       self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
@@ -254,7 +254,7 @@ class Controls:
       pause_allowed = self.lateral_pause.allowed(CS, now_ns=pause_now_ns, source_ns=pause_source, drive_id=pause_drive)
 
     CC.latActive = bool(CC.latActive and pause_allowed)
-    # NRDR: never steer from a model that stopped publishing. Engaged driving disengages on the resulting events, but
+    # never steer from a model that stopped publishing. Engaged driving disengages on the resulting events, but
     # always-on lateral keeps latActive with selfdrive disabled, and it once tracked the last curvature and wound the
     # controller to full torque for 20 s after the big model failed and the fallback published nothing (route
     # 000003bb). alive = a modelV2 within 10 periods (0.5 s); valid is not used so dropped frames do not toggle it.

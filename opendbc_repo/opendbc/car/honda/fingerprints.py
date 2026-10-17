@@ -274,7 +274,7 @@ FW_VERSIONS = {
       b'39990-TGN-E120\x00\x00',
       b'39990-TGG,A020\x00\x00',
       b'39990-TGG,A120\x00\x00',
-      b'39990-TBA,C120\x00\x00',  # NRDR: modified C120 image
+      b'39990-TBA,C120\x00\x00',  # modified C120 image
     ],
     (Ecu.srs, 0x18da53f1, None): [
       b'77959-TBA-A060\x00\x00',
@@ -414,7 +414,7 @@ FW_VERSIONS = {
       b'39990-TME-T120\x00\x00',
       b'39990-TMT-T010\x00\x00',
       b'39990-TLA,A040\x00\x00',
-      b'39990-TLA,A220\x00\x00',  # NRDR: modified A220 image
+      b'39990-TLA,A220\x00\x00',  # modified A220 image
     ],
     (Ecu.electricBrakeBooster, 0x18da2bf1, None): [
       b'46114-TLA-A040\x00\x00',

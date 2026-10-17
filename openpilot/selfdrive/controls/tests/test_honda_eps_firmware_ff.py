@@ -341,12 +341,12 @@ def test_the_output_lpf_is_on_when_nothing_is_set(monkeypatch):
   assert not lac.core.output_lpf_enabled
 
 
-def test_nrdr_settings_are_read(monkeypatch):
+def test_controller_settings_are_read(monkeypatch):
   lac, _, _ = _controller(monkeypatch, {
     "HondaEpsFirmwareVgr": "1", "HondaEpsAngleRateLimit": "219", "HondaTorqueOutputLowPassFilter": "1",
     "HondaTorqueOutputLpfTauLowSpeed": "0.07", "HondaTorqueOutputLpfTauStandard": "0.05", "HondaTorqueOutputLpfTauHighway": "0.01",
   })
-  assert not hasattr(lac, "use_firmware_vgr")   # NRDR 7.0 port: HondaEpsFirmwareVgr is inert, the geometry is fixed
+  assert not hasattr(lac, "use_firmware_vgr")   # Night Star port: HondaEpsFirmwareVgr is inert, the geometry is fixed
   assert lac.angle_rate_limit_deg_s == 219.0
   assert lac.core.output_lpf_enabled
   assert lac.core.output_lpf_tau == (0.07, 0.05, 0.01)
@@ -671,7 +671,7 @@ def test_a_rack_map_is_the_geometry_whatever_the_firmware_vgr_setting(monkeypatc
                                           (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00'),
                                           (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C120\x00\x00')])
 def test_without_a_rack_map_the_firmware_vgr_table_is_the_geometry(monkeypatch, candidate, fw):
-  # NRDR 7.0 port: rack map, else the exact image's firmware VGR table (A220 uses the A040's), else paramsd's ratio.
+  # Night Star port: rack map, else the exact image's firmware VGR table (A220 uses the A040's), else paramsd's ratio.
   # The road-fit steer-ratio curves are not used.
   CP, cal = _ptm_cp(candidate, fw)
   monkeypatch.setattr(honda_eps, "Params", lambda: _Params())

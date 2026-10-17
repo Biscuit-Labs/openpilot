@@ -14,8 +14,8 @@ import numpy as np
 # fit residual, and none of them drove better. From 90 degrees out this is bit-identical
 # to the 393b2c11e2 curve; the whole difference is a 7-10%% higher ratio inside 90 degrees.
 #
-# Values from nrdr a954d153e7 (2026-07-31), "Blend learned Clarity steer ratio into
-# proven tail", carried over from nrdr-clarity-backport. Replaces the old two-point
+# Values from upstream a954d153e7 (2026-07-31), "Blend learned Clarity steer ratio into
+# proven tail", carried over from the Clarity backport branch. Replaces the old two-point
 # [0, 250] -> [17.00, 12.74] taper that this branch still had.
 #
 # The <= 70 degree section is the sample-weighted, non-increasing fit of the measured
@@ -53,7 +53,7 @@ CIVIC_BOSCH_SR_CURVE_V = [14.960, 14.960, 14.910, 14.740, 14.210, 13.630, 13.120
 CRV_5G_SR_CURVE_BP = [0., 50., 100., 150., 175., 200.]  # |wheel angle|, deg
 CRV_5G_SR_CURVE_V = [18.10, 17.80, 16.30, 15.30, 14.90, 14.60]
 
-# Insight two-point road-tested profile from nrdr upstream (36e203995a).  No multi-knot
+# Insight two-point road-tested profile from upstream (36e203995a).  No multi-knot
 # Insight measurement has ever existed on this branch, so this is the only road data for
 # the car.  The outer breakpoint is derived the same way upstream derives it -- the
 # Clarity's 250 deg sample point scaled by this rack's lock angle -- rather than

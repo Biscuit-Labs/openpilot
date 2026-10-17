@@ -335,7 +335,7 @@ class TestHondaNidecPcmSafety(HondaPcmEnableBase, TestHondaNidecSafetyBase):
 
 class TestHondaNidecHybridSafety(TestHondaNidecPcmSafety):
   """
-    NRDR: Nidec hybrids (Clarity) carry the brake in COMPUTER_BRAKE_HYBRID. Every inherited brake test runs with the
+    Nidec hybrids (Clarity) carry the brake in COMPUTER_BRAKE_HYBRID. Every inherited brake test runs with the
     brake in that field; safety checks the larger of the two fields, so no hybrid safety param is needed.
   """
 

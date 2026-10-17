@@ -1,6 +1,6 @@
-"""NRDR angle-space PID for modified-EPS Hondas that have no EPS firmware calibration (LatControlHondaEps).
+"""Angle-space PID for modified-EPS Hondas that have no EPS firmware calibration (LatControlHondaEps).
 
-Ported from nrdr vfn's latcontrol_pid.py. StarPilot 7.0's own LatControlPID is left untouched: this subclass takes
+Ported from vfn's latcontrol_pid.py. StarPilot 7.0's own LatControlPID is left untouched: this subclass takes
 over update() only for a modified-EPS Honda (create_lateral_controller decides), so every other car runs 7.0's stock
 PID. Left behind on vfn: the StarPilot 6.x vehicle tunes (Subaru Impreza, RAV4 TSS2, CR-V 5G output shaping), the
 Civic Bosch testing ground and the starpilot_toggles gain scales, none of which exist in 7.0, and NNFF.
@@ -28,14 +28,14 @@ _MPH_TO_MS = 0.44704
 _LAT_SCALE_LOW_MAX = 25.0 * _MPH_TO_MS
 _LAT_SCALE_STD_MAX = 50.0 * _MPH_TO_MS
 
-# NRDR modified-EPS speed-banded feedforward shared by every car in NRDR_MODIFIED_EPS_KF_CARS. The
+# Modified-EPS speed-banded feedforward shared by every car in MODIFIED_EPS_KF_CARS. The
 # duplicate-near-25 breakpoint preserves the road-tested hard handoff.
-NRDR_MODIFIED_EPS_KF_SPEED_BP = [0.0, 25.0 * _MPH_TO_MS - 1e-3, 25.0 * _MPH_TO_MS, 50.0 * _MPH_TO_MS]  # m/s
-NRDR_MODIFIED_EPS_KF_V = [2.4e-6, 1.8e-6, 3.6e-6, 6.0e-6]
+MODIFIED_EPS_KF_SPEED_BP = [0.0, 25.0 * _MPH_TO_MS - 1e-3, 25.0 * _MPH_TO_MS, 50.0 * _MPH_TO_MS]  # m/s
+MODIFIED_EPS_KF_V = [2.4e-6, 1.8e-6, 3.6e-6, 6.0e-6]
 
 # Cars carrying the shared modified-EPS tune (the four-point kp/ki in interface.py). They all
 # take the banded feedforward above; any other modified-EPS Honda keeps the scalar kf from CarParams.
-NRDR_MODIFIED_EPS_KF_CARS = frozenset({
+MODIFIED_EPS_KF_CARS = frozenset({
   "HONDA_CLARITY",
   "HONDA_CIVIC",
   "HONDA_CIVIC_BOSCH",
@@ -45,23 +45,23 @@ NRDR_MODIFIED_EPS_KF_CARS = frozenset({
   "ACURA_RDX_3G_MMR",
 })
 
-# nrdr: after a press the carcontroller fades torque back in over HondaOverrideFadeUpSecs, and
+# After a press the carcontroller fades torque back in over HondaOverrideFadeUpSecs, and
 # every faded frame trips steer_limited_by_safety, which froze the integrator at its pre-press
 # value. Route 11c8fa231c0499ed|0000027a--4eae257c95 at 12:34: two override trips held I at 0.19
 # into the turn through the unwind, where it cancelled 35-45 % of P and the car ran wide toward
 # the curb. Below 25 mph, 60-70 % of the non-pressed limited frames on routes 277/278/27a were in
 # that window. The held I now bleeds toward 0 during the fade instead. 0.5 s leaves 37 % of it
 # after a 0.5 s fade.
-NRDR_OVERRIDE_FADE_I_BLEED_TAU = 0.5
-NRDR_OVERRIDE_FADE_UP_S_DEFAULT = 1.5   # carcontroller's HondaOverrideFadeUpSecs default
+OVERRIDE_FADE_I_BLEED_TAU = 0.5
+OVERRIDE_FADE_UP_S_DEFAULT = 1.5   # carcontroller's HondaOverrideFadeUpSecs default
 
 
 def use_honda_modified_pid(CP) -> bool:
   return CP.brand == "honda" and bool(CP.flags & HondaFlags.EPS_MODIFIED) and CP.lateralTuning.which() == "pid"
 
 
-def get_nrdr_modified_eps_kf(v_ego: float) -> float:
-  return float(np.interp(v_ego, NRDR_MODIFIED_EPS_KF_SPEED_BP, NRDR_MODIFIED_EPS_KF_V))
+def get_modified_eps_kf(v_ego: float) -> float:
+  return float(np.interp(v_ego, MODIFIED_EPS_KF_SPEED_BP, MODIFIED_EPS_KF_V))
 
 
 def _lat_pid_scale_banded(v_ego: float, low: float, standard: float, highway: float) -> float:
@@ -95,8 +95,8 @@ class LatControlHondaModifiedPID(LatControlPID):
   def __init__(self, CP, CI, dt):
     super().__init__(CP, CI, dt)
     self.is_eps_modified = use_honda_modified_pid(CP)
-    self.is_modified_eps_kf_car = self.is_eps_modified and str(CP.carFingerprint) in NRDR_MODIFIED_EPS_KF_CARS
-    # NRDR 7.0 geometry: the exact image's firmware VGR table on top of paramsd's learned ratio, else that fixed ratio.
+    self.is_modified_eps_kf_car = self.is_eps_modified and str(CP.carFingerprint) in MODIFIED_EPS_KF_CARS
+    # Geometry: the exact image's firmware VGR table on top of paramsd's learned ratio, else that fixed ratio.
     # There is intentionally no vehicle-family fallback: another rack's table is not interchangeable. The road-fit
     # steer-ratio curves vfn used here are not ported, so HondaEpsFirmwareVgr is inert.
     self.vgr_inverse = get_honda_vgr_inverse(CP.flags)
@@ -123,7 +123,7 @@ class LatControlHondaModifiedPID(LatControlPID):
     self.torque_output_lpf_tau_low = HONDA_TORQUE_OUTPUT_LPF_TAU
     self.torque_output_lpf_tau_standard = HONDA_TORQUE_OUTPUT_LPF_TAU
     self.torque_output_lpf_tau_highway = HONDA_TORQUE_OUTPUT_LPF_TAU
-    self.override_fade_up_s = NRDR_OVERRIDE_FADE_UP_S_DEFAULT
+    self.override_fade_up_s = OVERRIDE_FADE_UP_S_DEFAULT
     self.since_press_s = math.inf  # time since the modified-EPS press detector last fired
 
   def reset(self):
@@ -146,7 +146,7 @@ class LatControlHondaModifiedPID(LatControlPID):
     self.angle_rate_limit_deg_s = _get_param_float(self.params, "HondaEpsAngleRateLimit",
                                                    HONDA_ANGLE_RATE_LIMIT_DEG_S, 0.0, 2000.0)
     self.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs",
-                                               NRDR_OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
+                                               OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
     self.torque_output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
     self.torque_output_lpf_tau_low = _get_param_float(
       self.params, "HondaTorqueOutputLpfTauLowSpeed", HONDA_TORQUE_OUTPUT_LPF_TAU, 0.0, 5.0,
@@ -194,7 +194,7 @@ class LatControlHondaModifiedPID(LatControlPID):
       self.eps_modified_steering_pressed_filter_s = 0.0
       self.eps_modified_steering_pressed_prev = False
       self.prev_output_torque = 0.0
-      # nrdr: PR #8 piece 3. controlsd only resets LatControl.sat_time on disengage, so the
+      # PR #8 piece 3: controlsd only resets LatControl.sat_time on disengage, so the
       # integrator carried across it (routes 277/278/27a: up to 0.32 into a fresh engagement).
       self.pid.reset()
       self.since_press_s = math.inf
@@ -203,7 +203,7 @@ class LatControlHondaModifiedPID(LatControlPID):
       self.frame += 1
 
       # offset does not contribute to resistive torque
-      ff_factor = get_nrdr_modified_eps_kf(CS.vEgo) if self.is_modified_eps_kf_car else self.ff_factor
+      ff_factor = get_modified_eps_kf(CS.vEgo) if self.is_modified_eps_kf_car else self.ff_factor
       ff = ff_factor * self.get_steer_feedforward(angle_steers_des_no_offset, CS.vEgo)
 
       self.eps_modified_steering_pressed_filter_s, steering_pressed = get_eps_modified_steering_pressed(
@@ -230,7 +230,7 @@ class LatControlHondaModifiedPID(LatControlPID):
                       integrator_gain_scale=i_scale,
                       reset_integrator=i_scale <= 0.0 or CS.vEgo < freeze_threshold)
       if steer_limited_by_safety and not steering_pressed and self.since_press_s <= self.override_fade_up_s + self.dt:
-        self.pid.i *= math.exp(-self.dt / NRDR_OVERRIDE_FADE_I_BLEED_TAU)
+        self.pid.i *= math.exp(-self.dt / OVERRIDE_FADE_I_BLEED_TAU)
 
       if self.frame % 300 == 0:  # same place in the frame as on vfn: after the integrator, before the P/F scales
         self._read_settings()

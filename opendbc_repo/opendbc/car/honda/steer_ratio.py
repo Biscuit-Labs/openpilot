@@ -178,8 +178,8 @@ _CRV_TLA_A040_POSITION_Y = [16783, 16783, 16790, 16795, 16979, 16979, 17100, 170
 
 # Civic 39990-TBA-C120 primary angle table, shared byte for byte by the Civic 39990-TBA-A030 and 39990-TEG-A010
 # (stock TEG and every modified build checked): Y_A at 0x1306C, X_A at 0x130A8, the same addresses as the C020's A
-# pair. The TGG-A120 image carries the C020 table at those addresses instead. Decoded by vote_for_nobody (nrdr
-# honda_vgr), re-read from the C120 08-11, A030 09-12, TEG stock and TEG 10-03 images.
+# pair. The TGG-A120 image carries the C020 table at those addresses instead. Decoded by vote_for_nobody
+# (honda_vgr), re-read from the C120 08-11, A030 09-12, TEG stock and TEG 10-03 images.
 _CIVIC_C120_POSITION_X = [0, 40, 80, 120, 160, 200, 240, 280, 320, 400,
                           600, 800, 1000, 1100, 1140, 1180, 1220, 1260, 1300, 1340,
                           1380, 1420, 1460, 1500, 1800, 2100, 2400, 2700, 3000, 9000]

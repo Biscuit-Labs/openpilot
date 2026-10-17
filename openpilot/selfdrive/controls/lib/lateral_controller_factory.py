@@ -14,10 +14,10 @@ def create_lateral_controller(cp, ci, dt, *, mode, turn_assist=False):
     return LatControlAngle(cp, ci, dt)
   if cp.steerControlType == structs.CarParams.SteerControlType.curvature:
     return LatControlCurvature(cp, ci, dt)
-  # NRDR: a modified-EPS Honda with a matching EPS firmware calibration steers through its firmware inversion
+  # a modified-EPS Honda with a matching EPS firmware calibration steers through its firmware inversion
   if (eps_calibration := eps_firmware_calibration(cp)) is not None:
     return LatControlHondaEps(cp, ci, dt, eps_calibration)
-  # NRDR: any other modified-EPS Honda runs the NRDR angle-space PID; every other PID car keeps 7.0's stock one
+  # any other modified-EPS Honda runs the modified-EPS angle-space PID; every other PID car keeps 7.0's stock one
   if use_honda_modified_pid(cp):
     return LatControlHondaModifiedPID(cp, ci, dt)
   if cp.lateralTuning.which() == 'pid':

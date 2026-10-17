@@ -784,8 +784,8 @@ struct StarPilotLateralState @0xc2243c65e0340384 {
     reason @6 :Text;
   }
 
-  # NRDR modified-EPS firmware controller (selfdrive/controls/lib/latcontrol_honda_eps.py). The feedforward inverts the
-  # EPS firmware law; see selfdrive/controls/lib/honda_eps_firmware_ff.py. On nrdr vfn these were @8-@16; 7.0 uses
+  # Honda modified-EPS firmware controller (selfdrive/controls/lib/latcontrol_honda_eps.py). The feedforward inverts the
+  # EPS firmware law; see selfdrive/controls/lib/honda_eps_firmware_ff.py. On vfn these were @8-@16; 7.0 uses
   # @8-@10, so they moved up. Tools read them by name.
   epsFfActive @11 :Bool;
   epsFfFeedforward @12 :Float32;   # lateral output ([-1, 1]) of the feedforward at full weight

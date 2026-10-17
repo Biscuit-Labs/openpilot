@@ -13,7 +13,7 @@ LANE_CHANGE_START_TIME = 0.5
 class DesireHelper:
   def __init__(self, policy: LaneChangePolicy | None = None, nudge_torque: float | None = None):
     self.policy = policy if policy is not None else LaneChangePolicy()
-    # NRDR: raw driver torque that also counts as a lane-change nudge, for cars whose steeringPressed threshold is raised
+    # raw driver torque that also counts as a lane-change nudge, for cars whose steeringPressed threshold is raised
     # above stock (modified-EPS Hondas); None keeps steeringPressed alone
     self.nudge_torque = nudge_torque
     self.lane_change_state = LaneChangeState.off

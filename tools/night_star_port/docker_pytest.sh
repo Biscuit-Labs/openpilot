@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run pytest for this checkout inside the larch64 builder container, against the committed device artifacts.
-# usage: tools/nrdr_port/docker_pytest.sh -q <tests...>
+# usage: tools/night_star_port/docker_pytest.sh -q <tests...>
 #
 # One-time setup, from this checkout (builds .venv-linux-arm64 from 7.0's uv.lock; both dirs are gitignored):
 #   mkdir -p .venv-linux-arm64 .cache/uv
@@ -9,7 +9,7 @@
 #              UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 uv sync --frozen --all-extras'
 # UV_PYTHON_INSTALL_DIR matters: without it uv puts the interpreter under HOME=/tmp and the venv dies with the container.
 W="$(cd "$(dirname "$0")/../.." && pwd)"
-M="${NRDR_MAIN_REPO:-$HOME/nrdr/openpilot}"  # supplies the larch64 sysroot (.comma_sysroot)
+M="${PORT_MAIN_REPO:-$HOME/nrdr/openpilot}"  # supplies the larch64 sysroot (.comma_sysroot)
 docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -v "$W:/work" \
   -v "$M/.comma_sysroot:/opt/tici-sysroot:ro" -v "$M/.comma_sysroot/system/vendor/lib64:/system/vendor/lib64:ro" \
   -w /work "${COMMA_BUILD_IMAGE:-starpilot-larch64-builder:latest}" bash -c '

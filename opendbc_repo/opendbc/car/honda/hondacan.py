@@ -65,7 +65,7 @@ def create_brake_command(packer, CAN, apply_brake, pump_on, pcm_override, pcm_ca
     "AEB_STATUS": 0,
   }
   if hybrid:
-    # NRDR: Nidec hybrids (Clarity) brake on COMPUTER_BRAKE_HYBRID and ignore COMPUTER_BRAKE (nrdr 5f5e384660)
+    # Nidec hybrids (Clarity) brake on COMPUTER_BRAKE_HYBRID and ignore COMPUTER_BRAKE (vfn 5f5e384660)
     values["COMPUTER_BRAKE_HYBRID"] = apply_brake
     values["BRAKE_PUMP_REQUEST_HYBRID"] = brake_rq
   else:

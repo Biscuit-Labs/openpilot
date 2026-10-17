@@ -260,7 +260,7 @@ CIVIC_TBA_C120_P_KEYS = (3, 173, 441, 665, 887, 1104, 1317, 1610, 1774)
 # C020 within 0.4% at centre but 5-10% high past 60 deg (R6 per 0x18F count falls ~7% there on that car), so the C020
 # and the TGG-A120, which shares its A table, take the C020's measured curve. The single constants used before
 # (-172 C020, -161 TEG, -138.4 CR-V) were angle averages fitted against 0x14A: ~12% too strong at centre, 8-18% too
-# weak in big turns. The slopes are +/-10 deg chords of each image's A table (honda_vgr in nrdr-development).
+# weak in big turns. The slopes are +/-10 deg chords of each image's A table (honda_vgr on the development branch).
 R6_GAIN_BP = (0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 180, 210, 240, 270, 300, 360, 420, 480)  # |angle|, deg
 # C020 measured (routes 64/154/287/289/294, hands on or off: R6 is kinematic), per published deg/s
 CIVIC_TBA_C020_R6_CENTRE = -153.2
@@ -364,7 +364,7 @@ CIVIC_TEG_A010 = EpsFirmwareCalibration(**{**{k: getattr(CIVIC_TBA_A030, k) for 
                                        "kp_key_bp": CLARITY_TRW_A020.kp_key_bp,
                                        "r6_per_deg_s": CIVIC_TEG_A010_R6_CENTRE, "r6_angle_bp": CIVIC_TEG_A010_R6_BP,
                                        "r6_angle_gain": CIVIC_TEG_A010_R6_GAIN,
-                                       # plan_timing on routes 12e/134/137/139 with nrdr's fixed Civic delay applied
+                                       # plan_timing on routes 12e/134/137/139 with upstream's fixed Civic delay applied
                                        # (0.175 s = 0.15 + its 0.025 model-action compensation, which this branch does
                                        # not need): -0.05 s weighted (+0.02/-0.06/-0.06/-0.08), so ~0.20 s in this
                                        # branch's terms; 0.15 stays below it (the C020 family's value). Mostly highway.
@@ -419,7 +419,7 @@ INSIGHT_TXM_A040 = EpsFirmwareCalibration(
   # with plan_timing.py after a drive on this controller.
   cmd_delay_s=0.15,
   rack=INSIGHT_TXM_A040_RACK,
-  default_on=True,  # NRDR 7.0 port: on by default for the modified TXM,A040 image, like the Clarity
+  default_on=True,  # Night Star port: on by default for the modified TXM,A040 image, like the Clarity
 )
 # CR-V 5G 39990-TLA-A040, the owner's 08-24 Clarity_FF_tune_telemety_8cf8e537 (decoded full image sha256 d5dc04a8):
 # TargetMap-D, P117..265, D737, KFF45, Norm1650, Trk3200, clamps 7373/1774/9000 on the CR-V's stock axes. Key clamp

@@ -1,4 +1,4 @@
-"""Modified-EPS Honda steering in the car controller (from nrdr vfn), for every Honda on a recognized modified EPS.
+"""Modified-EPS Honda steering in the car controller (from vfn), for every Honda on a recognized modified EPS.
 
 Kept free of openpilot settings: openpilot attaches a source of ModifiedEpsSettings (starpilot/car/honda/modified_eps.py)
 to the car controller and car state; without one the defaults below apply.

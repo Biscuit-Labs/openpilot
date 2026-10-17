@@ -82,8 +82,8 @@ KNOWN_CASES = (
   (CAR.HONDA_CRV_5G, b'39990-TLA,A040\x00\x00'),
 )
 
-# NRDR: modified-EPS images beyond 7.0's list, each with its own calibration in honda_eps_firmware_ff
-NRDR_CASES = (
+# modified-EPS images beyond 7.0's list, each with its own calibration in honda_eps_firmware_ff
+FLEET_CASES = (
   (CAR.HONDA_CIVIC, b'39990-TEG,A010\x00\x00'),
   (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'),
   (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C120\x00\x00'),
@@ -92,19 +92,19 @@ NRDR_CASES = (
   (CAR.ACURA_RDX_3G, b'39990-TJB,A220\x00\x00'),
   (CAR.ACURA_RDX_3G_MMR, b'39990-TJB,A220\x00\x00'),
 )
-NRDR_KP, NRDR_KI = [0.018, 0.024, 0.048, 0.060], [0.006, 0.008, 0.016, 0.020]
-NRDR_TUNE_CARS = {CAR.HONDA_CLARITY, CAR.HONDA_CIVIC, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT,
+MODIFIED_EPS_KP, MODIFIED_EPS_KI = [0.018, 0.024, 0.048, 0.060], [0.006, 0.008, 0.016, 0.020]
+MODIFIED_EPS_TUNE_CARS = {CAR.HONDA_CLARITY, CAR.HONDA_CIVIC, CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT,
                   CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR}
-NRDR_LINEAR_CAP = {CAR.HONDA_CLARITY: 3840, CAR.HONDA_CIVIC: 3840, CAR.HONDA_INSIGHT: 3840, CAR.HONDA_CRV_5G: 4096,
+MODIFIED_EPS_CAP = {CAR.HONDA_CLARITY: 3840, CAR.HONDA_CIVIC: 3840, CAR.HONDA_INSIGHT: 3840, CAR.HONDA_CRV_5G: 4096,
                    CAR.ACURA_RDX_3G: 4096, CAR.ACURA_RDX_3G_MMR: 4096}
 
 
-def assert_nrdr_modified_eps(candidate, version, cp):
-  # NRDR: the shared four-point modified-EPS tune and the modified-EPS command maps
-  assert list(cp.lateralTuning.pid.kpV) == pytest.approx(NRDR_KP)
-  assert list(cp.lateralTuning.pid.kiV) == pytest.approx(NRDR_KI)
+def assert_modified_eps_tune(candidate, version, cp):
+  # the shared four-point modified-EPS tune and the modified-EPS command maps
+  assert list(cp.lateralTuning.pid.kpV) == pytest.approx(MODIFIED_EPS_KP)
+  assert list(cp.lateralTuning.pid.kiV) == pytest.approx(MODIFIED_EPS_KI)
   lookup = CarControllerParams(cp)
-  cap = NRDR_LINEAR_CAP.get(candidate)
+  cap = MODIFIED_EPS_CAP.get(candidate)
   if candidate == CAR.HONDA_CIVIC_BOSCH:
     cap = 3840 if version == b'39990-TBA,C120\x00\x00' else 4096  # C020/TGG keep the native 4096 range
   assert lookup.STEER_LOOKUP == [-cap, 0, cap] == lookup.STEER_LOOKUP_V
@@ -140,24 +140,24 @@ def test_exact_modified_eps_full_cohort_joint_matcher_and_final_cp(candidate, ve
   ]
   assert cp.openpilotLongitudinalControl == stock.openpilotLongitudinalControl
   assert cp.pcmCruise == stock.pcmCruise
-  if candidate in NRDR_TUNE_CARS:
-    assert_nrdr_modified_eps(candidate, version, cp)
+  if candidate in MODIFIED_EPS_TUNE_CARS:
+    assert_modified_eps_tune(candidate, version, cp)
   else:
-    assert list(cp.lateralTuning.pid.kpV) == pytest.approx([0.3])  # Accord: 7.0's tune, not part of the NRDR fleet
+    assert list(cp.lateralTuning.pid.kpV) == pytest.approx([0.3])  # Accord: 7.0's tune, not part of our modified-EPS fleet
     assert list(cp.lateralTuning.pid.kiV) == pytest.approx([0.09])
     lookup = CarControllerParams(cp)
     assert lookup.STEER_LOOKUP_V == lookup.STEER_LOOKUP
 
 
-@pytest.mark.parametrize("candidate,version", NRDR_CASES)
-def test_nrdr_modified_eps_images_are_recognized_with_the_nrdr_tune(candidate, version):
+@pytest.mark.parametrize("candidate,version", FLEET_CASES)
+def test_fleet_modified_eps_images_are_recognized_with_the_modified_eps_tune(candidate, version):
   cp = params(candidate, [eps(version)])
   assert cp.flags & HondaFlags.EPS_MODIFIED
   assert not cp.dashcamOnly
-  assert_nrdr_modified_eps(candidate, version, cp)
+  assert_modified_eps_tune(candidate, version, cp)
 
 
-@pytest.mark.parametrize("candidate,version", KNOWN_CASES + NRDR_CASES)
+@pytest.mark.parametrize("candidate,version", KNOWN_CASES + FLEET_CASES)
 @pytest.mark.parametrize("case", ("unknown", "wrong-identity", "wrong-address", "wrong-subaddress", "mixed", "mixed-stock"))
 def test_unrecognized_or_inconsistent_modified_eps_remains_dashcam(candidate, version, case):
   actual_candidate = CAR.HONDA_CRV_HYBRID if case == "wrong-identity" else candidate
@@ -181,4 +181,4 @@ def test_stock_lookup_and_tunes_do_not_acquire_modified_marker(candidate):
 
 
 def test_recognized_modified_eps_inventory_is_exact_original_subset():
-  assert set(KNOWN_CASES + NRDR_CASES) == {(car, version) for car, versions in MODIFIED_EPS_FW.items() for version in versions}
+  assert set(KNOWN_CASES + FLEET_CASES) == {(car, version) for car, versions in MODIFIED_EPS_FW.items() for version in versions}

@@ -83,7 +83,7 @@ IGNORED_SAFETY_MODES = (SafetyModel.silent, SafetyModel.noOutput)
 
 
 def suppress_steer_saturated_alert(CP) -> bool:
-  # NRDR: a modified-EPS Honda reaches full authority routinely, so "steer saturated" is noise there. A future clean
+  # a modified-EPS Honda reaches full authority routinely, so "steer saturated" is noise there. A future clean
   # branch may restore openpilot's alert behavior.
   return CP.brand == "honda" and bool(CP.flags & HondaFlags.EPS_MODIFIED)
 

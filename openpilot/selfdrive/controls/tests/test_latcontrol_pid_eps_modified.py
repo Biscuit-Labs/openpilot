@@ -1,7 +1,7 @@
 """Honda modified-EPS tuning, controller selection and exact-firmware VGR profile selection.
 
-Ported from nrdr vfn (selfdrive/controls/lib/tests/). On StarPilot 7.0 a modified EPS is an exact image on
-MODIFIED_EPS_FW rather than any comma-marked one, the NRDR PID path lives in LatControlHondaModifiedPID, and
+Ported from vfn (selfdrive/controls/lib/tests/). On StarPilot 7.0 a modified EPS is an exact image on
+MODIFIED_EPS_FW rather than any comma-marked one, the modified-EPS PID path lives in LatControlHondaModifiedPID, and
 stock-EPS cars keep 7.0's own LatControlPID.
 """
 from types import SimpleNamespace
@@ -16,11 +16,11 @@ from openpilot.common.pid import PIDController
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from openpilot.selfdrive.controls.lib.latcontrol_honda_modified_pid import (
-  NRDR_MODIFIED_EPS_KF_SPEED_BP,
-  NRDR_MODIFIED_EPS_KF_V,
+  MODIFIED_EPS_KF_SPEED_BP,
+  MODIFIED_EPS_KF_V,
   LatControlHondaModifiedPID,
   _clarity_eps_pid_output_scale,
-  get_nrdr_modified_eps_kf,
+  get_modified_eps_kf,
   use_honda_modified_pid,
 )
 
@@ -54,7 +54,7 @@ def _controller(candidate, fw_version=None):
 
 
 @pytest.mark.parametrize("candidate", MODIFIED_EPS_CARS)
-def test_modified_eps_hondas_select_the_nrdr_pid_path(candidate):
+def test_modified_eps_hondas_select_the_modified_eps_pid_path(candidate):
   cp = _params(candidate, MODIFIED_FW[candidate])
   assert cp.flags & HondaFlags.EPS_MODIFIED and not cp.dashcamOnly
   assert cp.lateralTuning.which() == "pid"
@@ -62,21 +62,21 @@ def test_modified_eps_hondas_select_the_nrdr_pid_path(candidate):
 
 
 @pytest.mark.parametrize("candidate", [CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR])
-def test_factory_gives_an_uncalibrated_modified_eps_honda_the_nrdr_pid(candidate):
-  # No EPS firmware calibration exists for the TJB rack, so the factory falls through to the NRDR PID
+def test_factory_gives_an_uncalibrated_modified_eps_honda_the_modified_eps_pid(candidate):
+  # No EPS firmware calibration exists for the TJB rack, so the factory falls through to the modified-EPS PID
   lac = create_lateral_controller(_params(candidate, MODIFIED_FW[candidate]), STUB_CI, 0.01, mode=None)
   assert type(lac) is LatControlHondaModifiedPID
 
 
 @pytest.mark.parametrize("candidate", MODIFIED_EPS_CARS)
-def test_modified_eps_hondas_get_the_nrdr_live_tune(candidate):
+def test_modified_eps_hondas_get_the_live_tune(candidate):
   assert _controller(candidate).is_eps_modified
 
 
 @pytest.mark.parametrize("candidate", [CAR.HONDA_CLARITY, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC,
                                        CAR.HONDA_CIVIC_BOSCH])
 def test_stock_eps_hondas_keep_7_0s_stock_pid(candidate):
-  # NRDR decision for the 7.0 port: a stock-EPS car runs 7.0's own LatControlPID, so it no longer picks up the
+  # Night Star port decision: a stock-EPS car runs 7.0's own LatControlPID, so it no longer picks up the
   # road-measured steer-ratio curve it got on vfn.
   cp = _params(candidate, STOCK_FW)
   assert not cp.flags & HondaFlags.EPS_MODIFIED
@@ -90,8 +90,8 @@ def test_stock_eps_hondas_keep_7_0s_stock_pid(candidate):
   (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00', "insight_txm_a040"),
   (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00', "crv_tla_a040"),   # the A220 carries the A040's table
 ])
-def test_the_nrdr_pid_steers_on_the_exact_firmware_vgr_table(candidate, fw_version, profile):
-  # NRDR 7.0 port: the firmware VGR table is this controller's geometry; the road-fit curves are not ported
+def test_the_modified_eps_pid_steers_on_the_exact_firmware_vgr_table(candidate, fw_version, profile):
+  # Night Star port: the firmware VGR table is this controller's geometry; the road-fit curves are not ported
   lat = _controller(candidate, fw_version)
   assert lat.vgr_inverse is HONDA_VGR_INVERSE_BY_PROFILE[profile]
   assert not hasattr(lat, "sr_curve")
@@ -122,12 +122,12 @@ def test_non_honda_never_takes_the_eps_modified_path():
 
 def test_clarity_and_c020_share_the_current_feedforward_curve():
   low_max = 25.0 * 0.44704
-  assert NRDR_MODIFIED_EPS_KF_SPEED_BP == pytest.approx([0.0, low_max - 1e-3, low_max, 50.0 * 0.44704])
-  assert NRDR_MODIFIED_EPS_KF_V == pytest.approx([2.4e-6, 1.8e-6, 3.6e-6, 6.0e-6])
-  assert get_nrdr_modified_eps_kf(0.0) == pytest.approx(2.4e-6)
-  assert get_nrdr_modified_eps_kf(low_max - 1e-3) == pytest.approx(1.8e-6)
-  assert get_nrdr_modified_eps_kf(low_max) == pytest.approx(3.6e-6)
-  assert get_nrdr_modified_eps_kf(50.0 * 0.44704) == pytest.approx(6.0e-6)
+  assert MODIFIED_EPS_KF_SPEED_BP == pytest.approx([0.0, low_max - 1e-3, low_max, 50.0 * 0.44704])
+  assert MODIFIED_EPS_KF_V == pytest.approx([2.4e-6, 1.8e-6, 3.6e-6, 6.0e-6])
+  assert get_modified_eps_kf(0.0) == pytest.approx(2.4e-6)
+  assert get_modified_eps_kf(low_max - 1e-3) == pytest.approx(1.8e-6)
+  assert get_modified_eps_kf(low_max) == pytest.approx(3.6e-6)
+  assert get_modified_eps_kf(50.0 * 0.44704) == pytest.approx(6.0e-6)
 
   clarity = _controller(CAR.HONDA_CLARITY)
   c020 = _controller(CAR.HONDA_CIVIC_BOSCH)
@@ -205,7 +205,7 @@ def test_rdx_3g_ptm_shares_the_clarity_modified_eps_tune_on_pid(candidate):
 
 
 def test_stock_rdx_3g_keeps_7_0s_tune():
-  # NRDR decision for the 7.0 port: vfn moved the stock RDX 3G to the torque controller; 7.0's PID tune is kept
+  # Night Star port decision: vfn moved the stock RDX 3G to the torque controller; 7.0's PID tune is kept
   cp = _params(CAR.ACURA_RDX_3G, b'39990-TJB-A030\x00\x00')
   assert not cp.flags & HondaFlags.EPS_MODIFIED
   assert cp.lateralTuning.which() == "pid"

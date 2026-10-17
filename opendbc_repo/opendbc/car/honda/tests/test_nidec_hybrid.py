@@ -1,4 +1,4 @@
-"""NRDR: Nidec hybrids (Clarity) brake on COMPUTER_BRAKE_HYBRID and may report brake hold on BRAKE_HOLD_HYBRID_ALT."""
+"""Nidec hybrids (Clarity) brake on COMPUTER_BRAKE_HYBRID and may report brake hold on BRAKE_HOLD_HYBRID_ALT."""
 import pytest
 
 from opendbc.can import CANPacker

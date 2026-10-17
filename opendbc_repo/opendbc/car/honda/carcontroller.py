@@ -103,7 +103,7 @@ class CarController(CarControllerBase):
     self.interceptor_learning_params = None
     self.accord_mvl_stock = AccordMvlStock() if mvl_stock_qualified(CP) else None
     self.tja_control = bool(CP.flags & HondaFlags.BOSCH_TJA_CONTROL)
-    # NRDR: every modified-EPS Honda steers through ModifiedEpsSteering (override detector and fade, minimum steer
+    # every modified-EPS Honda steers through ModifiedEpsSteering (override detector and fade, minimum steer
     # speed, opt-in rate limit). It replaces 7.0's Civic Bosch-only ModifiedCivicSteering, whose torque low-pass here
     # read as safety limiting in controlsd and froze the lateral integrator. openpilot attaches modified_eps_settings.
     self.modified_eps_steering = ModifiedEpsSteering() if modified_eps(CP) else None

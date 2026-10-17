@@ -173,7 +173,7 @@ class LatControlHondaEps(LatControl):
     self.steering_pressed_prev = False
 
   def _desired_angle_no_offset(self, VM, v_ego, roll, desired_curvature):
-    # NRDR 7.0 geometry: the yaw-identified rack map where the car has one (road-measured against the car's own yaw
+    # Geometry: the yaw-identified rack map where the car has one (road-measured against the car's own yaw
     # sensor on the exact firmware table), else the exact image's firmware VGR table, else paramsd's fixed ratio. The
     # road-fit steer-ratio curves are no longer used (they read ~12% high at centre against yaw), so
     # HondaEpsFirmwareVgr is inert.

@@ -217,7 +217,7 @@ def configure_controller(CI, params):
     controller.manual_turn_inputs.apply_blend_settings(controller)
 
   if controller is not None and cp.brand == "honda" and getattr(controller, "modified_eps_steering", None) is not None:
-    # NRDR: one settings source for the modified-EPS steering stage and the car state's steering-pressed threshold
+    # one settings source for the modified-EPS steering stage and the car state's steering-pressed threshold
     from openpilot.starpilot.car.honda.modified_eps import ModifiedEpsPreferences
     preferences = ModifiedEpsPreferences(params)
     controller.modified_eps_settings = preferences

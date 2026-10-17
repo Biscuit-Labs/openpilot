@@ -41,7 +41,7 @@ def qualified(cp, *, marked_only=False):
   if identity is None:
     return False
   detected = int(HondaFlags.BOSCH_EXT_HUD | HondaFlags.BOSCH_ALT_BRAKE | HondaFlags.HAS_BSM | HondaFlags.EPS_MODIFIED | HondaFlags.HYBRID)
-  # NRDR: the VGR bits name the exact EPS image's steering-ratio table; they are geometry only, never safety
+  # the VGR bits name the exact EPS image's steering-ratio table; they are geometry only, never safety
   detected |= int(HondaFlags.VGR_CLARITY_TRW_A020 | HondaFlags.VGR_CIVIC_TBA_C020 | HondaFlags.VGR_INSIGHT_TXM_A040 |
                   HondaFlags.VGR_CRV_TLA_A040 | HondaFlags.VGR_CIVIC_TBA_C120 | HondaFlags.HYBRID_ALT_BRAKEHOLD)
   if int(cp.flags) & ~(int(identity.config.flags) | detected):

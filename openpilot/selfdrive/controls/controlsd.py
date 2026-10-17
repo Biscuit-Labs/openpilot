@@ -20,7 +20,8 @@ from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_angle import STEER_ANGLE_SATURATION_THRESHOLD
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
-from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, write_eps_state
+from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, get_rack_map, lateral_delay_schedule, \
+  scheduled_lateral_delay, write_eps_state
 from openpilot.selfdrive.controls.lib.longcontrol import LongControl
 from openpilot.selfdrive.modeld.modeld import LAT_SMOOTH_SECONDS
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
@@ -124,6 +125,12 @@ class Controls:
 
     self.global_learning = GlobalRuntime(self.CP, self.CI, self.LaC)
 
+    # NRDR: a car on LatControlHondaEps measures curvature through the rack map it steers through, and tells the model
+    # its calibration's measured delay schedule instead of lagd's learned delay
+    honda_eps = isinstance(self.LaC, LatControlHondaEps)
+    self.rack_map = get_rack_map(self.CP, self.LaC.calibration) if honda_eps else None
+    self.lat_delay_schedule = lateral_delay_schedule(self.CP) if honda_eps else None
+
     from openpilot.starpilot.lateral.controller_selection import model_turn_assist_supported
     assist_enabled = self.vehicle_startup_preferences.turn_assist and model_turn_assist_supported(self.CP)
     self.turn_assist_enabled = lambda: assist_enabled
@@ -174,7 +181,11 @@ class Controls:
     self.VM.update_params(x, sr)
 
     steer_angle_without_offset = math.radians(CS.steeringAngleDeg - lp.angleOffsetDeg)
-    self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
+    if self.rack_map is not None:
+      # NRDR: the same map the controller steers through, so a held or seeded curvature comes back as the same angle
+      self.curvature = self.rack_map.curvature_from_angle(CS.steeringAngleDeg - lp.angleOffsetDeg, CS.vEgo, lp.roll)
+    else:
+      self.curvature = -self.VM.calc_curvature(steer_angle_without_offset, CS.vEgo, lp.roll)
 
     # Update Torque Params
     if isinstance(self.LaC, LatControlTorque) and self.torque_host is None and self.torque_learning_allowed:
@@ -243,6 +254,12 @@ class Controls:
       pause_allowed = self.lateral_pause.allowed(CS, now_ns=pause_now_ns, source_ns=pause_source, drive_id=pause_drive)
 
     CC.latActive = bool(CC.latActive and pause_allowed)
+    # NRDR: never steer from a model that stopped publishing. Engaged driving disengages on the resulting events, but
+    # always-on lateral keeps latActive with selfdrive disabled, and it once tracked the last curvature and wound the
+    # controller to full torque for 20 s after the big model failed and the fallback published nothing (route
+    # 000003bb). alive = a modelV2 within 10 periods (0.5 s); valid is not used so dropped frames do not toggle it.
+    if not self.sm.alive['modelV2']:
+      CC.latActive = False
 
     if self.torque_host is not None:
       # The optional source must not keep an active torque request through lost car state.
@@ -330,7 +347,9 @@ class Controls:
     if self.last_lane_centering_result is not None and self.last_lane_centering_result.correction != 0.0:
       baseline_curvature, _ = clip_curvature(CS.vEgo, previous_curvature, limit_rate(CS.vEgo, previous_curvature, lane_base_curvature, factor), lp.roll)
       self.lane_centering_applied = self.desired_curvature - baseline_curvature
-    lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
+    lateral_delay = scheduled_lateral_delay(self.lat_delay_schedule, CS.vEgo) if self.lat_delay_schedule else \
+      self.sm["lateralDelay"].lateralDelay
+    lat_delay = lateral_delay + LAT_SMOOTH_SECONDS
 
     actuators.curvature = self.desired_curvature
     automatic = getattr(self, 'global_learning', None)

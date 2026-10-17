@@ -288,11 +288,11 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/controls/controlsd.py` | bosch+vfn | 294 | mod | `openpilot/selfdrive/controls/controlsd.py` | PORT hooks into rewritten controlsd | wip (factory hook + eps telemetry done in slice 2; hooks are slice 5) |
-| `selfdrive/controls/tests/test_controlsd.py` | bosch+vfn | 120 | new | **gone** | PORT hooks into rewritten controlsd | todo |
-| `selfdrive/selfdrived/selfdrived.py` | bosch+vfn | 37 | mod | `openpilot/selfdrive/selfdrived/selfdrived.py` | PORT hooks into rewritten controlsd | todo |
+| `selfdrive/controls/controlsd.py` | bosch+vfn | 294 | mod | `openpilot/selfdrive/controls/controlsd.py` | PORT hooks into rewritten controlsd | done (slices 2+5; interpolation, turn hold/shaping, NrdrLearn*, NNFF path not ported by decision) |
+| `selfdrive/controls/tests/test_controlsd.py` | bosch+vfn | 120 | new | **gone** | PORT hooks into rewritten controlsd | dropped: steer_limited_by_safety fix is native in 7.0 |
+| `selfdrive/selfdrived/selfdrived.py` | bosch+vfn | 37 | mod | `openpilot/selfdrive/selfdrived/selfdrived.py` | PORT hooks into rewritten controlsd | wip (steerSaturated suppression done; reproject ignores are slice 9) |
 | `selfdrive/selfdrived/events.py` | bosch+vfn | 27 | mod | `openpilot/selfdrive/selfdrived/events.py` | PORT hooks into rewritten controlsd | todo |
-| `selfdrive/controls/lib/desire_helper.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/controls/lib/desire_helper.py` | PORT hooks into rewritten controlsd | todo |
+| `selfdrive/controls/lib/desire_helper.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/controls/lib/desire_helper.py` | PORT hooks into rewritten controlsd | wip (turn_stop_hold moot in 7.0; nudge threshold waits on slice 6) |
 | `selfdrive/selfdrived/alerts_offroad.json` | bosch | 4 | mod | `openpilot/selfdrive/selfdrived/alerts_offroad.json` | PORT hooks into rewritten controlsd | todo |
 
 ### docs
@@ -308,7 +308,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `system/manager/manager.py` | bosch+vfn | 237 | mod | `openpilot/system/manager/manager.py` | PORT selectively | todo |
+| `system/manager/manager.py` | bosch+vfn | 237 | mod | `openpilot/system/manager/manager.py` | PORT selectively | wip (NRDR settings rename/carry-over done; rest todo) |
 | `system/manager/accelerator_shutdown.py` | bosch | 72 | new | **gone** | PORT selectively | todo |
 | `system/manager/process.py` | bosch | 46 | mod | `openpilot/system/manager/process.py` | PORT selectively | todo |
 | `system/hardware/hardwared.py` | bosch+vfn | 25 | mod | `openpilot/system/hardware/hardwared.py` | PORT selectively | todo |

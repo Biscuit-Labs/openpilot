@@ -27,6 +27,14 @@ from openpilot.starpilot.storage import starpilot_storage_root
 
 def manager_init() -> None:
   params = Params()
+  # NRDR: rename vfn's older setting names before 7.0's first-start migration would archive them as unknown keys
+  from openpilot.starpilot.nrdr_settings import migrate_nrdr_param_names
+  try:
+    renamed = migrate_nrdr_param_names(params)
+    if renamed:
+      cloudlog.warning(f"Renamed NRDR settings: {renamed}")
+  except OSError:
+    cloudlog.exception("NRDR settings rename interrupted; retrying at next startup")
   prepare_manager_start(params, starpilot_storage_root(), auto_migrate=True)
   if not PC:
     from openpilot.starpilot.external_preferences_reset import reset_external_preferences

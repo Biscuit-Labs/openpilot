@@ -18,6 +18,8 @@ PREFERENCES = frozenset({
   "ShowDebugInfo", "GsmMetered", "OpenpilotEnabledToggle",
 })
 # Keys removed from the registry. Saved copies are archived at startup instead of blocking it.
+from openpilot.starpilot.nrdr_settings import NRDR_PRESERVED_KEYS
+
 RETIRED_KEYS = frozenset({'ShareUsageStats'})
 MAX_VALUE_BYTES = 32 * 1024 * 1024
 MAX_SNAPSHOT_BYTES = 256 * 1024 * 1024
@@ -26,7 +28,7 @@ OPERATIONAL_KEYS = frozenset({
   'DongleId', 'HardwareSerial', 'GithubSshKeys', 'GithubUsername', 'SshEnabled',
   'GsmApn', 'GsmMetered', 'GsmRoaming', 'NetworkMetered', 'BluetoothEnabled',
   'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey',
-})
+}) | NRDR_PRESERVED_KEYS  # NRDR: per-car Honda EPS calibration survives 7.0's first start
 
 
 class MigrationRequired(RuntimeError):

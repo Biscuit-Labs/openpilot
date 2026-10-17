@@ -37,6 +37,10 @@ before any native build.
 Known environment failure, not ours: `openpilot/common/tests/test_params_fork_lock.py` (6 tests) needs 7.0's native
 regression target built.
 
+Baseline as of slice 3 (honda car tests + controls tests + car interfaces + params): 2204 pass, **30 fail, and all 30 also
+fail on pristine 7.0** (27 `stock_intent` `standard_active`, `test_stock_aol`, `test_adjacent_radar_schema` schema-policy
+drift, `test_leads::test_radar_fault` params path). Anything beyond those 30 is ours.
+
 ## Decisions log
 
 | Date | Decision | Why |
@@ -54,15 +58,20 @@ regression target built.
 | 10-16 | Every NRDR `HondaFlags` bit must be added to `stock_aol.qualified()`'s detected set | It rejects any flag it does not know; the VGR bits silently disabled AOL on the modified Clarity until added |
 | 10-16 | Fixed a 7.0 bug: `ACURA_RDX_3G_MMR` assigned `dashcamOnly = is_release`, clearing the unrecognized-modified-EPS dashcam | Worth reporting upstream |
 | 10-16 | `liveParameters` is `vehicleParameters` (`log.VehicleParameters`) in 7.0 | Same fields our controller reads |
+| 10-17 | **NNFF is dropped** (7.0 removed it; user call). The Clarity NNFF hybrid (`NrdrClarityHybrid`) goes with it | Modified-EPS Hondas steer through LatControlHondaEps or LatControlHondaModifiedPID |
+| 10-17 | Our modified-EPS PID path lives in `latcontrol_honda_modified_pid.py` (`LatControlHondaModifiedPID`, subclass of 7.0's `LatControlPID`), picked by the factory for a modified-EPS Honda without an EPS firmware calibration. 7.0's `latcontrol_pid.py` is untouched | Keeps 7.0 syncs clean and every non-fleet car on 7.0's stock PID |
+| 10-17 | Stock-EPS Clarity / Civic Bosch / CR-V 5G / Insight no longer get the road-measured steer-ratio curve | On vfn LatControlPID applied it to them too; non-fleet cars keep 7.0's behavior (same principle as the stock RDX) |
+| 10-17 | Not carried from vfn's LatControlPID: StarPilot 6.x `latcontrol_vehicle_tunes` (Subaru Impreza, RAV4 TSS2, **CR-V 5G output shaping**), the Civic Bosch testing ground, `starpilot_toggles` kp/ki scales | firestar's 6.x code that 7.0 removed. **Open for the CR-V owner:** on vfn the 6.x CR-V 5G low-speed centre-reversal damping also shaped the *modified* CR-V's output |
+| 10-17 | `Lat{P,I,F}Scale{LowSpeed,Standard,Highway}` params added (percent; I defaults 20/100/0) | Same keys, defaults and scaling as vfn |
 | 10-16 | **Open, safety:** `HondaSafetyFlags` allocation | Our `NIDEC_HYBRID=64` collides with 7.0's `BOSCH_CANFD_MVL=64`. 7.0 also has `AOL_BOSCH_LONG` and `GAS_INTERCEPTOR` both at 32. Resolve with the panda safety port, against panda's own flag table |
 
 ## Slices
 
 | # | Slice | State |
 |---|---|---|
-| 1 | Honda EPS lateral modules land and their pure tests pass (`honda_eps_firmware_ff`, `honda_eps_rack_map`, `honda_lateral_common`, `latcontrol_honda_eps`, `steer_ratio`, VGR flags, `get_eps_modified_steering_pressed`, `PIDController` integrator scale/reset) | **done**; 309 pass, 66 wait on 2–3 |
+| 1 | Honda EPS lateral modules land and their pure tests pass (`honda_eps_firmware_ff`, `honda_eps_rack_map`, `honda_lateral_common`, `latcontrol_honda_eps`, `steer_ratio`, VGR flags, `get_eps_modified_steering_pressed`, `PIDController` integrator scale/reset) | **done** |
 | 2 | Honda interface: EPS image allow-list + VGR flags, per-car PID tune, command maps; params keys; capnp `eps*`; `create_lateral_controller` hook; controlsd telemetry copy | **done** (params lib rebuild pending) |
-| 3 | `latcontrol_pid` modified-EPS path (banded scales, override fade, PTM RDX) on 7.0's stock PID; NNFF (7.0 removed it) | todo |
+| 3 | Modified-EPS PID path (banded kf/scales, VGR/road-curve target, rate limit, press detector, override fade, output LPF) as `LatControlHondaModifiedPID`; NNFF dropped | **done** |
 | 4 | Panda safety: Clarity Nidec-hybrid brake + safety flag allocation; panda rebuild | todo |
 | 5 | controlsd hooks: rack-map curvature, turn-hold shaping, delay schedule, stopped-model guard | todo |
 | 6 | Rest of the Honda car layer (learners, 0x94 yaw, carstate), rebased on 7.0's split Honda modules | todo |

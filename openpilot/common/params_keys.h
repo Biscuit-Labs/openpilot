@@ -364,4 +364,16 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.1"}},
     {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.1"}},
     {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.1"}},
+
+    // NRDR modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
+    // The base banding is in interface.py; these stay 100 (I: 20 low / 0 highway) unless trimming.
+    {"LatPScaleLowSpeed", {PERSISTENT, INT, "100"}},
+    {"LatPScaleStandard", {PERSISTENT, INT, "100"}},
+    {"LatPScaleHighway", {PERSISTENT, INT, "100"}},
+    {"LatIScaleLowSpeed", {PERSISTENT, INT, "20"}},
+    {"LatIScaleStandard", {PERSISTENT, INT, "100"}},
+    {"LatIScaleHighway", {PERSISTENT, INT, "0"}},
+    {"LatFScaleLowSpeed", {PERSISTENT, INT, "100"}},
+    {"LatFScaleStandard", {PERSISTENT, INT, "100"}},
+    {"LatFScaleHighway", {PERSISTENT, INT, "100"}},
 };

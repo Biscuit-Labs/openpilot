@@ -235,13 +235,13 @@ SPEEDS = [0.0, 3.0, 25 * MPH - 1e-6, 25 * MPH, 25 * MPH + 1e-6, 15.0, 50 * MPH -
 
 @pytest.mark.parametrize("v", SPEEDS)
 def test_output_lpf_bands_switch_exactly_where_latcontrol_pids_do(v):
-  from openpilot.selfdrive.controls.lib.latcontrol_pid import _lat_pid_scale_banded  # NRDR latcontrol_pid (ported separately)
+  from openpilot.selfdrive.controls.lib.latcontrol_honda_modified_pid import _lat_pid_scale_banded
   taus = (0.07, 0.05, 0.01)
   assert eps_ff.speed_band(v, taus) == _lat_pid_scale_banded(v, *taus)
 
 
 def test_output_lpf_is_latcontrol_pids_filter():
-  from openpilot.selfdrive.controls.lib.latcontrol_pid import _lat_pid_scale_banded  # NRDR latcontrol_pid (ported separately)
+  from openpilot.selfdrive.controls.lib.latcontrol_honda_modified_pid import _lat_pid_scale_banded
   # The car controller does not filter (see carcontroller.py), so this LPF must be exactly the one
   # LatControlPID runs: FirstOrderFilter from 0, update_alpha with the banded tau every frame, then clip.
   taus = (0.07, 0.05, 0.01)

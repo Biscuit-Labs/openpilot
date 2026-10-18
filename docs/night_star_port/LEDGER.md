@@ -62,33 +62,33 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/modeld/modeld.py` | bosch+vfn | 825 | mod | `openpilot/selfdrive/modeld/modeld.py` | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/tests/test_usbgpu_helpers.py` | bosch+vfn | 401 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/compile_modeld.py` | bosch+vfn | 344 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/tests/test_reproject_daemons.py` | vfn | 314 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reprojectcalibd.py` | vfn | 215 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/tests/test_stateful_model_artifacts.py` | bosch | 203 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reprojectd.py` | vfn | 181 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/geometry.py` | vfn | 148 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/fit.py` | vfn | 112 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/meter.py` | vfn | 111 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/tables.py` | vfn | 99 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `scripts/model_compiler.py` | bosch+vfn | 86 | mod | `scripts/model_compiler.py` | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/kernel.py` | vfn | 86 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/SConscript` | vfn | 80 | mod | `openpilot/selfdrive/modeld/SConscript` | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/tests/test_model_fallback.py` | vfn | 68 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/helpers.py` | vfn | 59 | mod | `openpilot/selfdrive/modeld/helpers.py` | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/rotation.py` | vfn | 52 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_config.py` | vfn | 51 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `starpilot/assets/model_manager.py` | bosch+vfn | 41 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `scripts/validate_model_artifact.py` | bosch+vfn | 39 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/cameras.py` | vfn | 28 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/dmonitoringmodeld.py` | vfn | 21 | mod | `openpilot/selfdrive/modeld/dmonitoringmodeld.py` | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/reproject_c4/__init__.py` | vfn | 12 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/tests/test_model_laboratory.py` | bosch+vfn | 8 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `scripts/model_rebuild_pipeline.py` | vfn | 5 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/get_model_metadata.py` | vfn | 4 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `starpilot/system/the_galaxy/assets/components/tools/model_manager.js` | bosch | 3 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
+| `selfdrive/modeld/modeld.py` | bosch+vfn | 825 | mod | `openpilot/selfdrive/modeld/modeld.py` | REVIEW each vs 7.0 comma-master modeld | done: #39091 seed + reprojection source; rest left to 7.0/comma |
+| `selfdrive/modeld/tests/test_usbgpu_helpers.py` | bosch+vfn | 401 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | held: Chestnut extras after a 7.0 eGPU drive |
+| `selfdrive/modeld/compile_modeld.py` | bosch+vfn | 344 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/tests/test_reproject_daemons.py` | vfn | 314 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/reprojectcalibd.py` | vfn | 215 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/tests/test_stateful_model_artifacts.py` | bosch | 203 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/reprojectd.py` | vfn | 181 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/reproject_c4/geometry.py` | vfn | 148 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/reproject_c4/fit.py` | vfn | 112 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/reproject_c4/meter.py` | vfn | 111 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/reproject_c4/tables.py` | vfn | 99 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `scripts/model_compiler.py` | bosch+vfn | 86 | mod | `scripts/model_compiler.py` | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/reproject_c4/kernel.py` | vfn | 86 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/SConscript` | vfn | 80 | mod | `openpilot/selfdrive/modeld/SConscript` | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/tests/test_model_fallback.py` | vfn | 68 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | held: Chestnut extras after a 7.0 eGPU drive |
+| `selfdrive/modeld/helpers.py` | vfn | 59 | mod | `openpilot/selfdrive/modeld/helpers.py` | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/reproject_c4/rotation.py` | vfn | 52 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/reproject_config.py` | vfn | 51 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `starpilot/assets/model_manager.py` | bosch+vfn | 41 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `scripts/validate_model_artifact.py` | bosch+vfn | 39 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/reproject_c4/cameras.py` | vfn | 28 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/dmonitoringmodeld.py` | vfn | 21 | mod | `openpilot/selfdrive/modeld/dmonitoringmodeld.py` | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/reproject_c4/__init__.py` | vfn | 12 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | done: 3X->C4 reprojection (slice 9.3) |
+| `selfdrive/modeld/tests/test_model_laboratory.py` | bosch+vfn | 8 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `scripts/model_rebuild_pipeline.py` | vfn | 5 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/get_model_metadata.py` | vfn | 4 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `starpilot/system/the_galaxy/assets/components/tools/model_manager.js` | bosch | 3 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
 | `selfdrive/modeld/models/driving_tinygrad.pkl.chunkmanifest` | vfn | 1 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
 | `selfdrive/modeld/models/driving_tinygrad.pkl.sha256` | vfn | 1 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
 | `selfdrive/modeld/models/dmonitoring_model.onnx` | vfn | 0 | mod | `openpilot/selfdrive/modeld/models/dmonitoring_model.onnx` | REVIEW each vs 7.0 comma-master modeld | todo |
@@ -248,9 +248,9 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `starpilot/assets/tests/test_model_pipeline.py` | bosch+vfn | 92 | mod | **gone** | REVIEW | todo |
 | `tools/replay/lib/ui_helpers.py` | bosch+vfn | 73 | mod | `openpilot/tools/replay/lib/ui_helpers.py` | REVIEW | todo |
 | `tools/StarPilot/feasibleparams.txt` | bosch+vfn | 65 | mod | **gone** | REVIEW | todo |
-| `selfdrive/locationd/test/test_calibrationd.py` | vfn | 46 | mod | `openpilot/selfdrive/locationd/test/test_calibrationd.py` | REVIEW | todo |
+| `selfdrive/locationd/test/test_calibrationd.py` | vfn | 46 | mod | `openpilot/selfdrive/locationd/test/test_calibrationd.py` | REVIEW | done: 3X->C4 reprojection (slice 9.3) |
 | `tools/replay/tests/test_radar_debug.py` | bosch+vfn | 40 | new | **gone** | REVIEW | todo |
-| `selfdrive/locationd/calibrationd.py` | vfn | 33 | mod | `openpilot/selfdrive/locationd/calibrationd.py` | REVIEW | todo |
+| `selfdrive/locationd/calibrationd.py` | vfn | 33 | mod | `openpilot/selfdrive/locationd/calibrationd.py` | REVIEW | done: 3X->C4 reprojection (slice 9.3) |
 | `selfdrive/controls/tests/test_navigation_desires.py` | bosch+vfn | 30 | mod | **gone** | REVIEW | todo |
 | `common/transformations/model.py` | vfn | 16 | mod | `openpilot/common/transformations/model.py` | REVIEW | todo |
 | `tools/StarPilot/derive_feasible_params.py` | bosch+vfn | 12 | mod | **gone** | REVIEW | todo |

@@ -171,7 +171,8 @@ class SelfdriveD:
     self.car_state_poller = messaging.Poller() if self.aol_replay and self.axis_transport_required else None
     self.car_state_sock = messaging.sub_sock('carState', poller=self.car_state_poller, timeout=20)
 
-    ignore = self.sensor_packets + self.gps_packets + ['alertDebug', 'lateralManeuverPlan', 'laneChangeAssistWire', 'starpilotLongitudinalPlan']
+    ignore = self.sensor_packets + self.gps_packets + ['alertDebug', 'lateralManeuverPlan', 'laneChangeAssistWire', 'starpilotLongitudinalPlan',
+                                                       'reprojectState', 'reprojectFit']  # only on a 3X Chestnut drive
     if self.aol_replay:
       ignore += ['aolIntentWire']
     if self.axis_transport_required:
@@ -189,6 +190,7 @@ class SelfdriveD:
     ignore += radar_notifications
     ignore = set(ignore)
     self.sm = messaging.SubMaster(['deviceState', 'pandaStates', 'peripheralState', 'modelV2', 'extrinsicsCalibration',
+                                   'reprojectState', 'reprojectFit',
                                    'carOutput', 'driverMonitoringState', 'longitudinalPlan', 'deviceMotion', 'lateralDelay',
                                    'managerState', 'vehicleParameters', 'radarState', 'lateralTorqueParameters',
                                    'controlsState', 'carControl', 'driverAssistance', 'alertDebug', 'userBookmark',

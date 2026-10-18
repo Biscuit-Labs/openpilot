@@ -35,7 +35,8 @@ class CalibrationReset:
       params.put(RESET_KEY, generation, block=True)
       if read_saved(params, RESET_KEY, 32) != (generation.encode(), True):
         raise OSError("Could not invalidate automatic steering learning")
-      for key in ("CalibrationParams", "LiveTorqueParameters", "LiveParametersV2", "LiveDelay"):
+      # ReprojectRotation: the 3X camera-pair fit (reprojectcalibd) is redone with the road calibration
+      for key in ("CalibrationParams", "LiveTorqueParameters", "LiveParametersV2", "LiveDelay", "ReprojectRotation"):
         params.remove(key)
         if os.path.lexists(params.get_param_path(key)):
           raise OSError(f"Could not clear {key}")

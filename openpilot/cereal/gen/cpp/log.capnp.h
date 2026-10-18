@@ -3338,6 +3338,8 @@ struct Event {
     DRIVER_MONITORING_STATE,
     CHESTNUT_STATE,
     CHESTNUT_GPU_STATE,
+    REPROJECT_STATE,
+    REPROJECT_FIT,
   };
 
   struct _capnpPrivate {
@@ -23389,6 +23391,14 @@ public:
   inline bool hasChestnutGpuState() const;
   inline  ::cereal::ChestnutState::Reader getChestnutGpuState() const;
 
+  inline bool isReprojectState() const;
+  inline bool hasReprojectState() const;
+  inline  ::cereal::ReprojectState::Reader getReprojectState() const;
+
+  inline bool isReprojectFit() const;
+  inline bool hasReprojectFit() const;
+  inline  ::cereal::ReprojectFit::Reader getReprojectFit() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -24639,6 +24649,22 @@ public:
   inline  ::cereal::ChestnutState::Builder initChestnutGpuState();
   inline void adoptChestnutGpuState(::capnp::Orphan< ::cereal::ChestnutState>&& value);
   inline ::capnp::Orphan< ::cereal::ChestnutState> disownChestnutGpuState();
+
+  inline bool isReprojectState();
+  inline bool hasReprojectState();
+  inline  ::cereal::ReprojectState::Builder getReprojectState();
+  inline void setReprojectState( ::cereal::ReprojectState::Reader value);
+  inline  ::cereal::ReprojectState::Builder initReprojectState();
+  inline void adoptReprojectState(::capnp::Orphan< ::cereal::ReprojectState>&& value);
+  inline ::capnp::Orphan< ::cereal::ReprojectState> disownReprojectState();
+
+  inline bool isReprojectFit();
+  inline bool hasReprojectFit();
+  inline  ::cereal::ReprojectFit::Builder getReprojectFit();
+  inline void setReprojectFit( ::cereal::ReprojectFit::Reader value);
+  inline  ::cereal::ReprojectFit::Builder initReprojectFit();
+  inline void adoptReprojectFit(::capnp::Orphan< ::cereal::ReprojectFit>&& value);
+  inline ::capnp::Orphan< ::cereal::ReprojectFit> disownReprojectFit();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -59992,6 +60018,114 @@ inline ::capnp::Orphan< ::cereal::ChestnutState> Event::Builder::disownChestnutG
   KJ_IREQUIRE((which() == Event::CHESTNUT_GPU_STATE),
               "Must check which() before get()ing a union member.");
   return ::capnp::_::PointerHelpers< ::cereal::ChestnutState>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline bool Event::Reader::isReprojectState() const {
+  return which() == Event::REPROJECT_STATE;
+}
+inline bool Event::Builder::isReprojectState() {
+  return which() == Event::REPROJECT_STATE;
+}
+inline bool Event::Reader::hasReprojectState() const {
+  if (which() != Event::REPROJECT_STATE) return false;
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool Event::Builder::hasReprojectState() {
+  if (which() != Event::REPROJECT_STATE) return false;
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::ReprojectState::Reader Event::Reader::getReprojectState() const {
+  KJ_IREQUIRE((which() == Event::REPROJECT_STATE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectState>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::cereal::ReprojectState::Builder Event::Builder::getReprojectState() {
+  KJ_IREQUIRE((which() == Event::REPROJECT_STATE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectState>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::setReprojectState( ::cereal::ReprojectState::Reader value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::REPROJECT_STATE);
+  ::capnp::_::PointerHelpers< ::cereal::ReprojectState>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::ReprojectState::Builder Event::Builder::initReprojectState() {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::REPROJECT_STATE);
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectState>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::adoptReprojectState(
+    ::capnp::Orphan< ::cereal::ReprojectState>&& value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::REPROJECT_STATE);
+  ::capnp::_::PointerHelpers< ::cereal::ReprojectState>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::ReprojectState> Event::Builder::disownReprojectState() {
+  KJ_IREQUIRE((which() == Event::REPROJECT_STATE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectState>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline bool Event::Reader::isReprojectFit() const {
+  return which() == Event::REPROJECT_FIT;
+}
+inline bool Event::Builder::isReprojectFit() {
+  return which() == Event::REPROJECT_FIT;
+}
+inline bool Event::Reader::hasReprojectFit() const {
+  if (which() != Event::REPROJECT_FIT) return false;
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool Event::Builder::hasReprojectFit() {
+  if (which() != Event::REPROJECT_FIT) return false;
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::ReprojectFit::Reader Event::Reader::getReprojectFit() const {
+  KJ_IREQUIRE((which() == Event::REPROJECT_FIT),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::cereal::ReprojectFit::Builder Event::Builder::getReprojectFit() {
+  KJ_IREQUIRE((which() == Event::REPROJECT_FIT),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::setReprojectFit( ::cereal::ReprojectFit::Reader value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::REPROJECT_FIT);
+  ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::ReprojectFit::Builder Event::Builder::initReprojectFit() {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::REPROJECT_FIT);
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::adoptReprojectFit(
+    ::capnp::Orphan< ::cereal::ReprojectFit>&& value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::REPROJECT_FIT);
+  ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::ReprojectFit> Event::Builder::disownReprojectFit() {
+  KJ_IREQUIRE((which() == Event::REPROJECT_FIT),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 

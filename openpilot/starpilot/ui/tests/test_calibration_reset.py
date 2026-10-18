@@ -94,7 +94,7 @@ class TestCalibrationReset(unittest.TestCase):
     with patch.object(self.params, "remove", side_effect=recorded_remove):
       self.reset._run(self.params)
     self.assertIsNone(self.reset.take_error())
-    self.assertEqual(len(removed), 4)
+    self.assertEqual(len(removed), 5)   # with ReprojectRotation (the 3X camera-pair fit)
     self.assertEqual(len({generation for _, generation in removed}), 1)
     self.assertEqual(self.params.get("SteeringLearningPreferences"), preference)
     self.assertTrue(self.params.get_bool("ForceAutoTuneOff"))

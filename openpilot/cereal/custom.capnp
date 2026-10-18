@@ -1361,3 +1361,35 @@ struct LearningTorqueProjection {
   canData @22 :Data;
   reportedTorque @23 :Float64;
 }
+
+# comma 3X -> virtual comma 4 camera path (Night Star port, from vfn; selfdrive/modeld/reprojectd.py, reprojectcalibd.py)
+struct ReprojectState @0xebf0b05bac71ed9e {
+  frameId @0 :UInt32;
+  stageMs @1 :Float32;
+  rotation @2 :List(Float32);
+  fitted @3 :Bool;
+}
+
+struct ReprojectFit @0x89de5e4f75e86f24 {
+  enum Status {
+    waiting @0;
+    fitting @1;
+    building @2;
+    fitted @3;
+  }
+  enum Why {
+    none @0;
+    cameras @1;
+    model @2;
+    speed @3;
+    straight @4;
+    pair @5;
+    features @6;
+  }
+  status @0 :Status;
+  why @1 :Why;
+  pct @2 :UInt8;
+  mean @3 :List(Float32);
+  lastFrameId @4 :UInt32;
+  lastAccepted @5 :Bool;
+}

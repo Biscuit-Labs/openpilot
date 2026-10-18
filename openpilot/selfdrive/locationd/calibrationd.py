@@ -21,6 +21,7 @@ from openpilot.common.realtime import config_realtime_process
 from openpilot.common.transformations.orientation import rot_from_euler, euler_from_rot
 from openpilot.common.swaglog import cloudlog
 from openpilot.starpilot.schema_cache import get_cache, prewarm_cache_contracts, put_cache
+from openpilot.selfdrive.modeld.reproject_config import reproject_expected
 
 MIN_SPEED_FILTER = 15 * CV.MPH_TO_MS
 MAX_VEL_ANGLE_STD = np.radians(0.25)
@@ -71,7 +72,14 @@ class Calibrator:
 
     # Read saved calibration
     self.params = Params()
+    self._reproject_session_observed = reproject_expected(self.params)
     calibration_params = get_cache(self.params, "CalibrationParams")
+    if self._reproject_session_observed:
+      # On the virtual comma 4 pair a saved calibration means something only after a completed camera-pair fit;
+      # a fresh fit removes the old value before it publishes.
+      from openpilot.selfdrive.modeld.reproject_c4.rotation import read_rotation
+      if not read_rotation():
+        calibration_params = None
     rpy_init = RPY_INIT
     wide_from_device_euler = WIDE_FROM_DEVICE_EULER_INIT
     height = HEIGHT_INIT
@@ -175,6 +183,23 @@ class Calibrator:
   def handle_v_ego(self, v_ego: float) -> None:
     self.v_ego = v_ego
 
+  def reproject_ready(self, sm: messaging.SubMaster) -> bool:
+    """Hold road calibration until reprojectd is serving the fitted camera-pair geometry (from vfn)."""
+    required = reproject_expected(self.params)
+    if required and not self._reproject_session_observed:
+      # The virtual comma 4 path can be selected after calibrationd started. Samples gathered against the native
+      # 3X geometry are wrong for it, so discard them before waiting for the fitted state.
+      from openpilot.selfdrive.modeld.reproject_c4.rotation import read_rotation
+      samples_accumulated = self.idx > 0 or self.block_idx > 0
+      if samples_accumulated or not read_rotation():
+        self.reset()
+        self.cal_status = log.ExtrinsicsCalibration.Status.uncalibrated
+        self.update_status()
+    self._reproject_session_observed = required
+    if not required:
+      return True
+    return sm.seen["reprojectState"] and sm["reprojectState"].fitted
+
   def get_smooth_rpy(self) -> np.ndarray:
     if self.old_rpy_weight > 0:
       return self.old_rpy_weight * self.old_rpy + (1.0 - self.old_rpy_weight) * self.rpy
@@ -265,7 +290,10 @@ def main() -> NoReturn:
   config_realtime_process([0, 1, 2, 3], 5)
 
   pm = messaging.PubMaster(['extrinsicsCalibration'])
-  sm = messaging.SubMaster(['cameraOdometry', 'carState'], poll='cameraOdometry')
+  reproject_services = ['reprojectState', 'reprojectFit']
+  sm = messaging.SubMaster(['cameraOdometry', 'carState'] + reproject_services, poll='cameraOdometry',
+                           ignore_alive=reproject_services, ignore_avg_freq=reproject_services,
+                           ignore_valid=reproject_services)
 
   params_reader = Params()
   CP = messaging.log_from_bytes(params_reader.get("CarParams", block=True), car.CarParams)
@@ -277,7 +305,7 @@ def main() -> NoReturn:
     timeout = 0 if sm.frame == -1 else 100
     sm.update(timeout)
 
-    if sm.updated['cameraOdometry']:
+    if sm.updated['cameraOdometry'] and calibrator.reproject_ready(sm):
       calibrator.handle_v_ego(sm['carState'].vEgo)
       new_rpy = calibrator.handle_cam_odom(sm['cameraOdometry'].trans,
                                            sm['cameraOdometry'].rot,

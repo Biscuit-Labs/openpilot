@@ -124,3 +124,54 @@ class TestCalibrationd(OpenpilotTestCase):
     assert c.valid_blocks == 1
     assert c.cal_status == log.ExtrinsicsCalibration.Status.recalibrating
     np.testing.assert_allclose(c.rpy, [0.0, 0.0, MAX_ALLOWED_YAW_SPREAD*1.1], atol=1e-2)
+
+
+def test_late_reproject_session_discards_native_camera_samples_until_fit(monkeypatch):
+  # From vfn: a 3X that switches to the virtual comma 4 pair mid-session drops samples taken on the native 3X geometry
+  # and holds calibration until reprojectd serves the fitted camera pair.
+  from types import SimpleNamespace
+  from openpilot.selfdrive.locationd import calibrationd
+
+  class MemoryParams:
+    def __init__(self):
+      self.values = {"ReprojectSessionActive": False}
+
+    def get_bool(self, key):
+      return bool(self.values.get(key, False))
+
+    def get(self, _key):
+      return None
+
+  class FakeSubMaster:
+    def __init__(self):
+      self.seen = {"reprojectState": False}
+      self.state = SimpleNamespace(fitted=False)
+
+    def __getitem__(self, key):
+      assert key == "reprojectState"
+      return self.state
+
+  params = MemoryParams()
+  monkeypatch.setattr(calibrationd, "Params", lambda: params)
+  monkeypatch.setattr(calibrationd, "get_cache", lambda _params, _key: None)
+  monkeypatch.setattr(calibrationd, "reproject_expected", lambda p: p.get_bool("ReprojectSessionActive"))
+  monkeypatch.setattr("openpilot.selfdrive.modeld.reproject_c4.rotation.read_rotation", dict)
+
+  calibrator = Calibrator(param_put=False)
+  sm = FakeSubMaster()
+  assert calibrator.reproject_ready(sm)
+
+  process_messages(calibrator, [0.0, 0.0, 0.0], BLOCK_SIZE + 1)
+  assert calibrator.block_idx > 0 or calibrator.idx > 0
+
+  params.values["ReprojectSessionActive"] = True
+  assert not calibrator.reproject_ready(sm)
+  assert calibrator.valid_blocks == 0
+  assert calibrator.block_idx == 0
+  assert calibrator.idx == 0
+  assert calibrator.cal_status == log.ExtrinsicsCalibration.Status.uncalibrated
+
+  sm.seen["reprojectState"] = True
+  assert not calibrator.reproject_ready(sm)
+  sm.state.fitted = True
+  assert calibrator.reproject_ready(sm)

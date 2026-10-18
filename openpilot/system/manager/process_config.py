@@ -61,6 +61,14 @@ def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
 def only_onroad(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started
 
+def reproject(started: bool, params: Params, CP: car.CarParams) -> bool:
+  # The session is chosen as soon as the onroad process graph is evaluated, then latched for the drive, so a
+  # Chestnut that drops for a moment does not flip modeld's camera source underneath it.
+  if not started:
+    return False
+  from openpilot.selfdrive.modeld.reproject_config import select_reproject_session
+  return select_reproject_session(params)
+
 def vision_slc_development(started: bool, params: Params, CP: car.CarParams) -> bool:
   from openpilot.starpilot.feature_runtime import enabled as feature_enabled
   return started and feature_enabled(params, CP, 'slc', os.environ) and feature_enabled(params, CP, 'vision', os.environ)
@@ -123,6 +131,8 @@ procs = [
   PythonProcess("timed", "openpilot.system.timed", always_run, enabled=not PC),
 
   ModeldProcess("modeld", "openpilot.selfdrive.modeld.modeld", only_onroad),
+  PythonProcess("reprojectd", "openpilot.selfdrive.modeld.reprojectd", reproject, enabled=COMMA_HARDWARE),
+  PythonProcess("reprojectcalibd", "openpilot.selfdrive.modeld.reprojectcalibd", reproject, enabled=COMMA_HARDWARE),
   PythonProcess("vision_slc", "openpilot.starpilot.speed_limits.vision.producer", vision_slc_development),
   PythonProcess("dmonitoringmodeld", "openpilot.selfdrive.modeld.dmonitoringmodeld", driverview, enabled=(WEBCAM or not PC)),
 

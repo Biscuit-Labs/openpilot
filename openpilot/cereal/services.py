@@ -70,6 +70,8 @@ _services: dict[str, tuple] = {
   "aolIntentWire": (True, 100., 10),
   "laneChangeAssistWire": (True, 20., 10),
   "mapdOut": (True, 20., 10),
+  "reprojectState": (True, 20., 10),
+  "reprojectFit": (True, 2., 1),
   "mapdExtendedOut": (True, 1., 1),
   "mapdIn": (True, 1., 1),
   "lateralManeuverPlan": (True, 20.),

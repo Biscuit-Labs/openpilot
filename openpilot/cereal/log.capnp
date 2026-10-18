@@ -2661,6 +2661,8 @@ struct Event {
     mapdExtendedOut @143 :Custom.MapdExtendedOut;
     mapdIn @144 :Custom.MapdIn;
     mapdOut @145 :Custom.MapdOut;
+    reprojectState @154 :Custom.ReprojectState;   # Night Star port: comma 3X -> virtual comma 4 camera path
+    reprojectFit @155 :Custom.ReprojectFit;
 
     # *********** legacy + deprecated ***********
     model @9 :Deprecated.ModelData; # TODO: rename modelV2 and mark this as deprecated

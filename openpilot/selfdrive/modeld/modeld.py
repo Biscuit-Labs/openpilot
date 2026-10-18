@@ -282,9 +282,16 @@ def main(demo=False):
 
   gc.disable()
 
+  # A 3X driving the Chestnut big model reads reprojectd's virtual comma 4 pair instead of camerad (reproject_config).
+  # Chosen once per drive: a fallback small model then loads against the same frame size and camera geometry.
+  from openpilot.selfdrive.modeld.reproject_config import REPROJECT_CAMERA_SIZE, select_reproject_session
+  reproject_session = CHESTNUT and select_reproject_session(params, chestnut_ready=chestnut_available)
+  camera_server = "reproject" if reproject_session else "camerad"
+  cloudlog.warning(f"modeld camera source: {camera_server}")
+
   # visionipc clients
   while True:
-    available_streams = VisionIpcClient.available_streams("camerad", block=False)
+    available_streams = VisionIpcClient.available_streams(camera_server, block=False)
     if available_streams:
       use_extra_client = VisionStreamType.VISION_STREAM_WIDE_ROAD in available_streams and VisionStreamType.VISION_STREAM_NARROW_ROAD in available_streams
       main_wide_camera = VisionStreamType.VISION_STREAM_NARROW_ROAD not in available_streams
@@ -292,8 +299,8 @@ def main(demo=False):
     time.sleep(.1)
 
   vipc_client_main_stream = VisionStreamType.VISION_STREAM_WIDE_ROAD if main_wide_camera else VisionStreamType.VISION_STREAM_NARROW_ROAD
-  vipc_client_main = VisionIpcClient("camerad", vipc_client_main_stream, True)
-  vipc_client_extra = VisionIpcClient("camerad", VisionStreamType.VISION_STREAM_WIDE_ROAD, False)
+  vipc_client_main = VisionIpcClient(camera_server, vipc_client_main_stream, True)
+  vipc_client_extra = VisionIpcClient(camera_server, VisionStreamType.VISION_STREAM_WIDE_ROAD, False)
   cloudlog.warning(f"vision stream set up, main_wide_camera: {main_wide_camera}, use_extra_client: {use_extra_client}")
 
   while not vipc_client_main.connect(False):
@@ -302,6 +309,9 @@ def main(demo=False):
     time.sleep(0.1)
 
   cloudlog.warning(f"connected main cam with buffer size: {vipc_client_main.buffer_len} ({vipc_client_main.width} x {vipc_client_main.height})")
+  if reproject_session and (vipc_client_main.width, vipc_client_main.height) != REPROJECT_CAMERA_SIZE:
+    raise RuntimeError(f"virtual comma 4 stream is {vipc_client_main.width}x{vipc_client_main.height}, expected " +
+                       f"{REPROJECT_CAMERA_SIZE[0]}x{REPROJECT_CAMERA_SIZE[1]}")
   if use_extra_client:
     cloudlog.warning(f"connected extra cam with buffer size: {vipc_client_extra.buffer_len} ({vipc_client_extra.width} x {vipc_client_extra.height})")
 
@@ -393,7 +403,7 @@ def main(demo=False):
   pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire"] + (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
-                  "carControl", "lateralDelay", "starpilotNavigation", "longitudinalPlan"])
+                  "carControl", "controlsState", "lateralDelay", "starpilotNavigation", "longitudinalPlan"])
 
   publish_state = PublishState()
   params = Params()
@@ -471,7 +481,9 @@ def main(demo=False):
     lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
-      dc = DEVICE_CAMERAS[(str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
+      # the virtual pair has the comma 4's cameras
+      dc = DEVICE_CAMERAS[("mici", "os04c10") if reproject_session else
+                          (str(sm['deviceState'].deviceType), str(sm['narrowRoadCameraState'].sensor))]
       main_intrinsics = dc.wide_road.intrinsics if main_wide_camera else dc.narrow_road.intrinsics
       model_transform_main = get_warp_matrix(device_from_calib_euler, main_intrinsics, False).astype(np.float32)
       has_wide_camera = use_extra_client or main_wide_camera
@@ -555,6 +567,9 @@ def main(demo=False):
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
 
+      # comma #39091 (2b09bc94a9): while lateral is not active, smooth from the curvature the car is driving
+      if not sm['carControl'].latActive:
+        prev_action.desiredCurvature = sm['controlsState'].curvature
       if isinstance(model, JetlinkModel):
         action = model.action(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       elif isinstance(model, CatalogModelState):

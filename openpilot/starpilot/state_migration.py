@@ -28,7 +28,7 @@ OPERATIONAL_KEYS = frozenset({
   'DongleId', 'HardwareSerial', 'GithubSshKeys', 'GithubUsername', 'SshEnabled',
   'GsmApn', 'GsmMetered', 'GsmRoaming', 'NetworkMetered', 'BluetoothEnabled',
   'ConnectProvider', 'PairingProvider', 'PairingEmail', 'PrimeType', 'AssistNowToken', 'SecOCKey',
-}) | HONDA_EPS_PRESERVED_KEYS  # per-car Honda EPS calibration survives 7.0's first start
+}) | HONDA_EPS_PRESERVED_KEYS | {'ReprojectRotation'}  # per-car Honda EPS calibration and the 3X camera-pair fit survive 7.0's first start
 
 
 class MigrationRequired(RuntimeError):

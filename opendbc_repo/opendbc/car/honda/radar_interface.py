@@ -18,6 +18,7 @@ class RadarInterface(RadarInterfaceBase):
     self.radar_wrong_config = False
     self.radar_off_can = CP.radarUnavailable
     self.bosch_a = None
+    self.v_ego = None   # set by card before each update; the Bosch-A decoder's reversing-coast bound reads it
     if not self.radar_off_can and CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G):
       from opendbc.car.honda.bosch_a_radar import BoschARadar
       self.bosch_a = BoschARadar(CP)
@@ -35,6 +36,7 @@ class RadarInterface(RadarInterfaceBase):
 
   def update(self, can_strings):
     if self.bosch_a is not None:
+      self.bosch_a.v_ego = self.v_ego
       return self.bosch_a.update(can_strings)
     # in Bosch radar and we are only steering for now, so sleep 0.05s to keep
     # radard at 20Hz and return no points

@@ -144,10 +144,10 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
 | `opendbc_repo/opendbc/car/honda/carcontroller.py` | bosch+vfn | 586 | mod | `opendbc_repo/opendbc/car/honda/carcontroller.py` | PORT onto 7.0 refactored Honda | wip (slices 4+6 lateral done; long side is slice 8) |
-| `opendbc_repo/opendbc/car/honda/tests/test_carcontroller_learners.py` | bosch+vfn | 526 | new | **gone** | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/tests/test_carcontroller_learners.py` | bosch+vfn | 526 | new | **gone** | PORT onto 7.0 refactored Honda | dropped: planner-level, left to StarPilot 7.0 |
 | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | bosch+vfn | 327 | mod | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | PORT onto 7.0 refactored Honda | todo |
 | `opendbc_repo/opendbc/car/honda/steer_ratio.py` | bosch+vfn | 292 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
-| `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | bosch+vfn | 194 | mod | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | bosch+vfn | 194 | mod | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | PORT onto 7.0 refactored Honda | done: Trung's decoder in bosch_a_radar.py (DBC kept as 7.0) |
 | `opendbc_repo/opendbc/car/honda/interface.py` | bosch+vfn | 139 | mod | `opendbc_repo/opendbc/car/honda/interface.py` | PORT onto 7.0 refactored Honda | wip (slice 2 lateral done; Bosch-A radar default, vEgoStopping, Nidec hybrid safety still todo) |
 | `opendbc_repo/opendbc/car/honda/yaw_rate.py` | bosch+vfn | 87 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 6) |
 | `opendbc_repo/opendbc/car/honda/tests/test_steer_ratio.py` | bosch+vfn | 74 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
@@ -160,21 +160,21 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/controls/lib/blotv2.py` | bosch+vfn | 247 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/lib/longcontrol.py` | bosch+vfn | 191 | mod | `openpilot/selfdrive/controls/lib/longcontrol.py` | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/lib/longitudinal_planner.py` | bosch+vfn | 174 | mod | `openpilot/selfdrive/controls/lib/longitudinal_planner.py` | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/lib/tests/test_blotv2.py` | bosch+vfn | 171 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/lib/nrdr_long_tune.py` | bosch+vfn | 167 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/tests/test_longitudinal_planner.py` | bosch+vfn | 143 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/lib/longitudinal_lead.py` | bosch+vfn | 97 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/tests/test_curve_speed_controller.py` | bosch+vfn | 82 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/tests/test_longcontrol.py` | bosch+vfn | 78 | mod | `openpilot/selfdrive/controls/tests/test_longcontrol.py` | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/tests/test_starpilot_vcruise.py` | bosch+vfn | 67 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/ui/layouts/settings/starpilot/longitudinal.py` | bosch+vfn | 52 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `starpilot/controls/lib/curve_speed_controller.py` | bosch+vfn | 48 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py` | bosch+vfn | 26 | mod | `openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py` | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `starpilot/controls/lib/starpilot_vcruise.py` | bosch+vfn | 21 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
-| `starpilot/controls/starpilot_planner.py` | bosch+vfn | 5 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | todo |
+| `selfdrive/controls/lib/blotv2.py` | bosch+vfn | 247 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/lib/longcontrol.py` | bosch+vfn | 191 | mod | `openpilot/selfdrive/controls/lib/longcontrol.py` | RE-HOME into openpilot/starpilot/longitudinal | held: Clarity stopping shape, after a 7.0 test drive |
+| `selfdrive/controls/lib/longitudinal_planner.py` | bosch+vfn | 174 | mod | `openpilot/selfdrive/controls/lib/longitudinal_planner.py` | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/lib/tests/test_blotv2.py` | bosch+vfn | 171 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/lib/nrdr_long_tune.py` | bosch+vfn | 167 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | held: Clarity stopping shape, after a 7.0 test drive |
+| `selfdrive/controls/tests/test_longitudinal_planner.py` | bosch+vfn | 143 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/lib/longitudinal_lead.py` | bosch+vfn | 97 | new | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/tests/test_curve_speed_controller.py` | bosch+vfn | 82 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/tests/test_longcontrol.py` | bosch+vfn | 78 | mod | `openpilot/selfdrive/controls/tests/test_longcontrol.py` | RE-HOME into openpilot/starpilot/longitudinal | held: Clarity stopping shape, after a 7.0 test drive |
+| `selfdrive/controls/tests/test_starpilot_vcruise.py` | bosch+vfn | 67 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/ui/layouts/settings/starpilot/longitudinal.py` | bosch+vfn | 52 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `starpilot/controls/lib/curve_speed_controller.py` | bosch+vfn | 48 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py` | bosch+vfn | 26 | mod | `openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py` | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `starpilot/controls/lib/starpilot_vcruise.py` | bosch+vfn | 21 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
+| `starpilot/controls/starpilot_planner.py` | bosch+vfn | 5 | mod | **gone** | RE-HOME into openpilot/starpilot/longitudinal | dropped: planner-level, left to StarPilot 7.0 |
 
 ### built artifact (87 files) — REBUILD - Docker, never copy
 
@@ -222,10 +222,10 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/controls/tests/test_radard_bosch.py` | bosch+vfn | 445 | new | **gone** | RE-HOME into 7.0 bosch_a_radar.py | todo |
-| `opendbc_repo/opendbc/dbc/honda_bosch_a_radar.dbc` | bosch | 177 | mod | `opendbc_repo/opendbc/dbc/honda_bosch_a_radar.dbc` | RE-HOME into 7.0 bosch_a_radar.py | todo |
-| `opendbc_repo/opendbc/car/honda/radar_interface.py` | bosch | 144 | mod | `opendbc_repo/opendbc/car/honda/radar_interface.py` | RE-HOME into 7.0 bosch_a_radar.py | todo |
-| `selfdrive/controls/radard.py` | bosch | 65 | mod | `openpilot/selfdrive/controls/radard.py` | RE-HOME into 7.0 bosch_a_radar.py | todo |
+| `selfdrive/controls/tests/test_radard_bosch.py` | bosch+vfn | 445 | new | **gone** | RE-HOME into 7.0 bosch_a_radar.py | dropped: radard lead policy left to 7.0 |
+| `opendbc_repo/opendbc/dbc/honda_bosch_a_radar.dbc` | bosch | 177 | mod | `opendbc_repo/opendbc/dbc/honda_bosch_a_radar.dbc` | RE-HOME into 7.0 bosch_a_radar.py | done: Trung's decoder in bosch_a_radar.py (DBC kept as 7.0) |
+| `opendbc_repo/opendbc/car/honda/radar_interface.py` | bosch | 144 | mod | `opendbc_repo/opendbc/car/honda/radar_interface.py` | RE-HOME into 7.0 bosch_a_radar.py | done: Trung's decoder in bosch_a_radar.py (DBC kept as 7.0) |
+| `selfdrive/controls/radard.py` | bosch | 65 | mod | `openpilot/selfdrive/controls/radard.py` | RE-HOME into 7.0 bosch_a_radar.py | done: Kalman dt only; lead policy left to 7.0 |
 
 ### Galaxy
 

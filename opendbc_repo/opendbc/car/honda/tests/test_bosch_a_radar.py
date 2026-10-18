@@ -6,6 +6,7 @@ import pytest
 
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.can_definitions import CanData
+from opendbc.car.honda.bosch_a_radar import bosch_a_range_offset_m
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.radar_interface import RadarInterface
@@ -78,7 +79,8 @@ def test_actual_parser_points_silence_retires_and_new_track_recovers(identity):
   second = ri.update(sweep(bus, 1, 1_066_666_667))
   assert not second.errors.canError
   assert len(second.points) == 1
-  assert second.points[0].dRel == pytest.approx(0.05712 * 1000 - 3.0)
+  # firmware range: raw/16 minus the car's ROM offset n0/128 (Civic 346, CR-V 341)
+  assert second.points[0].dRel == pytest.approx(1000 / 16 + bosch_a_range_offset_m(identity))
   assert second.points[0].yRel == pytest.approx(0.0)
   stale = ri.update([(1_400_000_000, [])])
   assert stale is not None and not stale.points and stale.errors.radarUnavailableTemporary

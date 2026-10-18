@@ -208,7 +208,11 @@ class RadarD:
     if honda_bosch_a_radar:
       from openpilot.starpilot.car.honda.radar import BoschALeadPolicy
       self.honda_bosch_a = BoschALeadPolicy()
-    self.kalman_params = KalmanParams(1.0 / 15.0 if self.honda_bosch_a is not None else DT_MDL)
+    if self.honda_bosch_a is not None:
+      from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ  # the measured sweep rate (14.35 Hz), not a round 15
+      self.kalman_params = KalmanParams(1.0 / BOSCH_A_FREQ_HZ)
+    else:
+      self.kalman_params = KalmanParams(DT_MDL)
     self.lead_prob_filters = [FirstOrderFilter(0.0, 0.2, DT_MDL) for _ in range(2)]
 
     self.v_ego = 0.0

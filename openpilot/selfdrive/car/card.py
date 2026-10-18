@@ -477,6 +477,7 @@ class Car:
 
     # Update carState from CAN
     CS = self.CI.update(can_list)
+    self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
     seatbelt_check = getattr(self, 'seatbelt_check', None)
     if seatbelt_check is not None:
       seatbelt_check.apply(CS)

@@ -213,7 +213,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/assets/fonts/process.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
 | `selfdrive/ui/layouts/settings/device.py` | vfn | 1 | mod | `openpilot/selfdrive/ui/layouts/settings/device.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
 | `selfdrive/ui/layouts/settings/starpilot/system_settings.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
-| `selfdrive/ui/mici/widgets/pairing_dialog.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 7.0 provider system (Konik only on sp7-port) |
+| `selfdrive/ui/mici/widgets/pairing_dialog.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 7.0 provider system (Konik only on night-star7) |
 | `system/ui/lib/application.py` | bosch+vfn | 1 | mod | `openpilot/system/ui/lib/application.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
 | `selfdrive/ui/layouts/settings/developer.py` | bosch | 1 | mod | `openpilot/selfdrive/ui/layouts/settings/developer.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
 | `selfdrive/assets/fonts/como-heavy.png` | bosch+vfn | 0 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
@@ -254,7 +254,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/controls/tests/test_navigation_desires.py` | bosch+vfn | 30 | mod | **gone** | REVIEW | dropped: feature not ported |
 | `common/transformations/model.py` | vfn | 16 | mod | `openpilot/common/transformations/model.py` | REVIEW | dropped: per-model warps (9.4) |
 | `tools/StarPilot/derive_feasible_params.py` | bosch+vfn | 12 | mod | **gone** | REVIEW | dropped: 6.x glue, 7.0 feature owners |
-| `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | held: DM timing, sp7-port only |
+| `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | held: DM timing, night-star7 only |
 | `selfdrive/car/redneck_cruise.py` | bosch+vfn | 9 | mod | **gone** | REVIEW | dropped: 7.0 removed redneck cruise |
 | `common/tests/test_params.py` | bosch+vfn | 7 | mod | `openpilot/common/tests/test_params.py` | REVIEW | dropped: 6.x params test |
 | `common/pid.py` | bosch+vfn | 6 | mod | `openpilot/common/pid.py` | REVIEW | done (slice 1) |
@@ -262,8 +262,8 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `system/updated/updated.py` | bosch+vfn | 5 | mod | `openpilot/system/updated/updated.py` | REVIEW | held: optional updater shallow fetch |
 | `selfdrive/car/card.py` | bosch+vfn | 1 | mod | `openpilot/selfdrive/car/card.py` | REVIEW | done: slices 7-8 |
 | `selfdrive/car/tests/test_car_specific.py` | bosch+vfn | 1 | mod | **gone** | REVIEW | dropped: 6.x car_specific (gone in 7.0) |
-| `tools/lib/api.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/api.py` | REVIEW | dropped: 7.0 provider system (Konik only on sp7-port) |
-| `tools/lib/auth.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/auth.py` | REVIEW | dropped: 7.0 provider system (Konik only on sp7-port) |
+| `tools/lib/api.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/api.py` | REVIEW | dropped: 7.0 provider system (Konik only on night-star7) |
+| `tools/lib/auth.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/auth.py` | REVIEW | dropped: 7.0 provider system (Konik only on night-star7) |
 | `selfdrive/pandad/pandad` | bosch+vfn | 0 | mod | `openpilot/selfdrive/pandad/pandad` | REVIEW | done: rebuilt binaries |
 | `starpilot/controls/lib/tests/__init__.py` | bosch+vfn | 0 | new | **gone** | REVIEW | dropped: hidden test package marker |
 | `system/camerad/camerad` | bosch+vfn | 0 | mod | `openpilot/system/camerad/camerad` | REVIEW | done: rebuilt binaries |

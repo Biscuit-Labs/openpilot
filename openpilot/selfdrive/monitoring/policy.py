@@ -47,7 +47,7 @@ class DRIVER_MONITOR_SETTINGS:
     self._TIMEOUT_RECOVERY_FACTOR_MIN = 1.25
 
     if night_star_timing:
-      # Night Star port (sp7-port only, never the clean branch): vfn's DM timing. The warning spacing near terminal is
+      # Night Star port (night-star7 only, never the clean branch): vfn's DM timing. The warning spacing near terminal is
       # kept, but the awareness window is stretched to 24 h so it effectively never decays, and lockout never trips.
       self._WHEELTOUCH_POLICY_ALERT_1_TIMEOUT = 86400. - 15.
       self._WHEELTOUCH_POLICY_ALERT_2_TIMEOUT = 86400. - 6.

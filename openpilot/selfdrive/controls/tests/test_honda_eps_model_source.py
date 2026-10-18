@@ -1,0 +1,100 @@
+"""The Honda EPS command delay follows where the model's steering comes from (ns-bosch 023b532e26, ported to 7.0).
+
+On 7.0 modeld publishes it on modelLateralSource (selfdrive/modeld/lateral_source.py), derived from 7.0's runners.
+"""
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from opendbc.car.structs import car
+from openpilot.cereal import custom, log
+import openpilot.selfdrive.controls.lib.latcontrol_honda_eps as honda_eps
+from openpilot.selfdrive.controls.tests.test_honda_eps_firmware_ff import _controller
+from openpilot.selfdrive.modeld import lateral_source as ls
+from openpilot.starpilot.models.jetlink_adapter import JetlinkModel
+from openpilot.starpilot.models.runner import CatalogModelState
+
+
+def _catalog(version):
+  model = CatalogModelState.__new__(CatalogModelState)
+  model.behavior_version = version
+  return model
+
+
+def _jetlink(chestnut, version="v12"):
+  model = JetlinkModel.__new__(JetlinkModel)
+  model.chestnut = chestnut
+  model.small = SimpleNamespace(behavior_version=version)
+  return model
+
+
+@pytest.mark.parametrize("version,expected", [
+  ("v11", "plan"), ("v12", "plan"), ("v14", "actionHead"), ("v15", "actionHead"), ("v16", "actionHead"),
+  ("v9", "curvatureHead"),
+])
+def test_catalog_models_by_version(version, expected):
+  assert ls.lateral_source(_catalog(version), {"plan": 1}) == expected
+
+
+def test_jetlink_small_follows_its_catalog_model_and_the_chestnut_runner_its_output():
+  assert ls.lateral_source(_jetlink(False, "v12"), {}) == "plan"
+  assert ls.lateral_source(_jetlink(False, "v16"), {}) == "actionHead"
+  # the Chestnut runners go through get_action_from_model: an action head, or a plan read through the 0.3 s floor
+  assert ls.lateral_source(_jetlink(True), {"action": 1}) == "actionHead"
+  assert ls.lateral_source(_jetlink(True), {"plan": 1}) == "unknown"
+  assert ls.lateral_source(SimpleNamespace(), {"plan": 1}) == "unknown"
+
+
+def test_the_published_names_are_the_schema_enums():
+  names = set(custom.ModelLateralSource.Source.schema.enumerants)
+  assert {ls.UNKNOWN, ls.PLAN, ls.ACTION_HEAD, ls.CURVATURE_HEAD} == names
+  assert custom.ModelLateralSource.new_message().source == "unknown"
+
+
+def test_modeld_publishes_the_source_and_tells_the_model_the_schedule():
+  source = (Path(__file__).parents[2] / "modeld" / "modeld.py").read_text()
+  assert "source_send.modelLateralSource.source = lateral_source(model, model_output)" in source
+  assert "scheduled_lateral_delay(lat_delay_schedule, v_ego)" in source
+
+
+def _delays(lac, VM, sources, v_ego=8.0):
+  CS = car.CarState.new_message(vEgo=v_ego)
+  params = log.VehicleParameters.new_message(steerRatio=16.0, stiffnessFactor=1.0)
+  out = []
+  for source in sources:
+    if source is not None:
+      lac.update_lateral_source(source)
+    lac.update(True, CS, VM, params, False, 0.01, False, 0.2, None, None, SimpleNamespace())
+    out.append(lac.starpilot_lateral_state.epsCommandDelay)
+  return out
+
+
+def test_an_action_head_and_an_unknown_source_take_the_calibrations_command_delay(monkeypatch):
+  lac, VM, _ = _controller(monkeypatch)
+  assert _delays(lac, VM, [None] * 5)[-1] == pytest.approx(0.12)  # no message yet
+  assert _delays(lac, VM, ["actionHead"] * 5)[-1] == pytest.approx(0.12)
+  assert _delays(lac, VM, ["curvatureHead"] * 5)[-1] == pytest.approx(0.12)
+
+
+def test_a_plan_model_runs_with_no_command_delay_reached_by_a_ramp(monkeypatch):
+  lac, VM, _ = _controller(monkeypatch)
+  frames = int(honda_eps.CMD_DELAY_RAMP_S / lac.dt)
+  delays = _delays(lac, VM, ["plan"] * (frames + 5))
+  assert delays[-1] == pytest.approx(0.0, abs=1e-9)
+  steps = [a - b for a, b in zip(delays, delays[1:], strict=False)]
+  assert max(steps) <= 0.12 * lac.dt / honda_eps.CMD_DELAY_RAMP_S + 1e-6  # no step: 0.12 s over 1 s (logged as float32)
+  assert delays[frames // 2] == pytest.approx(0.06, abs=0.002)
+
+
+def test_a_model_swap_ramps_back(monkeypatch):
+  lac, VM, _ = _controller(monkeypatch)
+  frames = int(honda_eps.CMD_DELAY_RAMP_S / lac.dt)
+  _delays(lac, VM, ["plan"] * (frames + 5))
+  back = _delays(lac, VM, ["actionHead"] * (frames + 5))
+  assert back[0] < 0.01 and back[-1] == pytest.approx(0.12)
+
+
+def test_the_command_delay_still_fades_out_with_speed(monkeypatch):
+  lac, VM, _ = _controller(monkeypatch)
+  assert _delays(lac, VM, ["actionHead"] * 3, v_ego=20.0)[-1] == pytest.approx(0.0)

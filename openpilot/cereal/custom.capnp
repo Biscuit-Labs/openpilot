@@ -1438,3 +1438,16 @@ struct ReprojectFit @0x89de5e4f75e86f24 {
   lastFrameId @4 :UInt32;
   lastAccepted @5 :Bool;
 }
+
+# Where modeld's steering curvature comes from, every frame (Night Star port; selfdrive/modeld/lateral_source.py). The
+# Honda EPS controller sizes its command delay from it.
+struct ModelLateralSource @0x91cee961a24515f3 {
+  source @0 :Source;
+
+  enum Source {
+    unknown @0;        # no message yet, or a plan read through the MIN_STABLE_DELAY floor
+    plan @1;           # a catalog model's plan, read at the lateral action time exactly
+    actionHead @2;     # the model's own action output (v14-v16)
+    curvatureHead @3;  # the model's desired_curvature output (v9)
+  }
+}

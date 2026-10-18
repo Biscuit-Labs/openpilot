@@ -52,6 +52,7 @@ import uuid
 from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, should_stop, smooth_value, get_curvature_from_plan
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
+from openpilot.selfdrive.modeld.lateral_source import lateral_source
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, modeld_pkl_path, load_oob, wait_for_chestnut
 
@@ -327,6 +328,10 @@ def main(demo=False):
   else:
     CP = messaging.log_from_bytes(params.get("CarParams", block=True), car.CarParams)
   cloudlog.info("modeld got CarParams: %s", CP.brand)
+  # A car on LatControlHondaEps tells the model its calibration's measured delay schedule instead of lagd's, as controlsd
+  # does for the controller (Night Star port; the schedule and the command delay are sized together).
+  from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import lateral_delay_schedule, scheduled_lateral_delay
+  lat_delay_schedule = lateral_delay_schedule(CP)
 
   st = time.monotonic()
   cloudlog.warning("loading model")
@@ -410,7 +415,8 @@ def main(demo=False):
   config_realtime_process(7, 54)
 
   # messaging
-  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire"] + (["chestnutGpuState"] if CHESTNUT else [])
+  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire", "modelLateralSource"] + \
+    (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
                   "carControl", "controlsState", "lateralDelay", "starpilotNavigation", "longitudinalPlan"])
@@ -488,7 +494,8 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
-    lat_delay = sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
+    lateral_delay = scheduled_lateral_delay(lat_delay_schedule, v_ego) if lat_delay_schedule else sm["lateralDelay"].lateralDelay
+    lat_delay = lateral_delay + LAT_SMOOTH_SECONDS
     if sm.updated["extrinsicsCalibration"] and sm.seen['narrowRoadCameraState'] and sm.seen['deviceState']:
       device_from_calib_euler = np.array(sm["extrinsicsCalibration"].rpyCalib, dtype=np.float32)
       # the virtual pair has the comma 4's cameras
@@ -588,6 +595,9 @@ def main(demo=False):
       else:
         action = get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       prev_action = action
+      source_send = messaging.new_message('modelLateralSource')
+      source_send.modelLateralSource.source = lateral_source(model, model_output)
+      pm.send('modelLateralSource', source_send)
       fill_model_msg(modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
                      frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, extrinsics_calibration_seen)

@@ -72,6 +72,7 @@ _services: dict[str, tuple] = {
   "mapdOut": (True, 20., 10),
   "reprojectState": (True, 20., 10),
   "reprojectFit": (True, 2., 1),
+  "modelLateralSource": (True, 20., 20),
   "mapdExtendedOut": (True, 1., 1),
   "mapdIn": (True, 1., 1),
   "lateralManeuverPlan": (True, 20.),

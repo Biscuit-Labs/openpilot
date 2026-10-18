@@ -3340,6 +3340,7 @@ struct Event {
     CHESTNUT_GPU_STATE,
     REPROJECT_STATE,
     REPROJECT_FIT,
+    MODEL_LATERAL_SOURCE,
   };
 
   struct _capnpPrivate {
@@ -23399,6 +23400,10 @@ public:
   inline bool hasReprojectFit() const;
   inline  ::cereal::ReprojectFit::Reader getReprojectFit() const;
 
+  inline bool isModelLateralSource() const;
+  inline bool hasModelLateralSource() const;
+  inline  ::cereal::ModelLateralSource::Reader getModelLateralSource() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -24665,6 +24670,14 @@ public:
   inline  ::cereal::ReprojectFit::Builder initReprojectFit();
   inline void adoptReprojectFit(::capnp::Orphan< ::cereal::ReprojectFit>&& value);
   inline ::capnp::Orphan< ::cereal::ReprojectFit> disownReprojectFit();
+
+  inline bool isModelLateralSource();
+  inline bool hasModelLateralSource();
+  inline  ::cereal::ModelLateralSource::Builder getModelLateralSource();
+  inline void setModelLateralSource( ::cereal::ModelLateralSource::Reader value);
+  inline  ::cereal::ModelLateralSource::Builder initModelLateralSource();
+  inline void adoptModelLateralSource(::capnp::Orphan< ::cereal::ModelLateralSource>&& value);
+  inline ::capnp::Orphan< ::cereal::ModelLateralSource> disownModelLateralSource();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -60126,6 +60139,60 @@ inline ::capnp::Orphan< ::cereal::ReprojectFit> Event::Builder::disownReprojectF
   KJ_IREQUIRE((which() == Event::REPROJECT_FIT),
               "Must check which() before get()ing a union member.");
   return ::capnp::_::PointerHelpers< ::cereal::ReprojectFit>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline bool Event::Reader::isModelLateralSource() const {
+  return which() == Event::MODEL_LATERAL_SOURCE;
+}
+inline bool Event::Builder::isModelLateralSource() {
+  return which() == Event::MODEL_LATERAL_SOURCE;
+}
+inline bool Event::Reader::hasModelLateralSource() const {
+  if (which() != Event::MODEL_LATERAL_SOURCE) return false;
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool Event::Builder::hasModelLateralSource() {
+  if (which() != Event::MODEL_LATERAL_SOURCE) return false;
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::ModelLateralSource::Reader Event::Reader::getModelLateralSource() const {
+  KJ_IREQUIRE((which() == Event::MODEL_LATERAL_SOURCE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ModelLateralSource>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::cereal::ModelLateralSource::Builder Event::Builder::getModelLateralSource() {
+  KJ_IREQUIRE((which() == Event::MODEL_LATERAL_SOURCE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ModelLateralSource>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::setModelLateralSource( ::cereal::ModelLateralSource::Reader value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::MODEL_LATERAL_SOURCE);
+  ::capnp::_::PointerHelpers< ::cereal::ModelLateralSource>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::ModelLateralSource::Builder Event::Builder::initModelLateralSource() {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::MODEL_LATERAL_SOURCE);
+  return ::capnp::_::PointerHelpers< ::cereal::ModelLateralSource>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void Event::Builder::adoptModelLateralSource(
+    ::capnp::Orphan< ::cereal::ModelLateralSource>&& value) {
+  _builder.setDataField<Event::Which>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, Event::MODEL_LATERAL_SOURCE);
+  ::capnp::_::PointerHelpers< ::cereal::ModelLateralSource>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::ModelLateralSource> Event::Builder::disownModelLateralSource() {
+  KJ_IREQUIRE((which() == Event::MODEL_LATERAL_SOURCE),
+              "Must check which() before get()ing a union member.");
+  return ::capnp::_::PointerHelpers< ::cereal::ModelLateralSource>::disown(_builder.getPointerField(
       ::capnp::bounded<0>() * ::capnp::POINTERS));
 }
 

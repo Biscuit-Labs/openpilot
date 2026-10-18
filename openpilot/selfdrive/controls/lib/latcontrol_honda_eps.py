@@ -8,16 +8,19 @@ the car's own image (eps_firmware_ff.EpsFirmwareCalibration), picked by the EPS 
 
 Which cars get it: a calibration with default_on (the Clarity, where it was developed and validated) always; the other
 PTM cars (Civic A030/TEG/C020/C120/TGG-A120, Insight, CR-V) only with HondaEpsController on, because parts of
-their calibration are carried over from a related car until a drive measures them. A car with no calibration, or whose
-torque map is not the linear [0, E4 cap] the calibration expects, keeps LatControlPID. The setting is read once, when
+their calibration are carried over from a related car until a drive measures them. A car with no calibration, whose
+torque map is not the linear [0, E4 cap] the calibration expects, or with no firmware A table for its rack map, keeps
+LatControlPID. The setting is read once, when
 controlsd starts.
 Per vehicle, from its calibration: the command delay (cmd_delay_s) and the model-delay schedule (lat_delay_schedule),
-every car (measured ones, else a default), and the yaw-identified rack map (rack) where one was identified.
+every car (measured ones, else a default), and the rack map (rack): yaw-fitted on the car, else predicted from its
+published specs (honda_eps_spec_plant).
 
 This shell does what LatControlPID does around its PID for a modified-EPS Honda, reusing the same helpers so
-each setting behaves identically: curvature -> wheel angle through the firmware VGR table (with the ratio and
-slip factor identified against the yaw sensor where the calibration has one, honda_eps_rack_map.HondaEpsRackMap) or the road-measured ratio
-curve (HondaEpsFirmwareVgr), the angle-rate ceiling (HondaEpsAngleRateLimit), the shared
+each setting behaves identically, except the geometry: curvature -> wheel angle through the calibration's rack map
+(the firmware VGR table, a rack ratio by angle and a slip factor, honda_eps_rack_map.HondaEpsRackMap; every calibration
+has one, so HondaEpsFirmwareVgr and the road-measured ratio curves are LatControlPID's only), the angle-rate ceiling
+(HondaEpsAngleRateLimit), the shared
 driver-override detector, and the speed-banded output low-pass (HondaTorqueOutputLowPassFilter /
 HondaTorqueOutputLpfTau*). Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
 
@@ -32,18 +35,21 @@ import numpy as np
 
 from openpilot.cereal import custom, log
 from opendbc.car.honda.carcontroller import get_eps_modified_steering_pressed
-from opendbc.car.honda.steer_ratio import get_honda_vgr_inverse, normalize_honda_eps_fw, vgr_linear_to_physical
+from opendbc.car.honda.steer_ratio import get_honda_vgr_inverse, normalize_honda_eps_fw
 from opendbc.car.honda.values import CarControllerParams, HondaFlags
 from openpilot.common.params import Params
 from openpilot.common.swaglog import cloudlog
+from openpilot.selfdrive.controls.lib.honda_eps_calibrations import (
+  REQUIRED_PTM_RWD,
+  provenance_summary,
+  select_eps_firmware_calibration,
+)
 from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import (
   HondaEpsFirmwareFeedforward,
   HondaEpsLateralCore,
   EpsFirmwareCalibration,
   OVERRIDE_FADE_UP_S_DEFAULT,
   command_delay,
-  provenance_summary,
-  select_eps_firmware_calibration,
 )
 from openpilot.selfdrive.controls.lib.honda_eps_rack_map import HondaEpsRackMap
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
@@ -56,6 +62,14 @@ from openpilot.selfdrive.controls.lib.honda_lateral_common import (
 )
 
 SETTINGS_REFRESH_FRAMES = 300
+
+# The command delay makes up for the part of the told delay the model does not follow, so it depends on where the
+# steering comes from (starpilotModelV2.lateralSource). A plan model is read at the told delay exactly (this fork has no
+# MIN_STABLE_DELAY floor), so telling it the measured lag already lands the car on time: no command delay. An action
+# head (Cinque v3) moves its aim only ~0.53 of a change in the told delay, which is what the calibration's command
+# delay was measured against; a curvature head and an unknown source (older logs, no message yet) take it too.
+CMD_DELAY_SCALE_BY_SOURCE = {"plan": 0.0}
+CMD_DELAY_RAMP_S = 1.0  # s, from one source's command delay to the other's when the model changes
 
 
 
@@ -97,6 +111,8 @@ def matching_eps_firmware_calibration(CP) -> EpsFirmwareCalibration | None:
   ccp = CarControllerParams(CP)
   if [float(x) for x in ccp.STEER_LOOKUP] != [-cap, 0.0, cap] or [float(x) for x in ccp.STEER_LOOKUP_V] != [-cap, 0.0, cap]:
     return None
+  if calibration.rack is None or get_honda_vgr_inverse(CP.flags) is None:  # its geometry: see get_rack_map
+    return None
   return calibration
 
 
@@ -126,7 +142,8 @@ def scheduled_lateral_delay(schedule: tuple, v_ego: float) -> float:
 
 
 def get_rack_map(CP, calibration: EpsFirmwareCalibration | None) -> HondaEpsRackMap | None:
-  """The yaw-identified rack map, for a calibration that has one and the firmware VGR table it was identified through."""
+  """The calibration's rack map (yaw-fitted or spec-predicted), on the firmware VGR table it was made for; None when
+  either is missing, and then eps_firmware_calibration keeps the car on LatControlPID."""
   vgr_inverse = get_honda_vgr_inverse(CP.flags)
   if calibration is None or calibration.rack is None or vgr_inverse is None:
     return None
@@ -149,15 +166,19 @@ class LatControlHondaEps(LatControl):
     self.params = Params()
     self.calibration = calibration if calibration is not None else eps_firmware_calibration(CP, self.params)
     assert self.calibration is not None, f"no EPS firmware calibration for {CP.carFingerprint}"
+    required = REQUIRED_PTM_RWD.get(self.calibration.name)
     cloudlog.info(f"LatControlHondaEps: {CP.carFingerprint} steering with EPS calibration {self.calibration.name} " +
-                  f"({provenance_summary(self.calibration)})")
+                  f"({provenance_summary(self.calibration)})" +
+                  (f"; requires the corrected PTM build, RWD sha256 {required}..." if required else ""))
     pid = CP.lateralTuning.pid
     self.core = HondaEpsLateralCore([float(x) for x in pid.kpBP], [float(x) for x in pid.kpV],
                                        [float(x) for x in pid.kiBP], [float(x) for x in pid.kiV], dt,
                                        ff=HondaEpsFirmwareFeedforward(dt, cal=self.calibration))
-    self.vgr_inverse = get_honda_vgr_inverse(CP.flags)
     self.rack_map = get_rack_map(CP, self.calibration)
+    assert self.rack_map is not None, f"no rack map for {self.calibration.name}"
     self.cmd_delay = CommandDelay(dt, self.calibration.cmd_delay_s)
+    self.lateral_source = "unknown"
+    self.cmd_delay_scale = 1.0
     self.frame = -1
     self.prev_rate_limited_angle = 0.0
     self.steering_pressed_filter_s = 0.0
@@ -175,6 +196,16 @@ class LatControlHondaEps(LatControl):
     )
     self.core.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs", OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
 
+  def update_lateral_source(self, source: str) -> None:
+    """controlsd: where the model's steering comes from (starpilotModelV2.lateralSource)."""
+    self.lateral_source = str(source)
+
+  def _command_delay(self, v_ego: float) -> float:
+    target = CMD_DELAY_SCALE_BY_SOURCE.get(self.lateral_source, 1.0)
+    step = self.dt / CMD_DELAY_RAMP_S
+    self.cmd_delay_scale += max(min(target - self.cmd_delay_scale, step), -step)
+    return self.cmd_delay_scale * command_delay(self.calibration, v_ego)
+
   def reset(self):
     super().reset()
     self.core.reset()
@@ -182,14 +213,9 @@ class LatControlHondaEps(LatControl):
     self.steering_pressed_prev = False
 
   def _desired_angle_no_offset(self, VM, v_ego, roll, desired_curvature):
-    # Geometry: the yaw-identified rack map where the car has one (road-measured against the car's own yaw
-    # sensor on the exact firmware table), else the exact image's firmware VGR table, else paramsd's fixed ratio. The
-    # road-fit steer-ratio curves are no longer used (they read ~12% high at centre against yaw), so
-    # HondaEpsFirmwareVgr is inert.
-    if self.rack_map is not None:
-      return self.rack_map.angle_from_curvature(desired_curvature, v_ego, roll)
-    linear = math.degrees(VM.get_steer_from_curvature(-desired_curvature, v_ego, roll))
-    return vgr_linear_to_physical(linear, self.vgr_inverse)
+    # The calibration's rack map is the geometry: fitted against the car's own yaw sensor, or predicted from its
+    # specs, on the exact firmware table. paramsd's steer ratio (VM) is not used.
+    return self.rack_map.angle_from_curvature(desired_curvature, v_ego, roll)
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited,
              lat_delay, calibrated_pose=None, model_data=None, starpilot_toggles=None):
@@ -198,7 +224,7 @@ class LatControlHondaEps(LatControl):
     pid_log.steeringAngleDeg = float(CS.steeringAngleDeg)
     pid_log.steeringRateDeg = float(CS.steeringRateDeg)
 
-    cmd_delay = command_delay(self.calibration, CS.vEgo)
+    cmd_delay = self._command_delay(CS.vEgo)
     desired_curvature = self.cmd_delay.update(desired_curvature, cmd_delay)
     angle_des_no_offset = self._desired_angle_no_offset(VM, CS.vEgo, params.roll, desired_curvature)
     if active:

@@ -106,7 +106,7 @@ def assert_modified_eps_tune(candidate, version, cp):
   lookup = CarControllerParams(cp)
   cap = MODIFIED_EPS_CAP.get(candidate)
   if candidate == CAR.HONDA_CIVIC_BOSCH:
-    cap = 3840 if version == b'39990-TBA,C120\x00\x00' else 4096  # C020/TGG keep the native 4096 range
+    cap = 3840  # every Civic Bosch image (C020/C120/TGG) clamps its command input at E4 3840
   assert lookup.STEER_LOOKUP == [-cap, 0, cap] == lookup.STEER_LOOKUP_V
 
 
@@ -182,3 +182,16 @@ def test_stock_lookup_and_tunes_do_not_acquire_modified_marker(candidate):
 
 def test_recognized_modified_eps_inventory_is_exact_original_subset():
   assert set(KNOWN_CASES + FLEET_CASES) == {(car, version) for car, versions in MODIFIED_EPS_FW.items() for version in versions}
+
+
+@pytest.mark.parametrize("candidate,expected", [(CAR.HONDA_CIVIC_BOSCH, 3840), (CAR.HONDA_INSIGHT, 3840),
+                                                (CAR.HONDA_CIVIC_BOSCH_DIESEL, 4096)])
+def test_stock_eps_command_range_stops_at_the_firmware_clamp(candidate, expected):
+  # The Civic Bosch and Insight EPS clamp their command input at key 1663 = E4 3840 in stock firmware too, so a stock
+  # car is sent 3840 as well (ns-bosch 31bec62c2c / 43e3698dc8); the diesel's EPS image has not been read.
+  from opendbc.car.honda.interface import CarInterface
+  from opendbc.car.honda.values import CarControllerParams
+  CP = CarInterface.get_non_essential_params(candidate)
+  assert not CP.flags & HondaFlags.EPS_MODIFIED
+  ccp = CarControllerParams(CP)
+  assert ccp.STEER_MAX == expected and ccp.STEER_LOOKUP == [-expected, 0, expected]

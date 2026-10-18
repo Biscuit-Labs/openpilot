@@ -444,6 +444,15 @@ enum class Why_b3fabd4671fd9302: uint16_t {
   FEATURES,
 };
 CAPNP_DECLARE_ENUM(Why, b3fabd4671fd9302);
+CAPNP_DECLARE_SCHEMA(91cee961a24515f3);
+CAPNP_DECLARE_SCHEMA(a918e7ad4cd7212c);
+enum class Source_a918e7ad4cd7212c: uint16_t {
+  UNKNOWN,
+  PLAN,
+  ACTION_HEAD,
+  CURVATURE_HEAD,
+};
+CAPNP_DECLARE_ENUM(Source, a918e7ad4cd7212c);
 
 }  // namespace schemas
 }  // namespace capnp
@@ -1684,6 +1693,23 @@ struct ReprojectFit {
 
   struct _capnpPrivate {
     CAPNP_DECLARE_STRUCT_HEADER(89de5e4f75e86f24, 2, 1)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct ModelLateralSource {
+  ModelLateralSource() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+  typedef ::capnp::schemas::Source_a918e7ad4cd7212c Source;
+
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(91cee961a24515f3, 1, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -12847,6 +12873,82 @@ private:
 class ReprojectFit::Pipeline {
 public:
   typedef ReprojectFit Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class ModelLateralSource::Reader {
+public:
+  typedef ModelLateralSource Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::cereal::ModelLateralSource::Source getSource() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class ModelLateralSource::Builder {
+public:
+  typedef ModelLateralSource Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::cereal::ModelLateralSource::Source getSource();
+  inline void setSource( ::cereal::ModelLateralSource::Source value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class ModelLateralSource::Pipeline {
+public:
+  typedef ModelLateralSource Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -30990,6 +31092,20 @@ inline bool ReprojectFit::Builder::getLastAccepted() {
 inline void ReprojectFit::Builder::setLastAccepted(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<40>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::cereal::ModelLateralSource::Source ModelLateralSource::Reader::getSource() const {
+  return _reader.getDataField< ::cereal::ModelLateralSource::Source>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::ModelLateralSource::Source ModelLateralSource::Builder::getSource() {
+  return _builder.getDataField< ::cereal::ModelLateralSource::Source>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void ModelLateralSource::Builder::setSource( ::cereal::ModelLateralSource::Source value) {
+  _builder.setDataField< ::cereal::ModelLateralSource::Source>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
 }
 
 }  // namespace

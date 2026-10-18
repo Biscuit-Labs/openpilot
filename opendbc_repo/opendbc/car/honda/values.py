@@ -52,9 +52,13 @@ class CarControllerParams:
       self.STEER_MAX = 1000  # TODO: determine if there is a dead zone at the top end
     elif CP.carFingerprint in (CAR.ACURA_ILX, CAR.HONDA_CRV_5G, CAR.ACURA_RDX_3G, CAR.ACURA_TLX_2G_MMR, CAR.ACURA_MDX_4G):
       self.STEER_MAX = 3840  # TODO: determine if there is a dead zone at the top end (ACURA_ILX)
-    elif CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL, CAR.HONDA_CIVIC_2022, CAR.HONDA_ACCORD,
+    elif CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_INSIGHT):
+      # Night Star port: the Civic Bosch (TBA-C020, TBA-C120, TGG-A120) and Insight (TXM-A040) EPS clamp their command
+      # input at key 1663 = E4 3840, stock firmware and PTM builds alike, so above 3840 the request did nothing.
+      self.STEER_MAX = 3840
+    elif CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH_DIESEL, CAR.HONDA_CIVIC_2022, CAR.HONDA_ACCORD,
                                CAR.HONDA_CRV_HYBRID, CAR.HONDA_FIT, CAR.HONDA_FREED, CAR.HONDA_HRV, CAR.HONDA_HRV_3G,
-                               CAR.HONDA_ODYSSEY, CAR.HONDA_PILOT, CAR.HONDA_RIDGELINE, CAR.HONDA_INSIGHT, CAR.HONDA_NBOX_2G,
+                               CAR.HONDA_ODYSSEY, CAR.HONDA_PILOT, CAR.HONDA_RIDGELINE, CAR.HONDA_NBOX_2G,
                                CAR.HONDA_E, CAR.HONDA_E_ADVANCE, CAR.HONDA_PRELUDE_6G, CAR.HONDA_FIT_4G, CAR.ACURA_INTEGRA):
       # TODO: determine if there is a dead zone at the top end (except HONDA_FREED, HONDA_HRV, HONDA_HRV_3G)
       self.STEER_MAX = 4096
@@ -75,13 +79,12 @@ class CarControllerParams:
       # Modified-EPS command maps (vfn interface.py torqueBP/torqueV): the steering command is the output
       # times the image's cap, one straight segment, where the stock maps are piecewise.
       eps_map = None
-      if CP.carFingerprint in (CAR.HONDA_CIVIC, CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT):
-        eps_map = ([0, 3840], [0, 3840])
+      if CP.carFingerprint in (CAR.HONDA_CIVIC, CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC_BOSCH):
+        eps_map = ([0, 3840], [0, 3840])   # each image's E4 3840 clamp (the Civic Bosch C020/C120/TGG alike)
       elif CP.carFingerprint in (CAR.HONDA_CRV_5G, CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR):
         eps_map = ([0, 4096], [0, 4096])
-      elif CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL):
-        # C020 keeps its native 4096 range and rack model; the C120 image caps at 3840
-        eps_map = ([0, 3840], [0, 3840]) if CP.flags & HondaFlags.VGR_CIVIC_TBA_C120 else ([0, 4096], [0, 4096])
+      elif CP.carFingerprint == CAR.HONDA_CIVIC_BOSCH_DIESEL:
+        eps_map = ([0, 4096], [0, 4096])   # its EPS image has not been read
       elif CP.carFingerprint == CAR.HONDA_CIVIC_2022:
         eps_map = ([0, 2564, 8000], [0, 2564, 3840])
       if eps_map is not None:

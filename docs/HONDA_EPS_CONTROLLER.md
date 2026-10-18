@@ -1,7 +1,7 @@
 # Honda EPS controller (`LatControlHondaEps`)
 
 The lateral controller for Hondas whose EPS runs a PTM (Proper Torque Mod) image: Clarity TRW-A020, Civic TBA-C020 /
-TBA-C120 / TGG-A120 / TBA-A030 / TEG-A010, Insight TXM-A040, CR-V TLA-A040 / TLA-A220. Every one of those images runs
+TBA-C120 / TGG-A120 / TBA-A030 / TEG-A010, Insight TXM-A040, CR-V TLA-A040 / TLA-A220, Acura RDX 3G TJB-A220. Every one of those images runs
 the same firmware control law with its own tables, so one controller serves them all; what differs per car lives in
 one calibration record per EPS image.
 
@@ -41,7 +41,8 @@ it.
 
 ### Modified-EPS PID fallback
 
-A modified image with no calibration yet (Civic Bosch TGG-A020, Accord TVA-A150, RDX TJB-A220) runs
+A modified image with no calibration yet (Civic Bosch TGG-A020, Accord TVA-A150, and the TJB-A220 on the 2022+ RDX,
+whose calibration is keyed to `ACURA_RDX_3G`) runs
 `LatControlHondaModifiedPID`, the angle-space PID the PTM cars ran before this controller. It stays until those images
 get a first calibration. Every other PID car keeps 7.0's stock `LatControlPID`.
 
@@ -69,7 +70,9 @@ them apart: `REQUIRED_PTM_RWD` names the build each calibration models, and the 
   published specs (`honda_eps_spec_plant`): every measured map is the A table, a tan, and one centre ratio R0, and R0
   comes from the published lock-to-lock turns and lock ratio through the A table (held out one car at a time, 1.6%
   rms, 2.5% worst); the slip factor comes from the axle loads (within 10%). The A030 carries the TEG-A010's measured
-  map (same car, same A table). Every calibration has one, and a car whose firmware A table is unknown stays on the
+  map (same car, same A table). The RDX's TJB-A220 image has no A table at all: its linear map is integrated from the EPS's own
+  0x18F rate word, which quickens with the rack, and the rack map is fitted on its yaw through it. That map is set from the
+  EPS image, so the 2022+ RDX gets it too (the same PTM runs on every 3G RDX, 2019-2026). Every calibration has one, and a car whose firmware A table is unknown stays on the
   modified PID; paramsd's steer ratio, the road-measured curves and `HondaEpsFirmwareVgr` apply to the modified PID
   only.
 - **Column load.** Measured per car, or carried over from the same platform. `spec_load_terms` predicts one from

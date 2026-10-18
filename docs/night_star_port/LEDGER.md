@@ -53,10 +53,10 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/controls/lib/honda_lateral_common.py` | bosch+vfn | 191 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1; SR curves kept as data only, not used by controllers) |
 | `selfdrive/controls/tests/test_latcontrol_pid_override_fade.py` | bosch+vfn | 99 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 3) |
 | `selfdrive/controls/lib/honda_eps_rack_map.py` | bosch+vfn | 92 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 1) |
-| `system/manager/test/test_honda_eps_param_migration.py` | bosch+vfn | 52 | new | **gone** | PORT - plug into lateral_controller_factory | todo |
+| `system/manager/test/test_honda_eps_param_migration.py` | bosch+vfn | 52 | new | **gone** | PORT - plug into lateral_controller_factory | done: test_honda_eps_settings (slice 5) |
 | `selfdrive/controls/tests/test_latcontrol_pid_clarity_symmetry.py` | bosch+vfn | 45 | new | **gone** | PORT - plug into lateral_controller_factory | done (slice 3) |
 | `starpilot/controls/lib/neural_network_feedforward.py` | bosch+vfn | 17 | mod | **gone** | PORT - plug into lateral_controller_factory | dropped: NNFF not ported (7.0 removed it) |
-| `selfdrive/controls/tests/test_latcontrol.py` | bosch+vfn | 1 | mod | `openpilot/selfdrive/controls/tests/test_latcontrol.py` | PORT - plug into lateral_controller_factory | todo |
+| `selfdrive/controls/tests/test_latcontrol.py` | bosch+vfn | 1 | mod | `openpilot/selfdrive/controls/tests/test_latcontrol.py` | PORT - plug into lateral_controller_factory | done: slices 2-3 (controller factory) |
 
 ### modeld / models
 
@@ -89,55 +89,55 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `scripts/model_rebuild_pipeline.py` | vfn | 5 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
 | `selfdrive/modeld/get_model_metadata.py` | vfn | 4 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
 | `starpilot/system/the_galaxy/assets/components/tools/model_manager.js` | bosch | 3 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.chunkmanifest` | vfn | 1 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.sha256` | vfn | 1 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/dmonitoring_model.onnx` | vfn | 0 | mod | `openpilot/selfdrive/modeld/models/dmonitoring_model.onnx` | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_supercombo.onnx` | vfn | 0 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk01of02` | vfn | 0 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk01of03` | vfn | 0 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk02of02` | vfn | 0 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk02of03` | vfn | 0 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
-| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk03of03` | vfn | 0 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | todo |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.chunkmanifest` | vfn | 1 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.sha256` | vfn | 1 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/dmonitoring_model.onnx` | vfn | 0 | mod | `openpilot/selfdrive/modeld/models/dmonitoring_model.onnx` | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_supercombo.onnx` | vfn | 0 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk01of02` | vfn | 0 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk01of03` | vfn | 0 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk02of02` | vfn | 0 | new | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk02of03` | vfn | 0 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
+| `selfdrive/modeld/models/driving_tinygrad.pkl.chunk03of03` | vfn | 0 | mod | **gone** | REVIEW each vs 7.0 comma-master modeld | dropped: 7.0's model pipeline |
 
 ### tools
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `eps_tools/flash.py` | bosch+vfn | 535 | new | **gone** | COPY - standalone tools | todo |
-| `tune_report.py` | bosch+vfn | 463 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/eps-diag.py` | bosch+vfn | 347 | new | **gone** | COPY - standalone tools | todo |
-| `tools/lateral/eps_report.py` | bosch+vfn | 318 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/eps-update.py` | bosch+vfn | 315 | new | **gone** | COPY - standalone tools | todo |
-| `tools/lateral/fit_rack_map.py` | bosch+vfn | 221 | new | **gone** | COPY - standalone tools | todo |
-| `tools/lateral/fit_column_load.py` | bosch+vfn | 146 | new | **gone** | COPY - standalone tools | todo |
-| `tools/lateral/plan_timing.py` | bosch+vfn | 141 | new | **gone** | COPY - standalone tools | todo |
-| `tools/replay/lib/radar_debug.py` | bosch+vfn | 114 | new | **gone** | COPY - standalone tools | todo |
-| `tools/lateral/fit_yaw_scale.py` | bosch+vfn | 113 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/check_rwd.py` | bosch+vfn | 104 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/README.md` | bosch+vfn | 91 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd_format/x31.py` | bosch+vfn | 91 | new | **gone** | COPY - standalone tools | todo |
-| `tools/lateral/live_row_fit.py` | bosch+vfn | 74 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/README.md` | bosch+vfn | 73 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd_format/base.py` | bosch+vfn | 60 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd_format/x5a.py` | bosch+vfn | 60 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd_format/header.py` | bosch+vfn | 35 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd_format/header_value.py` | bosch+vfn | 24 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TBA,C020-20260805-ClarityPminus5-P117to265-D737-KFF45-Norm1650-Trk4500-TargetMapD-Telem-SpeedClamp0-Pclamp7373.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TBA-C120-linear-max.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TBA-C120-stock.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TLA-A040-linear-max.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TLA-A040-stock.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TLA-A040_tq30000_a9000_44256c0b.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TRW-A020-06.18.2026-stable.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TXM-A040-linear-max.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/39990-TXM-A040-stock.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/Clarity-1663.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/ClarityMax-20260719-1202-FFV1.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/ClarityMax-20260719-1202-Smooth.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/ClarityMax-20260722-1806-FF45-Tracker3200-Norm1650-3840.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/Clarity_PShapeSmooth_KFF45_R6Lead_R6L2_B6_NoSHLL2_CCP728_Telem6A3_TXFIX.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd/Clarity_R6L2_B6_FFV1P_KFF8_NoSHLL2_CCP728_Telem6A3_TXFIX.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
-| `eps_tools/rwd_format/__init__.py` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | todo |
+| `eps_tools/flash.py` | bosch+vfn | 535 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `tune_report.py` | bosch+vfn | 463 | new | **gone** | COPY - standalone tools | dropped: you dropped the tune report |
+| `eps_tools/eps-diag.py` | bosch+vfn | 347 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `tools/lateral/eps_report.py` | bosch+vfn | 318 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `eps_tools/eps-update.py` | bosch+vfn | 315 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `tools/lateral/fit_rack_map.py` | bosch+vfn | 221 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/lateral/fit_column_load.py` | bosch+vfn | 146 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/lateral/plan_timing.py` | bosch+vfn | 141 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/replay/lib/radar_debug.py` | bosch+vfn | 114 | new | **gone** | COPY - standalone tools | done: replay radar roles on 7.0's raylib UI |
+| `tools/lateral/fit_yaw_scale.py` | bosch+vfn | 113 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `eps_tools/check_rwd.py` | bosch+vfn | 104 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/README.md` | bosch+vfn | 91 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/rwd_format/x31.py` | bosch+vfn | 91 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `tools/lateral/live_row_fit.py` | bosch+vfn | 74 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `eps_tools/rwd/README.md` | bosch+vfn | 73 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/rwd_format/base.py` | bosch+vfn | 60 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/rwd_format/x5a.py` | bosch+vfn | 60 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/rwd_format/header.py` | bosch+vfn | 35 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/rwd_format/header_value.py` | bosch+vfn | 24 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
+| `eps_tools/rwd/39990-TBA,C020-20260805-ClarityPminus5-P117to265-D737-KFF45-Norm1650-Trk4500-TargetMapD-Telem-SpeedClamp0-Pclamp7373.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TBA-C120-linear-max.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TBA-C120-stock.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TLA-A040-linear-max.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TLA-A040-stock.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TLA-A040_tq30000_a9000_44256c0b.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TRW-A020-06.18.2026-stable.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TXM-A040-linear-max.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/39990-TXM-A040-stock.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/Clarity-1663.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/ClarityMax-20260719-1202-FFV1.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/ClarityMax-20260719-1202-Smooth.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/ClarityMax-20260722-1806-FF45-Tracker3200-Norm1650-3840.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/Clarity_PShapeSmooth_KFF45_R6Lead_R6L2_B6_NoSHLL2_CCP728_Telem6A3_TXFIX.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd/Clarity_R6L2_B6_FFV1P_KFF8_NoSHLL2_CCP728_Telem6A3_TXFIX.rwd` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | kept out of the repo (eps_tools/rwd/README.md); your call |
+| `eps_tools/rwd_format/__init__.py` | bosch+vfn | 0 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
 
 ### Honda car layer
 
@@ -145,7 +145,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 |---|---|---:|---|---|---|---|
 | `opendbc_repo/opendbc/car/honda/carcontroller.py` | bosch+vfn | 586 | mod | `opendbc_repo/opendbc/car/honda/carcontroller.py` | PORT onto 7.0 refactored Honda | wip (slices 4+6 lateral done; long side is slice 8) |
 | `opendbc_repo/opendbc/car/honda/tests/test_carcontroller_learners.py` | bosch+vfn | 526 | new | **gone** | PORT onto 7.0 refactored Honda | dropped: planner-level, left to StarPilot 7.0 |
-| `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | bosch+vfn | 327 | mod | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | PORT onto 7.0 refactored Honda | todo |
+| `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | bosch+vfn | 327 | mod | `opendbc_repo/opendbc/car/honda/tests/test_honda.py` | PORT onto 7.0 refactored Honda | done: split into the ported test files (slices 4-6, 8) |
 | `opendbc_repo/opendbc/car/honda/steer_ratio.py` | bosch+vfn | 292 | new | **gone** | PORT onto 7.0 refactored Honda | done (slice 1) |
 | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | bosch+vfn | 194 | mod | `opendbc_repo/opendbc/car/honda/tests/test_bosch_a_radar.py` | PORT onto 7.0 refactored Honda | done: Trung's decoder in bosch_a_radar.py (DBC kept as 7.0) |
 | `opendbc_repo/opendbc/car/honda/interface.py` | bosch+vfn | 139 | mod | `opendbc_repo/opendbc/car/honda/interface.py` | PORT onto 7.0 refactored Honda | wip (slice 2 lateral done; Bosch-A radar default, vEgoStopping, Nidec hybrid safety still todo) |
@@ -189,34 +189,34 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
 | `selfdrive/ui/layouts/settings/starpilot/nrdr_tuning.py` | bosch+vfn | 500 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | done: Night Star page; tune report dropped |
-| `selfdrive/assets/fonts/como-heavy.fnt` | bosch+vfn | 96 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/mici/tests/test_mici_device_reboot.py` | bosch+vfn | 55 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/widgets/exp_mode_button.py` | bosch+vfn | 55 | mod | `openpilot/selfdrive/ui/widgets/exp_mode_button.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/onroad/augmented_road_view.py` | vfn | 37 | mod | `openpilot/selfdrive/ui/onroad/augmented_road_view.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/lateral.py` | bosch+vfn | 36 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/settings.py` | bosch+vfn | 33 | mod | `openpilot/selfdrive/ui/layouts/settings/settings.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/lib/starpilot_version.py` | bosch+vfn | 25 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/mici/layouts/settings/device.py` | bosch+vfn | 19 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/ui_state.py` | bosch+vfn | 13 | mod | `openpilot/selfdrive/ui/ui_state.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/aethergrid.py` | bosch+vfn | 11 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/lib/tests/test_starpilot_version.py` | bosch+vfn | 11 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/soundd.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/ui/soundd.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/home.py` | bosch+vfn | 8 | mod | `openpilot/selfdrive/ui/layouts/home.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/vehicle.py` | bosch+vfn | 6 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/mici/layouts/home.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/ui/mici/layouts/home.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/main_panel.py` | bosch+vfn | 5 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/mici/layouts/settings/settings.py` | bosch | 5 | mod | `openpilot/selfdrive/ui/mici/layouts/settings/settings.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/driving_model.py` | vfn | 4 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/panel.py` | bosch+vfn | 4 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/mici/layouts/settings/developer.py` | bosch | 2 | mod | `openpilot/selfdrive/ui/mici/layouts/settings/developer.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/tests/test_starpilot_navigation_structure.py` | bosch | 2 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/assets/fonts/process.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/device.py` | vfn | 1 | mod | `openpilot/selfdrive/ui/layouts/settings/device.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/starpilot/system_settings.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/mici/widgets/pairing_dialog.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `system/ui/lib/application.py` | bosch+vfn | 1 | mod | `openpilot/system/ui/lib/application.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/ui/layouts/settings/developer.py` | bosch | 1 | mod | `openpilot/selfdrive/ui/layouts/settings/developer.py` | REWRITE in 7.0 openpilot/starpilot/ui | todo |
-| `selfdrive/assets/fonts/como-heavy.png` | bosch+vfn | 0 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | todo |
+| `selfdrive/assets/fonts/como-heavy.fnt` | bosch+vfn | 96 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/mici/tests/test_mici_device_reboot.py` | bosch+vfn | 55 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/widgets/exp_mode_button.py` | bosch+vfn | 55 | mod | `openpilot/selfdrive/ui/widgets/exp_mode_button.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/onroad/augmented_road_view.py` | vfn | 37 | mod | `openpilot/selfdrive/ui/onroad/augmented_road_view.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/lateral.py` | bosch+vfn | 36 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/settings.py` | bosch+vfn | 33 | mod | `openpilot/selfdrive/ui/layouts/settings/settings.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/lib/starpilot_version.py` | bosch+vfn | 25 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/mici/layouts/settings/device.py` | bosch+vfn | 19 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/ui_state.py` | bosch+vfn | 13 | mod | `openpilot/selfdrive/ui/ui_state.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/aethergrid.py` | bosch+vfn | 11 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/lib/tests/test_starpilot_version.py` | bosch+vfn | 11 | new | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/soundd.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/ui/soundd.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/home.py` | bosch+vfn | 8 | mod | `openpilot/selfdrive/ui/layouts/home.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/vehicle.py` | bosch+vfn | 6 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/mici/layouts/home.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/ui/mici/layouts/home.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/main_panel.py` | bosch+vfn | 5 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/mici/layouts/settings/settings.py` | bosch | 5 | mod | `openpilot/selfdrive/ui/mici/layouts/settings/settings.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/driving_model.py` | vfn | 4 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/panel.py` | bosch+vfn | 4 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/mici/layouts/settings/developer.py` | bosch | 2 | mod | `openpilot/selfdrive/ui/mici/layouts/settings/developer.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/tests/test_starpilot_navigation_structure.py` | bosch | 2 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/assets/fonts/process.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/device.py` | vfn | 1 | mod | `openpilot/selfdrive/ui/layouts/settings/device.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/starpilot/system_settings.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/mici/widgets/pairing_dialog.py` | bosch+vfn | 1 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 7.0 provider system (Konik only on sp7-port) |
+| `system/ui/lib/application.py` | bosch+vfn | 1 | mod | `openpilot/system/ui/lib/application.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/ui/layouts/settings/developer.py` | bosch | 1 | mod | `openpilot/selfdrive/ui/layouts/settings/developer.py` | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
+| `selfdrive/assets/fonts/como-heavy.png` | bosch+vfn | 0 | mod | **gone** | REWRITE in 7.0 openpilot/starpilot/ui | dropped: 6.x UI, replaced by 7.0's UI and the Night Star page |
 
 ### long: Bosch-A radar
 
@@ -231,58 +231,58 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `starpilot/common/assets/device_settings_layout.json` | bosch+vfn | 483 | mod | **gone** | REWRITE against 7.0 galaxy | todo |
-| `starpilot/system/the_galaxy/assets/mobile/js/components/JetlinkModelsCard.js` | bosch | 83 | new | **gone** | REWRITE against 7.0 galaxy | todo |
-| `starpilot/system/the_galaxy/the_galaxy.py` | bosch+vfn | 68 | mod | **gone** | REWRITE against 7.0 galaxy | todo |
-| `starpilot/system/the_galaxy/tests/test_device_settings_layout.py` | bosch+vfn | 50 | mod | **gone** | REWRITE against 7.0 galaxy | todo |
-| `starpilot/system/the_galaxy/assets/components/tools/device_settings.js` | bosch+vfn | 12 | mod | **gone** | REWRITE against 7.0 galaxy | todo |
-| `starpilot/system/the_galaxy/tests/test_navigation_params.py` | bosch+vfn | 7 | mod | **gone** | REWRITE against 7.0 galaxy | todo |
-| `starpilot/system/the_galaxy/assets/mobile/js/views/ModelManager.js` | bosch | 4 | mod | **gone** | REWRITE against 7.0 galaxy | todo |
+| `starpilot/common/assets/device_settings_layout.json` | bosch+vfn | 483 | mod | **gone** | REWRITE against 7.0 galaxy | dropped: 6.x Galaxy, replaced by the Night Star page |
+| `starpilot/system/the_galaxy/assets/mobile/js/components/JetlinkModelsCard.js` | bosch | 83 | new | **gone** | REWRITE against 7.0 galaxy | dropped: 7.0 ships Jetlink |
+| `starpilot/system/the_galaxy/the_galaxy.py` | bosch+vfn | 68 | mod | **gone** | REWRITE against 7.0 galaxy | dropped: 6.x Galaxy, replaced by the Night Star page |
+| `starpilot/system/the_galaxy/tests/test_device_settings_layout.py` | bosch+vfn | 50 | mod | **gone** | REWRITE against 7.0 galaxy | dropped: 6.x Galaxy, replaced by the Night Star page |
+| `starpilot/system/the_galaxy/assets/components/tools/device_settings.js` | bosch+vfn | 12 | mod | **gone** | REWRITE against 7.0 galaxy | dropped: 6.x Galaxy, replaced by the Night Star page |
+| `starpilot/system/the_galaxy/tests/test_navigation_params.py` | bosch+vfn | 7 | mod | **gone** | REWRITE against 7.0 galaxy | dropped: 6.x Galaxy, replaced by the Night Star page |
+| `starpilot/system/the_galaxy/assets/mobile/js/views/ModelManager.js` | bosch | 4 | mod | **gone** | REWRITE against 7.0 galaxy | dropped: 7.0's model pipeline |
 
 ### other
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `selfdrive/controls/tests/test_turn_hold_shaping.py` | bosch+vfn | 142 | new | **gone** | REVIEW | todo |
-| `tools/replay/ui.py` | bosch+vfn | 108 | mod | `openpilot/tools/replay/ui.py` | REVIEW | todo |
-| `starpilot/assets/tests/test_model_pipeline.py` | bosch+vfn | 92 | mod | **gone** | REVIEW | todo |
-| `tools/replay/lib/ui_helpers.py` | bosch+vfn | 73 | mod | `openpilot/tools/replay/lib/ui_helpers.py` | REVIEW | todo |
-| `tools/StarPilot/feasibleparams.txt` | bosch+vfn | 65 | mod | **gone** | REVIEW | todo |
+| `selfdrive/controls/tests/test_turn_hold_shaping.py` | bosch+vfn | 142 | new | **gone** | REVIEW | dropped: feature not ported |
+| `tools/replay/ui.py` | bosch+vfn | 108 | mod | `openpilot/tools/replay/ui.py` | REVIEW | done: replay radar roles on 7.0's raylib UI |
+| `starpilot/assets/tests/test_model_pipeline.py` | bosch+vfn | 92 | mod | **gone** | REVIEW | dropped: 7.0's model pipeline |
+| `tools/replay/lib/ui_helpers.py` | bosch+vfn | 73 | mod | `openpilot/tools/replay/lib/ui_helpers.py` | REVIEW | done: replay radar roles on 7.0's raylib UI |
+| `tools/StarPilot/feasibleparams.txt` | bosch+vfn | 65 | mod | **gone** | REVIEW | dropped: 6.x glue, 7.0 feature owners |
 | `selfdrive/locationd/test/test_calibrationd.py` | vfn | 46 | mod | `openpilot/selfdrive/locationd/test/test_calibrationd.py` | REVIEW | done: 3X->C4 reprojection (slice 9.3) |
-| `tools/replay/tests/test_radar_debug.py` | bosch+vfn | 40 | new | **gone** | REVIEW | todo |
+| `tools/replay/tests/test_radar_debug.py` | bosch+vfn | 40 | new | **gone** | REVIEW | done: replay radar roles on 7.0's raylib UI |
 | `selfdrive/locationd/calibrationd.py` | vfn | 33 | mod | `openpilot/selfdrive/locationd/calibrationd.py` | REVIEW | done: 3X->C4 reprojection (slice 9.3) |
-| `selfdrive/controls/tests/test_navigation_desires.py` | bosch+vfn | 30 | mod | **gone** | REVIEW | todo |
-| `common/transformations/model.py` | vfn | 16 | mod | `openpilot/common/transformations/model.py` | REVIEW | todo |
-| `tools/StarPilot/derive_feasible_params.py` | bosch+vfn | 12 | mod | **gone** | REVIEW | todo |
-| `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | todo |
+| `selfdrive/controls/tests/test_navigation_desires.py` | bosch+vfn | 30 | mod | **gone** | REVIEW | dropped: feature not ported |
+| `common/transformations/model.py` | vfn | 16 | mod | `openpilot/common/transformations/model.py` | REVIEW | dropped: per-model warps (9.4) |
+| `tools/StarPilot/derive_feasible_params.py` | bosch+vfn | 12 | mod | **gone** | REVIEW | dropped: 6.x glue, 7.0 feature owners |
+| `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | held: DM timing, sp7-port only |
 | `selfdrive/car/redneck_cruise.py` | bosch+vfn | 9 | mod | **gone** | REVIEW | dropped: 7.0 removed redneck cruise |
-| `common/tests/test_params.py` | bosch+vfn | 7 | mod | `openpilot/common/tests/test_params.py` | REVIEW | todo |
+| `common/tests/test_params.py` | bosch+vfn | 7 | mod | `openpilot/common/tests/test_params.py` | REVIEW | dropped: 6.x params test |
 | `common/pid.py` | bosch+vfn | 6 | mod | `openpilot/common/pid.py` | REVIEW | done (slice 1) |
 | `selfdrive/car/car_specific.py` | bosch+vfn | 6 | mod | **gone** | REVIEW | dropped: 7.0 brakeHold event covers it |
-| `system/updated/updated.py` | bosch+vfn | 5 | mod | `openpilot/system/updated/updated.py` | REVIEW | todo |
-| `selfdrive/car/card.py` | bosch+vfn | 1 | mod | `openpilot/selfdrive/car/card.py` | REVIEW | todo |
-| `selfdrive/car/tests/test_car_specific.py` | bosch+vfn | 1 | mod | **gone** | REVIEW | todo |
-| `tools/lib/api.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/api.py` | REVIEW | todo |
-| `tools/lib/auth.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/auth.py` | REVIEW | todo |
-| `selfdrive/pandad/pandad` | bosch+vfn | 0 | mod | `openpilot/selfdrive/pandad/pandad` | REVIEW | todo |
-| `starpilot/controls/lib/tests/__init__.py` | bosch+vfn | 0 | new | **gone** | REVIEW | todo |
-| `system/camerad/camerad` | bosch+vfn | 0 | mod | `openpilot/system/camerad/camerad` | REVIEW | todo |
-| `system/loggerd/bootlog` | bosch+vfn | 0 | mod | `openpilot/system/loggerd/bootlog` | REVIEW | todo |
-| `system/loggerd/encoderd` | bosch+vfn | 0 | mod | `openpilot/system/loggerd/encoderd` | REVIEW | todo |
-| `system/loggerd/loggerd` | bosch+vfn | 0 | mod | `openpilot/system/loggerd/loggerd` | REVIEW | todo |
+| `system/updated/updated.py` | bosch+vfn | 5 | mod | `openpilot/system/updated/updated.py` | REVIEW | held: optional updater shallow fetch |
+| `selfdrive/car/card.py` | bosch+vfn | 1 | mod | `openpilot/selfdrive/car/card.py` | REVIEW | done: slices 7-8 |
+| `selfdrive/car/tests/test_car_specific.py` | bosch+vfn | 1 | mod | **gone** | REVIEW | dropped: 6.x car_specific (gone in 7.0) |
+| `tools/lib/api.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/api.py` | REVIEW | dropped: 7.0 provider system (Konik only on sp7-port) |
+| `tools/lib/auth.py` | bosch+vfn | 1 | mod | `openpilot/tools/lib/auth.py` | REVIEW | dropped: 7.0 provider system (Konik only on sp7-port) |
+| `selfdrive/pandad/pandad` | bosch+vfn | 0 | mod | `openpilot/selfdrive/pandad/pandad` | REVIEW | done: rebuilt binaries |
+| `starpilot/controls/lib/tests/__init__.py` | bosch+vfn | 0 | new | **gone** | REVIEW | dropped: hidden test package marker |
+| `system/camerad/camerad` | bosch+vfn | 0 | mod | `openpilot/system/camerad/camerad` | REVIEW | done: rebuilt binaries |
+| `system/loggerd/bootlog` | bosch+vfn | 0 | mod | `openpilot/system/loggerd/bootlog` | REVIEW | done: rebuilt binaries |
+| `system/loggerd/encoderd` | bosch+vfn | 0 | mod | `openpilot/system/loggerd/encoderd` | REVIEW | done: rebuilt binaries |
+| `system/loggerd/loggerd` | bosch+vfn | 0 | mod | `openpilot/system/loggerd/loggerd` | REVIEW | done: rebuilt binaries |
 
 ### build / scripts
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `scripts/model_source_map_v26.json` | vfn | 453 | new | `scripts/model_source_map_v26.json` | REVIEW | todo |
-| `scripts/rebuild_tg_artifacts.sh` | vfn | 66 | new | **gone** | REVIEW | todo |
-| `scripts/tests/test_model_release.py` | vfn | 29 | mod | **gone** | REVIEW | todo |
-| `scripts/host_tool_runner.sh` | bosch+vfn | 19 | mod | `scripts/host_tool_runner.sh` | REVIEW | todo |
-| `.gitignore` | bosch+vfn | 8 | mod | `.gitignore` | REVIEW | todo |
-| `.dockerignore` | bosch+vfn | 5 | mod | **gone** | REVIEW | todo |
-| `scripts/model_release.py` | vfn | 1 | mod | **gone** | REVIEW | todo |
-| `scripts/model_source_map_v22.json` | bosch+vfn | 1 | mod | **gone** | REVIEW | todo |
+| `scripts/model_source_map_v26.json` | vfn | 453 | new | `scripts/model_source_map_v26.json` | REVIEW | dropped: 7.0's model pipeline |
+| `scripts/rebuild_tg_artifacts.sh` | vfn | 66 | new | **gone** | REVIEW | dropped: 7.0's model pipeline |
+| `scripts/tests/test_model_release.py` | vfn | 29 | mod | **gone** | REVIEW | dropped: 7.0's model pipeline |
+| `scripts/host_tool_runner.sh` | bosch+vfn | 19 | mod | `scripts/host_tool_runner.sh` | REVIEW | dropped: 6.x host build plumbing |
+| `.gitignore` | bosch+vfn | 8 | mod | `.gitignore` | REVIEW | dropped: 7.0's own ignores |
+| `.dockerignore` | bosch+vfn | 5 | mod | **gone** | REVIEW | dropped: 7.0's own ignores |
+| `scripts/model_release.py` | vfn | 1 | mod | **gone** | REVIEW | dropped: 7.0's model pipeline |
+| `scripts/model_source_map_v22.json` | bosch+vfn | 1 | mod | **gone** | REVIEW | dropped: 7.0's model pipeline |
 
 ### controls core
 
@@ -291,30 +291,30 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/controls/controlsd.py` | bosch+vfn | 294 | mod | `openpilot/selfdrive/controls/controlsd.py` | PORT hooks into rewritten controlsd | done (slices 2+5; interpolation, turn hold/shaping, NrdrLearn*, NNFF path not ported by decision) |
 | `selfdrive/controls/tests/test_controlsd.py` | bosch+vfn | 120 | new | **gone** | PORT hooks into rewritten controlsd | dropped: steer_limited_by_safety fix is native in 7.0 |
 | `selfdrive/selfdrived/selfdrived.py` | bosch+vfn | 37 | mod | `openpilot/selfdrive/selfdrived/selfdrived.py` | PORT hooks into rewritten controlsd | wip (steerSaturated suppression done; reproject ignores are slice 9) |
-| `selfdrive/selfdrived/events.py` | bosch+vfn | 27 | mod | `openpilot/selfdrive/selfdrived/events.py` | PORT hooks into rewritten controlsd | todo |
+| `selfdrive/selfdrived/events.py` | bosch+vfn | 27 | mod | `openpilot/selfdrive/selfdrived/events.py` | PORT hooks into rewritten controlsd | done: slice 9 (and steerSaturated in slice 5) |
 | `selfdrive/controls/lib/desire_helper.py` | bosch+vfn | 6 | mod | `openpilot/selfdrive/controls/lib/desire_helper.py` | PORT hooks into rewritten controlsd | done (slice 6: Honda-only nudge torque) |
-| `selfdrive/selfdrived/alerts_offroad.json` | bosch | 4 | mod | `openpilot/selfdrive/selfdrived/alerts_offroad.json` | PORT hooks into rewritten controlsd | todo |
+| `selfdrive/selfdrived/alerts_offroad.json` | bosch | 4 | mod | `openpilot/selfdrive/selfdrived/alerts_offroad.json` | PORT hooks into rewritten controlsd | dropped: 7.0 ships Jetlink |
 
 ### docs
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `docs/JETLINK.md` | bosch | 255 | new | **gone** | COPY ours | todo |
-| `docs/HONDA_EPS_CONTROLLER.md` | bosch+vfn | 103 | new | **gone** | COPY ours | todo |
-| `docs/MODEL_REBUILD.md` | bosch+vfn | 76 | mod | **gone** | COPY ours | todo |
-| `tools/replay/README.md` | bosch+vfn | 27 | mod | `openpilot/tools/replay/README.md` | COPY ours | todo |
+| `docs/JETLINK.md` | bosch | 255 | new | **gone** | COPY ours | dropped: 7.0 ships Jetlink |
+| `docs/HONDA_EPS_CONTROLLER.md` | bosch+vfn | 103 | new | **gone** | COPY ours | held: after the lateral sync to ns-bosch |
+| `docs/MODEL_REBUILD.md` | bosch+vfn | 76 | mod | **gone** | COPY ours | dropped: 7.0's model pipeline |
+| `tools/replay/README.md` | bosch+vfn | 27 | mod | `openpilot/tools/replay/README.md` | COPY ours | done: replay radar roles on 7.0's raylib UI |
 
 ### system / manager
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
 | `system/manager/manager.py` | bosch+vfn | 237 | mod | `openpilot/system/manager/manager.py` | PORT selectively | wip (Honda EPS settings rename/carry-over done; rest todo) |
-| `system/manager/accelerator_shutdown.py` | bosch | 72 | new | **gone** | PORT selectively | todo |
-| `system/manager/process.py` | bosch | 46 | mod | `openpilot/system/manager/process.py` | PORT selectively | todo |
-| `system/hardware/hardwared.py` | bosch+vfn | 25 | mod | `openpilot/system/hardware/hardwared.py` | PORT selectively | todo |
-| `system/manager/process_config.py` | bosch+vfn | 10 | mod | `openpilot/system/manager/process_config.py` | PORT selectively | todo |
-| `system/hardware/tests/test_usb.py` | vfn | 3 | mod | **gone** | PORT selectively | todo |
-| `system/hardware/usb.py` | vfn | 1 | mod | **gone** | PORT selectively | todo |
+| `system/manager/accelerator_shutdown.py` | bosch | 72 | new | **gone** | PORT selectively | dropped: 7.0 ships Jetlink |
+| `system/manager/process.py` | bosch | 46 | mod | `openpilot/system/manager/process.py` | PORT selectively | dropped: 7.0 ships Jetlink |
+| `system/hardware/hardwared.py` | bosch+vfn | 25 | mod | `openpilot/system/hardware/hardwared.py` | PORT selectively | held: 9.5 Chestnut extras (7.0 has flash-before-onroad) |
+| `system/manager/process_config.py` | bosch+vfn | 10 | mod | `openpilot/system/manager/process_config.py` | PORT selectively | done: slice 9 (reproject services) |
+| `system/hardware/tests/test_usb.py` | vfn | 3 | mod | **gone** | PORT selectively | held: 9.5 Chestnut extras |
+| `system/hardware/usb.py` | vfn | 1 | mod | **gone** | PORT selectively | held: 9.5 Chestnut extras |
 
 ### params / schema
 
@@ -322,40 +322,40 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 |---|---|---:|---|---|---|---|
 | `common/params_keys.h` | bosch+vfn | 71 | mod | `openpilot/common/params_keys.h` | PORT keys into 7.0 contracts; rebuild | wip (Honda EPS keys done in slice 2; rest todo) |
 | `cereal/custom.capnp` | bosch+vfn | 53 | mod | `openpilot/cereal/custom.capnp` | PORT keys into 7.0 contracts; rebuild | wip (eps* done in slice 2, @11-@19) |
-| `cereal/log.capnp` | bosch+vfn | 15 | mod | `openpilot/cereal/log.capnp` | PORT keys into 7.0 contracts; rebuild | todo |
-| `cereal/services.py` | vfn | 2 | mod | `openpilot/cereal/services.py` | PORT keys into 7.0 contracts; rebuild | todo |
+| `cereal/log.capnp` | bosch+vfn | 15 | mod | `openpilot/cereal/log.capnp` | PORT keys into 7.0 contracts; rebuild | done: slice 9 (reproject services) |
+| `cereal/services.py` | vfn | 2 | mod | `openpilot/cereal/services.py` | PORT keys into 7.0 contracts; rebuild | done: slice 9 (reproject services) |
 
 ### DBC
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `opendbc_repo/opendbc/dbc/acura_ilx_2016_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/acura_mdx_2017_can_ext_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/acura_rdx_2018_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/acura_rdx_2020_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/generator/honda/_honda_common.dbc` | bosch+vfn | 5 | mod | `opendbc_repo/opendbc/dbc/generator/honda/_honda_common.dbc` | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_accord_2017_can_ext_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_bosch_radarless_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_civic_hatchback_ex_2017_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_civic_touring_2016_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_clarity_hybrid_2018_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_common_canfd_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_crv_touring_2016_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_e_advance_2020_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_insight_ex_2019_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_odyssey_exl_2018_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/honda_odyssey_twn_2018_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
-| `opendbc_repo/opendbc/dbc/hyundai_can_refresh_generated.dbc` | bosch+vfn | 1 | mod | **gone** | REVIEW - regenerate from 7.0 sources | todo |
+| `opendbc_repo/opendbc/dbc/acura_ilx_2016_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/acura_mdx_2017_can_ext_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/acura_rdx_2018_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/acura_rdx_2020_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/generator/honda/_honda_common.dbc` | bosch+vfn | 5 | mod | `opendbc_repo/opendbc/dbc/generator/honda/_honda_common.dbc` | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_accord_2017_can_ext_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_bosch_radarless_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_civic_hatchback_ex_2017_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_civic_touring_2016_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_clarity_hybrid_2018_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_common_canfd_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_crv_touring_2016_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_e_advance_2020_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_insight_ex_2019_can_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_odyssey_exl_2018_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/honda_odyssey_twn_2018_generated.dbc` | bosch+vfn | 5 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
+| `opendbc_repo/opendbc/dbc/hyundai_can_refresh_generated.dbc` | bosch+vfn | 1 | mod | **gone** | REVIEW - regenerate from 7.0 sources | done: slice 6 (_honda_common 0x94); generated at build |
 
 ### StarPilot glue
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `starpilot/controls/tests/test_starpilot_card.py` | bosch+vfn | 36 | mod | **gone** | RE-HOME into 7.0 feature owners | todo |
-| `starpilot/common/starpilot_variables.py` | bosch+vfn | 18 | mod | **gone** | RE-HOME into 7.0 feature owners | todo |
-| `starpilot/common/tests/test_starpilot_variables.py` | bosch+vfn | 14 | mod | **gone** | RE-HOME into 7.0 feature owners | todo |
-| `starpilot/controls/starpilot_card.py` | bosch+vfn | 8 | mod | **gone** | RE-HOME into 7.0 feature owners | todo |
-| `starpilot/common/starpilot_utilities.py` | bosch+vfn | 5 | mod | **gone** | RE-HOME into 7.0 feature owners | todo |
+| `starpilot/controls/tests/test_starpilot_card.py` | bosch+vfn | 36 | mod | **gone** | RE-HOME into 7.0 feature owners | dropped: 6.x glue, 7.0 feature owners |
+| `starpilot/common/starpilot_variables.py` | bosch+vfn | 18 | mod | **gone** | RE-HOME into 7.0 feature owners | dropped: 6.x glue, 7.0 feature owners |
+| `starpilot/common/tests/test_starpilot_variables.py` | bosch+vfn | 14 | mod | **gone** | RE-HOME into 7.0 feature owners | dropped: 6.x glue, 7.0 feature owners |
+| `starpilot/controls/starpilot_card.py` | bosch+vfn | 8 | mod | **gone** | RE-HOME into 7.0 feature owners | dropped: 6.x glue, 7.0 feature owners |
+| `starpilot/common/starpilot_utilities.py` | bosch+vfn | 5 | mod | **gone** | RE-HOME into 7.0 feature owners | dropped: 6.x glue, 7.0 feature owners |
 
 ### panda safety
 
@@ -368,4 +368,4 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
-| `opendbc_repo/opendbc/car/interfaces.py` | bosch+vfn | 11 | mod | `opendbc_repo/opendbc/car/interfaces.py` | REVIEW | todo |
+| `opendbc_repo/opendbc/car/interfaces.py` | bosch+vfn | 11 | mod | `opendbc_repo/opendbc/car/interfaces.py` | REVIEW | done: slices 2-3 (controller factory) |

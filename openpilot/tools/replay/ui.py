@@ -22,11 +22,18 @@ from openpilot.tools.replay.lib.ui_helpers import (
   plot_model,
 )
 from openpilot.cereal.visionipc import VisionStreamType
+from openpilot.tools.replay.lib.radar_debug import radar_track_roles, radar_track_summary
 from openpilot.selfdrive.ui.mici.onroad.cameraview import CameraView
 
 os.environ['BASEDIR'] = BASEDIR
 
 ANGLE_SCALE = 5.0
+
+
+def radar_line(points, roles) -> str:
+  summary = radar_track_summary(points, roles)
+  leads = ", ".join(f"{name} #{ids[0]}" for name, ids in summary["role_ids"].items() if ids) or "no radar lead"
+  return f"RADAR: {summary['count']} pts ({summary['measured']} measured), {leads}"
 
 
 def ui_thread(addr):
@@ -133,6 +140,8 @@ def ui_thread(addr):
   palette[2] = [0, 255, 0, 255]  # GREEN
   palette[3] = [0, 0, 255, 255]  # BLUE
   palette[4] = [255, 255, 0, 255]  # YELLOW
+  palette[5] = [255, 150, 0, 255]  # ORANGE: radar point holding lead two
+  palette[7] = [150, 150, 150, 255]  # GREY: radar point the decoder coasted (not measured this sweep)
   palette[110] = [110, 110, 110, 255]  # car_color (gray)
   palette[255] = [255, 255, 255, 255]  # WHITE
 
@@ -194,8 +203,9 @@ def ui_thread(addr):
     if sm.recv_frame['radarState']:
       plot_lead(sm['radarState'], top_down)
 
-    # draw all radar points
-    maybe_update_radar_points(sm['radarTracks'].points, top_down[1])
+    # draw all radar points, coloured by role: red lead one, orange lead two, green measured, grey coasted
+    radar_roles = radar_track_roles(sm['radarState'])
+    maybe_update_radar_points(sm['radarTracks'].points, top_down[1], radar_roles)
 
     if sm.updated['extrinsicsCalibration'] and num_px:
       rpyCalib = np.asarray(sm['extrinsicsCalibration'].rpyCalib)
@@ -236,6 +246,8 @@ def ui_thread(addr):
       ("ANGLE OFFSET (INSTANT): " + str(round(sm['vehicleParameters'].angleOffsetDeg, 2)) + " deg", YELLOW),
       ("STIFFNESS: " + str(round(sm['vehicleParameters'].stiffnessFactor * 100.0, 2)) + " %", YELLOW),
       ("STEER RATIO: " + str(round(sm['vehicleParameters'].steerRatio, 2)), YELLOW),
+      None,
+      (radar_line(sm['radarTracks'].points, radar_roles), YELLOW),
     ]
 
     for i, line in enumerate(lines):

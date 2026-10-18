@@ -28,7 +28,7 @@ from openpilot.selfdrive.car.car_events import CarEvents
 from openpilot.selfdrive.locationd.helpers import PoseCalibrator, Pose
 from openpilot.selfdrive.selfdrived.events import Events, ET, Alert, Priority as AlertPriority
 from openpilot.starpilot.longitudinal.force_stop_alert import HoldAlertState, EVENT_TYPE as FORCE_STOP_HOLD
-from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck, update_big_model_status
+from openpilot.selfdrive.selfdrived.helpers import ExcessiveActuationCheck, throttled_param, update_big_model_status
 from openpilot.system.manager.process_health import driving_process_failures
 from openpilot.selfdrive.selfdrived.state import StateMachine
 from opendbc.car.gm.aol import native_bootstrap_supported
@@ -352,7 +352,7 @@ class SelfdriveD:
       self.events.add(EventName.joystickDebug)
       self.startup_event = None
 
-    loading = self.params.get_bool("ChestnutLoading")
+    loading = throttled_param(self, "ChestnutLoading", self.params.get_bool)
     if self.big_model_loading and not loading:
       self.big_model_ready_t = time.monotonic()
     self.big_model_loading = loading
@@ -1547,6 +1547,7 @@ class SelfdriveD:
 
   def _decide_aol_axes(self, CS, intent, native, *, now_ns=0, ordinary_lag=False):
     from openpilot.starpilot.car.gm.aol import physical_cancel_lateral_allowed
+    from openpilot.starpilot.car.hyundai.aol import physical_cancel_lateral_allowed as hkg_cancel_lateral_allowed
     from openpilot.starpilot.aol.dm import lateral_event_context
     retained_dm_lateral, lateral_events = lateral_event_context(self, CS, intent, native, now_ns, ordinary_lag)
     reverse_pause = known_reverse_pause(CS, getattr(self, 'car_state_samples', ()))
@@ -1562,7 +1563,11 @@ class SelfdriveD:
                            allow_lateral_cancel=bool(intent is not None and intent.allowedLatch and intent.optionalSetRelease
                                                      and ev6_aol_qualified(self.CP, marked_only=True)) or
                              physical_cancel_lateral_allowed(self.CP, CS, intent, native,
-                               source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns),
+                               source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns) or
+                             hkg_cancel_lateral_allowed(self.CP, CS, intent, native,
+                               settings=self.aol_settings, previous=getattr(self, 'aol_axis_decision', None),
+                               source_ns=getattr(self, 'aol_car_state_log_ns', 0), now_ns=now_ns,
+                               axis_session_id=getattr(self, 'aol_session_id', '')),
                            cruise_main_required=getattr(self, 'aol_cruise_main_required', True),
                            allow_below_engage_speed=bool(is_volt_ascm_longitudinal(self.CP) and
                                                        not self.CP.flags & GMFlags.PEDAL_LONG)),

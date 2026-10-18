@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, cast
 
 from openpilot.starpilot.replay.client import MAX_WORKER_STATUS
 from openpilot.starpilot.replay.frames import ReplayFramePublisher, SESSION
-from openpilot.starpilot.replay.media import MediaMux, MediaStore
+from openpilot.starpilot.replay.media import MediaMux, MediaStore, web_media_dir
 
 if TYPE_CHECKING:
   from openpilot.selfdrive.ui.mici.onroad.augmented_road_view import AugmentedRoadView as CompactRoadView
@@ -645,7 +645,11 @@ def run(session_dir: Path, route_id: str, data_dir: Path, target: str, profile: 
       if not encoder.supports_nv12:
         raise RuntimeError('Replay requires the existing NV12 hardware encoder ABI')
       resources.callback(encoder.close)
-      media = None if export_budget else MediaStore(session_dir, session_dir.name, width, height)
+      if not export_budget:
+        # Playback fragments are bounded and disposable; avoid flash writeback stalls.
+        directory = web_media_dir(session_dir.name)
+        directory.mkdir(mode=0o700)
+        media = MediaStore(directory, session_dir.name, width, height)
       resources.callback(lambda: mux.close() if mux is not None else None)
     last_emit = last_draw = 0.0
     last_camera_frame = None

@@ -447,7 +447,7 @@ def fit_snapshot(snapshot):
   if payload.get('version') != 1 or payload.get('family') != snapshot.get('family'):
     raise ValueError('fit family')
   event_version = payload.get('event_version')
-  event_job = type(event_version) is int and event_version in (2, 3, 4, 5)
+  event_job = type(event_version) is int and event_version in (2, 3, 4, 5, 6)
   if 'event_version' in payload and not event_job:
     raise ValueError('unknown explicit torque event evidence version')
   from openpilot.starpilot.flm.clipping_quality import event_clipping_quality

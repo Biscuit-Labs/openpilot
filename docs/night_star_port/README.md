@@ -15,6 +15,7 @@ the local branch `sp7-port-history`. To take a newer 7.0, apply `git diff <curre
 |---|---|---|
 | 10-16 | `89430a70da` | snapshot commit `e2d325132e` |
 | 10-17 | `be35d9b557` | "StarPilot 7.0 sync" commit: `git apply --3way` of `git diff 89430a70da be35d9b557` (47 commits: FLM Auto-Weave, on-device replay, Volvo/Polestar, Android Auto wired, UI). No source conflicts; generated files and binaries took upstream's, then cereal/bridge/pandad/replay/panda app firmware were rebuilt (bootstub/body kept upstream's) |
+| 10-18 | `3f838298fb` | sync commit, same method (61 commits: replay runtime, Hyundai/GM/Prius/Rivian/Ascent/MQB fixes, Honda AOL lanes on the LKAS HUD, Android Auto, SLC, mapd). No source conflicts; replay, `libpanda.so` and the panda app firmware rebuilt (upstream changed Hyundai/Mazda safety) |
 
 7.0 shares no git history with our branches, so this is a re-port by subsystem, not a rebase. [LEDGER.md](LEDGER.md) lists
 every file `origin/vfn` and `origin/ns-bosch-radar-testing` changed since our last 6.x merge base (`249b03a3f5`), where it

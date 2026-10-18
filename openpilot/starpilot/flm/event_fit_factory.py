@@ -46,11 +46,11 @@ def _identified(engine, raw):
 
 
 def fit_event_snapshot(payload, factory, replay_payload):
-  if type(payload.get('event_version')) is not int or payload['event_version'] not in (2, 3, 4, 5):
+  if type(payload.get('event_version')) is not int or payload['event_version'] not in (2, 3, 4, 5, 6):
     raise ValueError('explicit event snapshot version')
   event_clipping_quality(payload)
   envelope = envelope_from_dict(payload['effect_envelope'])
-  if payload['event_version'] in (4, 5) and (payload.get('event_operation') != 'restore' or envelope.operation != 'restore'):
+  if payload['event_version'] in (4, 5, 6) and (payload.get('event_operation') != 'restore' or envelope.operation != 'restore'):
     raise ValueError('whole-map activation is restore-only')
   if payload['event_version'] == 3 and (payload.get('event_operation') != 'trial' or envelope.operation != 'trial'):
     raise ValueError('declared activation requires original trial operation')
@@ -63,13 +63,13 @@ def fit_event_snapshot(payload, factory, replay_payload):
   replay_payload['objective'] = asdict(legacy)
   actual = ControllerReplay.from_snapshot(factory, legacy, pack_primitive_snapshot(replay_payload), rebuild=False)
   if envelope.operation == 'restore':
-    if payload.get('event_version') not in (2, 4, 5):
+    if payload.get('event_version') not in (2, 4, 5, 6):
       raise ValueError('declared activation cannot replace full-map restore contract')
     if payload.get('event_operation') != 'restore':
       raise ValueError('explicit historical restore job required')
     from openpilot.starpilot.flm.event_restore_fit import fit_event_restore, prepare_fixed_restore_calibration
     engine = EventControllerReplay(actual, objective, envelope.replay_anchor(), restore_envelope=envelope)
-    if payload['event_version'] in (4, 5):
+    if payload['event_version'] in (4, 5, 6):
       from openpilot.starpilot.flm.restore_activation import build_restore_plan
       from openpilot.starpilot.flm.runtime_adapter_registry import canonical_physical_context
       prepared = prepare_fixed_restore_calibration(payload, engine, objective)
@@ -103,8 +103,10 @@ def fit_event_snapshot(payload, factory, replay_payload):
   if selected != objective.names:
     envelope = envelope.for_trial(selected)
     objective = EffectObjective(objective.group, selected, envelope.trial_anchor, objective.context_key)
+    previous = engine
     engine = EventControllerReplay(actual, objective, envelope.replay_anchor(), activation_plan=activation_plan)
-    engine.rebuild_causal_features()
+    if payload.get('event_version') != 3 or engine.reuse_subset_causal_features(previous) is not True:
+      engine.rebuild_causal_features()
   from openpilot.starpilot.flm.event_raw_fit import fit_event_torque
   payload = {**payload, 'effect_envelope': asdict(envelope),
              'event_objective': asdict(objective),

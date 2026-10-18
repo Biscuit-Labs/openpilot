@@ -12,6 +12,7 @@ from pathlib import Path
 import queue
 import re
 import selectors
+import shlex
 import shutil
 import signal
 import socket
@@ -414,11 +415,11 @@ class ReplayOwner:
       raise Rejected('not_offroad')
     if self.status.get('target') != 'web' or request['epoch'] != self.status['epoch'] or not self.status.get('mediaReady'):
       raise Rejected('epoch_changed')
-    from openpilot.starpilot.replay.media import media_descriptor
+    from openpilot.starpilot.replay.media import media_descriptor, web_media_dir
     directory = self.session_dir
     if directory is None:
       raise Rejected('session_changed')
-    return media_descriptor(directory, request['epoch'], request['sequence'], count)
+    return media_descriptor(web_media_dir(directory.name), request['epoch'], request['sequence'], count)
 
   def _stop(self, reason):
     if self.worker is not None:
@@ -592,8 +593,16 @@ class ReplayOwner:
         if current_birth == birth or _group_active(pid):
           try:
             if current_birth == birth:
-              command = Path(f'/proc/{pid}/cmdline').read_bytes()
-              if b'openpilot.starpilot.replay.render' not in command or os.getpgid(pid) != pid:
+              command = os.fsdecode(Path(f'/proc/{pid}/cmdline').read_bytes()).rstrip('\0').split('\0')
+              if len(command) == 1:
+                # Some device process titles flatten argv into one field.
+                try:
+                  command = shlex.split(command[0])
+                except ValueError:
+                  raise Rejected('stop_unconfirmed') from None
+              known_worker = (len(command) >= 3 and command[1] == '-m' and command[2] in (
+                'openpilot.starpilot.replay.render', 'tools.diagnostics.replay_render'))
+              if not known_worker or os.getpgid(pid) != pid:
                 raise Rejected('stop_unconfirmed')
             os.killpg(pid, signal.SIGKILL)
           except ProcessLookupError:

@@ -143,7 +143,7 @@ def fit_event_torque(payload, engine, objective):
           break
     if model is None:
       return _unavailable('event_independent_physical_model', wholeBlocks=len(events), modelPoints=len(rows))
-  engine.rebuild_causal_features()
+  engine.ensure_causal_features()
   blocks, stage_events = [], []
   unexcited_stage_blocks = 0
   previous = cutoff
@@ -176,9 +176,13 @@ def fit_event_torque(payload, engine, objective):
     return _unavailable('event_disjoint_stage_support', wholeBlocks=len(events), stageBlocks=len(blocks), unexcitedStageBlocks=unexcited_stage_blocks)
   episodes = tracking_episodes(engine, tuple(stage_events), model, objective)
   prior = None if payload.get('prior') is None else tuple(payload['prior'])
+  from openpilot.starpilot.flm.event_activation import ZERO_REFERENCE_ACTIVATION_VERSION
+  native_feasible = (engine.native_feasible if engine.activation_plan is not None and
+    engine.activation_plan.version == ZERO_REFERENCE_ACTIVATION_VERSION else None)
   result = evaluate_event(engine.identity, objective.parameters, tuple(blocks), episodes=episodes,
                           now_ns=payload['now_ns'], required_cohorts=objective.required_cohorts,
-                          response_revision='event-independent-physical-v2', sequence=payload['sequence'], prior=prior, effect_envelope=envelope)
+                          response_revision='event-independent-physical-v2', sequence=payload['sequence'], prior=prior,
+                          effect_envelope=envelope, native_feasible=native_feasible)
   validation = None
   if result.profile is not None:
     current, applied = control_from_dict(payload['control']), output_from_dict(payload['output'])

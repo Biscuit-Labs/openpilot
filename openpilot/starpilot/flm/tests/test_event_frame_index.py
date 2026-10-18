@@ -49,7 +49,7 @@ def test_actual_fit_missing_stage_frame_is_fail_closed():
     'control': {'stamp': index * 1_000_000_000}, 'output': {'stamp': index * 1_000_000_000 + 1},
     'physical': {'lateral_accel': .02}},)} for index in range(1, 17))
   first_stage = events[8]['samples'][0]
-  engine = SimpleNamespace(records=(), identity=model.identity, projected={}, rebuild_causal_features=lambda: None)
+  engine = SimpleNamespace(records=(), identity=model.identity, projected={}, ensure_causal_features=lambda: None)
   objective = SimpleNamespace(names=('center',), required_cohorts=('center',))
   envelope = SimpleNamespace(prior_coordinates=(('center', 0.),))
   with mock.patch('openpilot.starpilot.flm.event_raw_fit.original_event_evidence',

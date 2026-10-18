@@ -87,15 +87,11 @@ class PidControllerFactory:
     return controller, VehicleModel(self.cp)
 
 
-def run_pid(controller, vm, inputs, *, effect_trial=None):
-  from opendbc.car import structs
-  from openpilot.starpilot.flm.controller_replay import _CS_FIELDS, _VM_FIELDS
+def run_pid(controller, vm, inputs, *, effect_trial=None, _prepared_car_state=None):
+  from openpilot.starpilot.flm.controller_replay import _VM_FIELDS, _replay_car_state
   from openpilot.starpilot.flm.selected_effects import EffectReplaySource
   values = dict(inputs)
-  cs = structs.CarState.new_message()
-  for name in _CS_FIELDS:
-    setattr(cs, name, bool(values[name]) if name in ('steeringPressed', 'standstill', 'steerFaultTemporary', 'steerFaultPermanent') else values[name])
-  cs.gearShifter = int(values['gearShifter'])
+  cs = _replay_car_state(inputs, values, _prepared_car_state)
   for name in _VM_FIELDS:
     setattr(vm, name, values['vm.' + name])
   params = SimpleNamespace(angleOffsetDeg=values['angleOffsetDeg'], roll=values['roll'])

@@ -25,15 +25,15 @@ def production_adapter_for_evidence(cp, evidence, key, *, source):
   """Adopt the qualified event contract only in the optional live producer.
 
   Legacy/reference callers retain version2. The live event producer explicitly
-  selects the separate fixed-map version5 restore declaration, never FD shadow.
+  selects the separate fixed-map version6 restore declaration, never FD shadow.
   """
-  from openpilot.starpilot.flm.clipping_quality import QUALIFIED_EVENT_CLIPPING_QUALITY
+  from openpilot.starpilot.flm.clipping_quality import ZERO_REFERENCE_QUALITY
   from openpilot.starpilot.flm.runtime_adapter_registry import SourceState, adapter_for_evidence
 
   if not isinstance(source, SourceState) or not source.enabled or source.manual:
     return None
   return adapter_for_evidence(cp, evidence, key, source=source,
-    event_replay_version=3, event_clipping_quality=QUALIFIED_EVENT_CLIPPING_QUALITY, event_restore_version=5)
+    event_replay_version=3, event_clipping_quality=ZERO_REFERENCE_QUALITY, event_restore_version=6)
 
 
 def run(

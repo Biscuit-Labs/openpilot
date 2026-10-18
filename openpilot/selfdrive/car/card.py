@@ -55,6 +55,7 @@ from opendbc.car.hyundai.canfd_angle_aol import native_observation, temporary_re
 from opendbc.car.hyundai.canfd_owner import config_index as hyundai_canfd_config_index
 from opendbc.car.hyundai.captured_adrv_startup import CapturedADRVStartup
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config
+from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
@@ -560,7 +561,10 @@ class Car:
       cancel_source_ns = self.aol_cancel_source(CS, now_ns)
       brake_source_ns = self.aol_honda_brake_source(CS, now_ns)
       gm_withdrawal_source_ns = self.aol_gm_withdrawal_source(CS, now_ns)
-      transport_reset = self.aol_transport_feedback.observe(self.sm, self.CP, CS, now_ns,
+      hkg_cancel_retained = hkg_cancel_intent_retained(self.CP, CS, self.sm, self.aol_transport_feedback,
+        self.aol_card_intent, cancel_source_ns=cancel_source_ns, now_ns=now_ns,
+        producer=getattr(self, 'slc_producer_session', ''))
+      transport_reset = not hkg_cancel_retained and self.aol_transport_feedback.observe(self.sm, self.CP, CS, now_ns,
         latched=self.aol_card_intent.allowed_latch, cancel_source_ns=cancel_source_ns,
         brake_source_ns=brake_source_ns,
         gm_withdrawal_source_ns=gm_withdrawal_source_ns,
@@ -823,7 +827,10 @@ class Car:
     from openpilot.starpilot.car.gm.aol import intent_disarming_fault
     if getattr(self, 'aol_transport_feedback', None) is None:
       self.aol_transport_feedback = TransportPauseFeedback(self.CP)
-    if not transport_observed_healthy and self.aol_transport_feedback.observe(self.sm, self.CP, CS, now_ns,
+    hkg_cancel_retained = hkg_cancel_intent_retained(self.CP, CS, self.sm, self.aol_transport_feedback,
+      self.aol_card_intent, cancel_source_ns=self.aol_cancel_source(CS, now_ns), now_ns=now_ns,
+      producer=getattr(self, 'slc_producer_session', ''))
+    if not transport_observed_healthy and not hkg_cancel_retained and self.aol_transport_feedback.observe(self.sm, self.CP, CS, now_ns,
         latched=getattr(getattr(self, 'aol_card_intent', None), 'allowed_latch', True),
         cancel_source_ns=self.aol_cancel_source(CS, now_ns), brake_source_ns=self.aol_honda_brake_source(CS, now_ns),
         gm_withdrawal_source_ns=self.aol_gm_withdrawal_source(CS, now_ns),

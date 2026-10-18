@@ -6,7 +6,7 @@ import openpilot.selfdrive.controls.lib.honda_eps_calibrations as eps_cal
 import openpilot.selfdrive.controls.lib.honda_eps_firmware_ff as eps_ff
 import openpilot.selfdrive.controls.lib.latcontrol_honda_eps as honda_eps
 from opendbc.car.honda import steer_ratio as sr
-from opendbc.car.honda.values import CAR, HondaFlags
+from opendbc.car.honda.values import CAR, CarControllerParams, HondaFlags
 from openpilot.selfdrive.controls.tests.test_honda_eps_firmware_ff import _params
 
 RDX_PTM_FW = b'39990-TJB,A220\x00\x00'
@@ -23,8 +23,16 @@ def test_the_ptm_rdx_gets_its_road_measured_vgr_and_its_calibration():
   assert CP.flags & HondaFlags.EPS_MODIFIED and CP.flags & HondaFlags.VGR_RDX_TJB_A220
   assert honda_eps.eps_firmware_calibration(CP) is CAL   # Night Star port: every calibrated image, no setting
   assert honda_eps.get_rack_map(CP, CAL) is not None
-  # the 2022+ RDX is a different platform (its own E4 cap); nothing measured there
-  assert eps_cal.select_eps_firmware_calibration("ACURA_RDX_3G_MMR", "39990-TJB-A220") is None
+  # the 2022+ (MMR) runs the same PTM image on the same rack, sent the same 4096 per unit
+  assert eps_cal.select_eps_firmware_calibration("ACURA_RDX_3G_MMR", "39990-TJB-A220") is CAL
+  assert eps_cal.select_eps_firmware_calibration("HONDA_CRV_5G", "39990-TJB-A220") is None
+
+
+def test_the_ptm_mmr_gets_the_same_calibration():
+  CP = _params(RDX_PTM_FW, CAR.ACURA_RDX_3G_MMR)
+  # 7.0 keeps the command map in CarControllerParams, not CP.lateralParams
+  assert list(CarControllerParams(CP).STEER_LOOKUP_V) == [-4096, 0, 4096]
+  assert honda_eps.eps_firmware_calibration(CP) is CAL
 
 
 def test_the_stock_rdx_is_untouched():

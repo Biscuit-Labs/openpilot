@@ -8,8 +8,7 @@ the car's own image (eps_firmware_ff.EpsFirmwareCalibration), picked by the EPS 
 
 Which cars get it: every PTM image with a calibration (Clarity TRW-A020, Civic A030/TEG/C020/C120/TGG-A120, Insight
 TXM-A040, CR-V A040/A220, RDX 3G TJB-A220), with no setting to turn it off; some of those calibrations carry parts over
-from a related car until a drive measures them. A car with no calibration (TGG-A020, Accord TVA-A150, the 2022+ RDX on
-TJB-A220), whose torque map
+from a related car until a drive measures them. A car with no calibration (TGG-A020, Accord TVA-A150), whose torque map
 is not the linear [0, E4 cap] the calibration expects, or with no firmware A table for its rack map, keeps the
 modified-EPS PID (LatControlHondaModifiedPID).
 Per vehicle, from its calibration: the command delay (cmd_delay_s) and the model-delay schedule (lat_delay_schedule),

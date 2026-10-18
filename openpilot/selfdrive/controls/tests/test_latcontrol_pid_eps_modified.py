@@ -68,16 +68,18 @@ def _with_eps_fw(cp, fw):
 
 
 def test_factory_gives_an_uncalibrated_modified_eps_honda_the_modified_eps_pid():
-  # The 2022+ RDX has no calibration of its own (ns-bosch keys TJB-A220 to ACURA_RDX_3G), so the modified-EPS PID
-  fw = MODIFIED_FW[CAR.ACURA_RDX_3G_MMR]
-  lac = create_lateral_controller(_with_eps_fw(_params(CAR.ACURA_RDX_3G_MMR, fw), fw), STUB_CI, 0.01, mode=None)
+  # the Accord's TVA-A150 PTM has no calibration, so the modified-EPS PID
+  fw = b'39990-TVA,A150\x00\x00'
+  lac = create_lateral_controller(_with_eps_fw(_params(CAR.HONDA_ACCORD, fw), fw), STUB_CI, 0.01, mode=None)
   assert type(lac) is LatControlHondaModifiedPID
 
 
-def test_factory_gives_the_calibrated_rdx_3g_the_honda_eps_controller():
+@pytest.mark.parametrize("candidate", [CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR])
+def test_factory_gives_both_rdx_3g_platforms_the_honda_eps_controller(candidate):
+  # the TJB-A220 PTM runs on every 3G RDX (2019-2026): one image, one rack, one calibration
   from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps
-  fw = MODIFIED_FW[CAR.ACURA_RDX_3G]
-  lac = create_lateral_controller(_with_eps_fw(_params(CAR.ACURA_RDX_3G, fw), fw), STUB_CI, 0.01, mode=None)
+  fw = MODIFIED_FW[candidate]
+  lac = create_lateral_controller(_with_eps_fw(_params(candidate, fw), fw), STUB_CI, 0.01, mode=None)
   assert type(lac) is LatControlHondaEps
 
 

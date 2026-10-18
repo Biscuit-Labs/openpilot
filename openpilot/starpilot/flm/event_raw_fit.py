@@ -10,7 +10,7 @@ from openpilot.starpilot.flm.event_physical import fit_event_physical
 from openpilot.starpilot.flm.event_windows import regroup_whole_events
 from openpilot.starpilot.flm.physical_response import PhysicalRow
 from openpilot.starpilot.flm.runtime_adapter_registry import canonical_physical_context, physical_model_revision
-from openpilot.starpilot.flm.torque_eligibility import exact_unclipped_pair
+from openpilot.starpilot.flm.torque_eligibility import exact_unclipped_pair, consumed_sources_current
 from openpilot.starpilot.flm.torque_emission_replay import delivered
 from openpilot.starpilot.flm.torque_raw_fit import control_from_dict, output_from_dict
 
@@ -63,6 +63,7 @@ def original_event_evidence(payload, engine, objective):
           command.limited and not exact_unclipped_pair(command, output) or command.model_wobble or
           command.controller_chatter and not retain_chatter or any(command.applied_coordinates) or
           not output.valid or not output.active or output.override or output.fault or output.limited or not output.native_allowed or
+          not consumed_sources_current(command, output) or
           output.control_ns != command.control_ns or point['control_ns'] != command.control_ns or point['apply_ns'] != output.apply_ns or
           canonical_physical_context(point['physical_context']) != context or
           not engine.applied_matches(command, output) or delivered(output) != point['physical']['applied_command']):

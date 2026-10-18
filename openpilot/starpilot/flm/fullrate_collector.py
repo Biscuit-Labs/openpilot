@@ -6,7 +6,7 @@ controller selection is inferred here. Domain adapters qualify response inverse.
 """
 
 from collections import Counter, OrderedDict, deque
-from openpilot.starpilot.flm.torque_eligibility import asynchronous_hint, bounded_context_output, exact_unclipped_pair
+from openpilot.starpilot.flm.torque_eligibility import asynchronous_hint, bounded_context_output, exact_unclipped_pair, consumed_sources_current
 
 from dataclasses import dataclass, replace
 import math
@@ -408,10 +408,16 @@ class FullrateCollector:
         self._join_emission(command, output)
 
   def _join_emission(self, command, output):
-    if (
-      output.domain != self.adapter.command_domain or not command.state_ns <= output.state_ns <= output.apply_ns or output.state_ns - command.state_ns > JOIN_NS
-    ):
+    if output.domain != self.adapter.command_domain:
       self.split('consumed_source_mismatch', reset=True)
+      return
+    current_sources = (consumed_sources_current(command, output) if command.domain == 'normalized_torque' else
+                       command.state_ns <= output.state_ns <= output.apply_ns and output.state_ns - command.state_ns <= JOIN_NS)
+    if not current_sources:
+      # This pair is unusable, but it does not change the identity/provenance
+      # of independently sealed historical samples. Withdraw current admission
+      # and discard the partial window; real context changes still hard-reset.
+      self.split('consumed_source_mismatch', reset=command.domain != 'normalized_torque')
       return
     if command.domain == 'normalized_torque':
       projection = output.projection

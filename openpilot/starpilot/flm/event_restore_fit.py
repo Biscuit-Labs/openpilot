@@ -16,7 +16,7 @@ from openpilot.starpilot.flm.event_windows import regroup_whole_events
 from openpilot.starpilot.flm.full_surface_profile import RESTORE_POLICY, envelope_from_dict
 from openpilot.starpilot.flm.physical_response import PhysicalRow
 from openpilot.starpilot.flm.runtime_adapter_registry import canonical_physical_context, physical_model_revision
-from openpilot.starpilot.flm.torque_eligibility import exact_unclipped_pair
+from openpilot.starpilot.flm.torque_eligibility import exact_unclipped_pair, consumed_sources_current
 from openpilot.starpilot.flm.torque_emission_replay import delivered
 from openpilot.starpilot.flm.torque_raw_fit import control_from_dict, output_from_dict
 
@@ -45,7 +45,7 @@ def _restore_original_evidence(payload, engine, objective):
           command.baseline_revision != engine.baseline_revision or command.source_epoch != envelope.source_epoch or
           not 0 < command.source_receipt_ns <= command.control_ns <= command.source_receipt_ns + 500_000_000 or
           not 0 < command.state_ns <= command.control_ns <= command.state_ns + 30_000_000 or
-          not command.state_ns <= output.state_ns <= output.apply_ns or output.state_ns - command.state_ns > 30_000_000 or
+          not consumed_sources_current(command, output) or
           not command.control_ns <= output.apply_ns <= command.control_ns + 100_000_000 or
           command.native_required and (not command.native_allowed or not command.native_identity or
             not 0 < command.native_observed_ns <= command.control_ns <= output.apply_ns <= command.native_expires_ns or

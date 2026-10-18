@@ -83,7 +83,7 @@ class HondaEpsRackMap:
 
   # Past Table A's last knot the firmware holds its last divisor (linear = physical * Y_end / Y0) and the ratio holds
   # its value there, so the path keeps growing in proportion to the angle: the Insight's table ends at 430.5 deg, short
-  # of its 457 deg lock, and without this the controller could not ask for the last 27 deg. nrdr's port does the same.
+  # of its 457 deg lock, and without this the controller could not ask for the last 27 deg.
   def _angle(self, path: float) -> float:
     if path > self.path_grid[-1]:
       return float(self.angle_grid[-1] * path / self.path_grid[-1])

@@ -106,17 +106,17 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `eps_tools/flash.py` | bosch+vfn | 535 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
 | `tune_report.py` | bosch+vfn | 463 | new | **gone** | COPY - standalone tools | dropped: you dropped the tune report |
 | `eps_tools/eps-diag.py` | bosch+vfn | 347 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
-| `tools/lateral/eps_report.py` | bosch+vfn | 318 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/lateral/eps_report.py` | bosch+vfn | 318 | new | `openpilot/tools/lateral/eps_report.py` | COPY - standalone tools | done: 7.0 message names |
 | `eps_tools/eps-update.py` | bosch+vfn | 315 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
-| `tools/lateral/fit_rack_map.py` | bosch+vfn | 221 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
-| `tools/lateral/fit_column_load.py` | bosch+vfn | 146 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
-| `tools/lateral/plan_timing.py` | bosch+vfn | 141 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/lateral/fit_rack_map.py` | bosch+vfn | 221 | new | `openpilot/tools/lateral/fit_rack_map.py` | COPY - standalone tools | done: 7.0 message names |
+| `tools/lateral/fit_column_load.py` | bosch+vfn | 146 | new | `openpilot/tools/lateral/fit_column_load.py` | COPY - standalone tools | done: 7.0 message names |
+| `tools/lateral/plan_timing.py` | bosch+vfn | 141 | new | `openpilot/tools/lateral/plan_timing.py` | COPY - standalone tools | done: 7.0 message names |
 | `tools/replay/lib/radar_debug.py` | bosch+vfn | 114 | new | **gone** | COPY - standalone tools | done: replay radar roles on 7.0's raylib UI |
-| `tools/lateral/fit_yaw_scale.py` | bosch+vfn | 113 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/lateral/fit_yaw_scale.py` | bosch+vfn | 113 | new | `openpilot/tools/lateral/fit_yaw_scale.py` | COPY - standalone tools | done: 7.0 message names |
 | `eps_tools/check_rwd.py` | bosch+vfn | 104 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
 | `eps_tools/README.md` | bosch+vfn | 91 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
 | `eps_tools/rwd_format/x31.py` | bosch+vfn | 91 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
-| `tools/lateral/live_row_fit.py` | bosch+vfn | 74 | new | **gone** | COPY - standalone tools | held: after the lateral sync to ns-bosch |
+| `tools/lateral/live_row_fit.py` | bosch+vfn | 74 | new | `openpilot/tools/lateral/live_row_fit.py` | COPY - standalone tools | done: 7.0 message names |
 | `eps_tools/rwd/README.md` | bosch+vfn | 73 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
 | `eps_tools/rwd_format/base.py` | bosch+vfn | 60 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
 | `eps_tools/rwd_format/x5a.py` | bosch+vfn | 60 | new | **gone** | COPY - standalone tools | done: copied, slice 10 (no firmware images) |
@@ -254,7 +254,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | `selfdrive/controls/tests/test_navigation_desires.py` | bosch+vfn | 30 | mod | **gone** | REVIEW | dropped: feature not ported |
 | `common/transformations/model.py` | vfn | 16 | mod | `openpilot/common/transformations/model.py` | REVIEW | dropped: per-model warps (9.4) |
 | `tools/StarPilot/derive_feasible_params.py` | bosch+vfn | 12 | mod | **gone** | REVIEW | dropped: 6.x glue, 7.0 feature owners |
-| `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | held: DM timing, night-star7 only |
+| `selfdrive/monitoring/policy.py` | bosch+vfn | 11 | mod | `openpilot/selfdrive/monitoring/policy.py` | REVIEW | done: night-star7 only (`night_star_timing`); stock on night-star7-clean |
 | `selfdrive/car/redneck_cruise.py` | bosch+vfn | 9 | mod | **gone** | REVIEW | dropped: 7.0 removed redneck cruise |
 | `common/tests/test_params.py` | bosch+vfn | 7 | mod | `openpilot/common/tests/test_params.py` | REVIEW | dropped: 6.x params test |
 | `common/pid.py` | bosch+vfn | 6 | mod | `openpilot/common/pid.py` | REVIEW | done (slice 1) |
@@ -300,7 +300,7 @@ Collapsed; see `git diff 249b03a3f5 <branch> --stat`.
 | File | From | +lines | Ours was | 7.0 path | Decision | Status |
 |---|---|---:|---|---|---|---|
 | `docs/JETLINK.md` | bosch | 255 | new | **gone** | COPY ours | dropped: 7.0 ships Jetlink |
-| `docs/HONDA_EPS_CONTROLLER.md` | bosch+vfn | 103 | new | **gone** | COPY ours | held: after the lateral sync to ns-bosch |
+| `docs/HONDA_EPS_CONTROLLER.md` | bosch+vfn | 103 | new | `docs/HONDA_EPS_CONTROLLER.md` | COPY ours | done: rewritten for 7.0 |
 | `docs/MODEL_REBUILD.md` | bosch+vfn | 76 | mod | **gone** | COPY ours | dropped: 7.0's model pipeline |
 | `tools/replay/README.md` | bosch+vfn | 27 | mod | `openpilot/tools/replay/README.md` | COPY ours | done: replay radar roles on 7.0's raylib UI |
 

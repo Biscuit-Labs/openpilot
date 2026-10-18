@@ -1,4 +1,3 @@
-from dataclasses import replace
 import tempfile
 import unittest
 
@@ -47,7 +46,7 @@ class TestNightStarSettings(unittest.TestCase):
 
   def test_clarity_rows_without_fades_filters_or_pid_trims(self):
     labels = self.labels()
-    # the Clarity's calibration is on by default, so there is no controller choice, but there is its rate limit
+    # every calibrated image steers with LatControlHondaEps, so there is no controller choice, but there is its rate limit
     self.assertNotIn('Honda EPS Controller', labels)
     self.assertEqual(labels[0], 'Steering Angle Rate Limit')
     self.assertIn('Override Torque Threshold', labels)
@@ -74,16 +73,17 @@ class TestNightStarSettings(unittest.TestCase):
     rows = {row['label']: row for row in self.page()['rows']}
     self.assertTrue(rows['Rate Limit Up']['available'])
 
-  def test_calibrated_car_off_by_default_gets_a_parked_controller_choice(self):
-    self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), parked=False)
+  def test_every_calibrated_image_gets_the_rate_limit_and_no_controller_choice(self):
+    self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), parked=True)
     labels = self.labels()
-    self.assertEqual(labels[0], 'Honda EPS Controller')
-    self.assertNotIn('Steering Angle Rate Limit', labels)   # the PID controller has no angle-rate ceiling
-    controller = self.page()['rows'][0]
-    self.assertFalse(controller['available'], 'controlsd reads it at startup, so it is parked-only')
-    self.context = replace(self.context, parked=True)
-    self.assertTrue(self.set('Honda EPS Controller', 'On'))
-    self.assertIn('Steering Angle Rate Limit', self.labels())
+    self.assertNotIn('Honda EPS Controller', labels)
+    self.assertEqual(labels[0], 'Steering Angle Rate Limit')
+
+  def test_uncalibrated_modified_image_has_no_rate_limit(self):
+    self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TGG,A020\x00\x00'), parked=True)   # still on the modified PID
+    labels = self.labels()
+    self.assertNotIn('Steering Angle Rate Limit', labels)
+    self.assertIn('Override Torque Threshold', labels)
 
   def test_other_cars_see_only_the_seatbelt_check(self):
     self.use(vehicle(fw_version=b'39990-TRW-A010\x00\x00'), parked=True)   # a stock Clarity EPS

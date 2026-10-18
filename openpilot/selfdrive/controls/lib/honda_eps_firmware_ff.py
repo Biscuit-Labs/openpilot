@@ -132,7 +132,6 @@ class EpsFirmwareCalibration:
   r6_angle_gain: tuple | None = None  # R6 per published deg/s relative to r6_per_deg_s, see firmware_r6()
   cmd_delay_s: float = CMD_DELAY_DEFAULT_S  # command delay in town, see CMD_DELAY_SPEED_BP
   cmd_delay_highway_s: float = 0.0  # command delay above CMD_DELAY_SPEED_BP
-  default_on: bool = False     # steer with this controller without HondaEpsController (validated on this car)
   lat_delay_schedule: tuple = LAT_DELAY_SCHEDULE_DEFAULT  # (speed bp, s): the delay told to the model, see above
   rack: RackMapTable | None = None  # rack ratio after the firmware angle table, yaw-fitted on the car or predicted
                                     # from its specs (honda_eps_spec_plant); when set it is the geometry, ahead of the

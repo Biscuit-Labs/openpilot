@@ -1,7 +1,7 @@
 """The Night Star settings page: the fork's own settings, edited live (onroad too).
 
-Every row here is read again while driving (the EPS rows once a second, the controller rows each refresh), except the
-controller choice, which controlsd reads at startup, so that row is parked-only. The override fades and the output
+Every row here is read again while driving (the EPS rows once a second, the controller rows each refresh). Every
+calibrated EPS image steers with LatControlHondaEps, so the controller has no row. The override fades and the output
 low-pass bands are fixed by design and have no row.
 """
 import math
@@ -11,14 +11,10 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 SEATBELT_KEY = "DisableSeatbeltCheck"
-CONTROLLER_KEY = "HondaEpsController"
 LIMITER_KEY = "HondaSteerDeltaLimiter"
 
 # key -> (label, reason)
 BOOL_ROWS = {
-  CONTROLLER_KEY: ("Honda EPS Controller",
-                   "Steer with the controller calibrated for this car's modified EPS image instead of the PID controller. " +
-                   "Applies after the next startup."),
   "HondaDriverAssistDuringOverride": ("Assist During Override",
                                       "Keep steering assist active while you override the wheel."),
   LIMITER_KEY: ("Steer Rate Limiter", "Limit how fast the steering command may change, like the stock EPS."),
@@ -54,7 +50,7 @@ class NightStarFeature:
     self.vehicle_fingerprint = owner.vehicle_fingerprint
 
   def capability(self):
-    """(fingerprint, flags, modified EPS, calibrated, controller default on) for a Honda on a modified EPS, else None."""
+    """(fingerprint, flags, calibrated) for a Honda on a modified EPS, else None."""
     cp = self.vehicle_params()
     if cp is None:
       return None
@@ -62,21 +58,17 @@ class NightStarFeature:
     try:
       if not modified_eps(cp):
         return None
-      from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import matching_eps_firmware_calibration
-      calibration = matching_eps_firmware_calibration(cp)
+      from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_firmware_calibration
+      calibration = eps_firmware_calibration(cp)
     except (AttributeError, TypeError, ValueError):
       return None
-    return (str(cp.carFingerprint), int(cp.flags), calibration is not None,
-            bool(calibration is not None and calibration.default_on))
+    return str(cp.carFingerprint), int(cp.flags), calibration is not None
 
   def _keys(self, capability) -> tuple[str, ...]:
     keys = []
     if capability is not None:
-      _, _, calibrated, default_on = capability
-      controller_on = calibrated and (default_on or self._saved_bool(CONTROLLER_KEY) is True)
-      if calibrated and not default_on:
-        keys.append(CONTROLLER_KEY)
-      if controller_on:
+      _, _, calibrated = capability
+      if calibrated:  # read by LatControlHondaEps only
         keys.append("HondaEpsAngleRateLimit")
       keys.extend(EPS_KEYS)
     keys.append(SEATBELT_KEY)
@@ -94,7 +86,7 @@ class NightStarFeature:
 
   def _row(self, key, live, capability) -> FeatureRow:
     raw, readable = read_saved(self.params, key, 32)
-    allowed = self.authority("parked_preferences") if key == CONTROLLER_KEY else live
+    allowed = live
     binding = {} if key == SEATBELT_KEY else {"capability": capability, "vehicle_fingerprint": self.vehicle_fingerprint()}
     if key in BOOL_ROWS:
       label, reason = BOOL_ROWS[key]
@@ -117,7 +109,7 @@ class NightStarFeature:
                       reason=reason if valid else "Invalid saved value", **binding)
 
   def rows(self, parked):
-    del parked  # these settings are live; the controller row checks parked authority itself
+    del parked  # these settings are live
     capability = self.capability()
     live = self.authority("preferences")
     return tuple(self._row(key, live, capability) for key in self._keys(capability))
@@ -131,7 +123,6 @@ class NightStarFeature:
     if key != SEATBELT_KEY and (request.capability is None or request.capability != capability or
                                 not request.vehicle_fingerprint or self.vehicle_fingerprint() != request.vehicle_fingerprint):
       return False
-    group = "parked_preferences" if key == CONTROLLER_KEY else "preferences"
     if key in BOOL_ROWS:
       if request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
         return False
@@ -149,7 +140,7 @@ class NightStarFeature:
       raw = _format(number, integer).encode()
 
     def authorized():
-      return (self.authority(group) and self.capability() == capability and
+      return (self.authority("preferences") and self.capability() == capability and
               (key == SEATBELT_KEY or self.vehicle_fingerprint() == request.vehicle_fingerprint))
 
     result = commit_exact(self.params, key=key, max_bytes=32, expected=request.expected, raw=raw,

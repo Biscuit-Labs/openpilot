@@ -113,7 +113,6 @@ CLARITY_TRW_A020 = EpsFirmwareCalibration(
   load=CLARITY_TRW_A020_LOAD, p_scale=CLARITY_TRW_A020_P_SCALE, i_scale=CLARITY_TRW_A020_I_SCALE,
   r5_per_key=18.04,
   cmd_delay_s=0.12, cmd_delay_highway_s=0.10,  # measured
-  default_on=True,
   lat_delay_schedule=CLARITY_TRW_A020_LAT_DELAY_SCHEDULE,  # measured
   rack=CLARITY_TRW_A020_RACK,
 )
@@ -259,7 +258,6 @@ INSIGHT_TXM_A040 = EpsFirmwareCalibration(
   # with plan_timing.py after a drive on this controller.
   cmd_delay_s=0.15,
   rack=INSIGHT_TXM_A040_RACK,
-  default_on=True,  # Night Star port: on by default for the modified TXM,A040 image, like the Clarity
 )
 # CR-V 5G 39990-TLA-A040, the CORRECTED Proper Torque Mod of 2026-10-16, revision b (RWD sha256 2e6a8802; KB
 # PTM_FIX_FAMILY_20261016/out/A040), a data-only fix of the Drive A040 release; the owner's 10-06 A280-flat build
@@ -443,7 +441,7 @@ CALIBRATION_PROVENANCE = {
 
 # The corrected (revision b, 2026-10-16) PTM build each calibration models, by RWD sha256 prefix (KB
 # PTM_FIX_FAMILY_20261016/out/<car>). Each earlier PTM build reports the same EPS version string, so openpilot cannot tell
-# them apart: the owner must flash this build before turning HondaEpsController on.
+# them apart, and every calibrated image steers with LatControlHondaEps: the owner must flash this build first.
 REQUIRED_PTM_RWD = {
   "civic_tba_a030": "55c37266",
   "civic_teg_a010": "04147917",

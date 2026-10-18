@@ -33,16 +33,16 @@ class TestHondaEpsSettings(unittest.TestCase):
     self.write_raw("NrdrLatUseFirmwareVgr", b"1")
     self.write_raw("HondaLpfTauLowSpeed", b"0.07")
     # a current name already set wins over its old one
-    self.params.put_bool("HondaEpsController", True, block=True)
-    self.write_raw("NrdrLatEpsFirmwareFF", b"0")
+    self.params.put("HondaMinSteerSpeed", 6, block=True)
+    self.write_raw("NrdrMinSteerSpeed", b"3")
 
     renamed = migrate_honda_eps_param_names(self.params)
 
     self.assertEqual(self.params.get("HondaEpsAngleRateLimit"), 219)
     self.assertTrue(self.params.get_bool("HondaEpsFirmwareVgr"))
     self.assertAlmostEqual(self.params.get("HondaTorqueOutputLpfTauLowSpeed"), 0.07)
-    self.assertTrue(self.params.get_bool("HondaEpsController"))
-    self.assertNotIn("NrdrLatEpsFirmwareFF->HondaEpsController", renamed)
+    self.assertEqual(self.params.get("HondaMinSteerSpeed"), 6)
+    self.assertNotIn("NrdrMinSteerSpeed->HondaMinSteerSpeed", renamed)
     for old_key in HONDA_EPS_KEY_RENAMES:
       self.assertFalse(Path(self.params.get_param_path(old_key)).exists(), old_key)
     self.assertEqual(migrate_honda_eps_param_names(self.params), [])   # idempotent

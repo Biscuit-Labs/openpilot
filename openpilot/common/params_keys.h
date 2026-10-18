@@ -358,7 +358,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"Version", {PERSISTENT, STRING}},
 
     // Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
-    {"HondaEpsController", {PERSISTENT, BOOL, "0"}},  // steer the PTM EPS cars without default_on with LatControlHondaEps (read when controlsd starts)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // fixed by design; no settings UI

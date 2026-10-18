@@ -15,7 +15,6 @@ HONDA_EPS_KEY_RENAMES = {
   "HondaLpfTauLowSpeed": "HondaTorqueOutputLpfTauLowSpeed",
   "HondaLpfTauStandard": "HondaTorqueOutputLpfTauStandard",
   "HondaLpfTauHighway": "HondaTorqueOutputLpfTauHighway",
-  "NrdrLatEpsFirmwareFF": "HondaEpsController",
   "NrdrLatUseFirmwareVgr": "HondaEpsFirmwareVgr",
   "NrdrLatAngleRateLimit": "HondaEpsAngleRateLimit",
   "NrdrDriverOverrideThreshold": "HondaDriverOverrideThreshold",
@@ -23,7 +22,7 @@ HONDA_EPS_KEY_RENAMES = {
 }
 
 HONDA_EPS_PRESERVED_KEYS = frozenset({
-  "HondaEpsController", "HondaEpsAngleRateLimit", "HondaEpsFirmwareVgr", "HondaOverrideFadeUpSecs",
+  "HondaEpsAngleRateLimit", "HondaEpsFirmwareVgr", "HondaOverrideFadeUpSecs",
   "HondaTorqueOutputLowPassFilter", "HondaTorqueOutputLpfTauLowSpeed", "HondaTorqueOutputLpfTauStandard",
   "HondaTorqueOutputLpfTauHighway",
   "LatPScaleLowSpeed", "LatPScaleStandard", "LatPScaleHighway",

@@ -6,12 +6,11 @@ that inverts the EPS firmware's own P + D + KFF law, so the command is the one t
 wheel along the desired path rather than one it has to be dragged into by error. The firmware tables come from
 the car's own image (eps_firmware_ff.EpsFirmwareCalibration), picked by the EPS part number in carFw.
 
-Which cars get it: a calibration with default_on (the Clarity, where it was developed and validated) always; the other
-PTM cars (Civic A030/TEG/C020/C120/TGG-A120, Insight, CR-V) only with HondaEpsController on, because parts of
-their calibration are carried over from a related car until a drive measures them. A car with no calibration, whose
-torque map is not the linear [0, E4 cap] the calibration expects, or with no firmware A table for its rack map, keeps
-LatControlPID. The setting is read once, when
-controlsd starts.
+Which cars get it: every PTM image with a calibration (Clarity TRW-A020, Civic A030/TEG/C020/C120/TGG-A120, Insight
+TXM-A040, CR-V A040/A220), with no setting to turn it off; some of those calibrations carry parts over from a related
+car until a drive measures them. A car with no calibration (TGG-A020, Accord TVA-A150, RDX TJB-A220), whose torque map
+is not the linear [0, E4 cap] the calibration expects, or with no firmware A table for its rack map, keeps the
+modified-EPS PID (LatControlHondaModifiedPID).
 Per vehicle, from its calibration: the command delay (cmd_delay_s) and the model-delay schedule (lat_delay_schedule),
 every car (measured ones, else a default), and the rack map (rack): yaw-fitted on the car, else predicted from its
 published specs (honda_eps_spec_plant).
@@ -95,8 +94,8 @@ class CommandDelay:
     return newer + frac * (older - newer)
 
 
-def matching_eps_firmware_calibration(CP) -> EpsFirmwareCalibration | None:
-  """The calibration for this car's EPS image whether or not HondaEpsController is on (the settings page asks)."""
+def eps_firmware_calibration(CP) -> EpsFirmwareCalibration | None:
+  """The EPS image calibration this car steers with, or None to keep the modified-EPS PID."""
   if not (bool(CP.flags & HondaFlags.EPS_MODIFIED) and CP.lateralTuning.which() == "pid"):
     return None
   eps_fw = next((normalize_honda_eps_fw(fw.fwVersion) for fw in CP.carFw if fw.ecu == "eps"), None)
@@ -116,24 +115,13 @@ def matching_eps_firmware_calibration(CP) -> EpsFirmwareCalibration | None:
   return calibration
 
 
-def eps_firmware_calibration(CP, params=None) -> EpsFirmwareCalibration | None:
-  """The EPS image calibration this car should steer with, or None to keep LatControlPID."""
-  calibration = matching_eps_firmware_calibration(CP)
-  if calibration is None:
-    return None
-  params = params if params is not None else Params()
-  if not calibration.default_on and not _get_param_bool(params, "HondaEpsController", False):
-    return None
-  return calibration
+def use_honda_eps_controller(CP) -> bool:
+  return eps_firmware_calibration(CP) is not None
 
 
-def use_honda_eps_controller(CP, params=None) -> bool:
-  return eps_firmware_calibration(CP, params) is not None
-
-
-def lateral_delay_schedule(CP, params=None) -> tuple | None:
+def lateral_delay_schedule(CP) -> tuple | None:
   """controlsd, modeld: the delay to tell the model in place of liveDelay, whenever this controller steers the car."""
-  calibration = eps_firmware_calibration(CP, params)
+  calibration = eps_firmware_calibration(CP)
   return calibration.lat_delay_schedule if calibration is not None else None
 
 
@@ -143,7 +131,7 @@ def scheduled_lateral_delay(schedule: tuple, v_ego: float) -> float:
 
 def get_rack_map(CP, calibration: EpsFirmwareCalibration | None) -> HondaEpsRackMap | None:
   """The calibration's rack map (yaw-fitted or spec-predicted), on the firmware VGR table it was made for; None when
-  either is missing, and then eps_firmware_calibration keeps the car on LatControlPID."""
+  either is missing, and then eps_firmware_calibration keeps the car on the modified-EPS PID."""
   vgr_inverse = get_honda_vgr_inverse(CP.flags)
   if calibration is None or calibration.rack is None or vgr_inverse is None:
     return None
@@ -164,7 +152,7 @@ class LatControlHondaEps(LatControl):
   def __init__(self, CP, CI, dt, calibration: EpsFirmwareCalibration | None = None):
     super().__init__(CP, CI, dt)
     self.params = Params()
-    self.calibration = calibration if calibration is not None else eps_firmware_calibration(CP, self.params)
+    self.calibration = calibration if calibration is not None else eps_firmware_calibration(CP)
     assert self.calibration is not None, f"no EPS firmware calibration for {CP.carFingerprint}"
     required = REQUIRED_PTM_RWD.get(self.calibration.name)
     cloudlog.info(f"LatControlHondaEps: {CP.carFingerprint} steering with EPS calibration {self.calibration.name} " +

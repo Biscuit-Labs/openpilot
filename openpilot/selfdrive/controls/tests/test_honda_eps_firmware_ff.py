@@ -298,7 +298,7 @@ def _clarity_lat_delay(v):
 
 def _get_rack_map(fw):
   CP = _params(fw)
-  return honda_eps.get_rack_map(CP, honda_eps.eps_firmware_calibration(CP, _Params()))
+  return honda_eps.get_rack_map(CP, honda_eps.eps_firmware_calibration(CP))
 
 
 def _controller(monkeypatch, values=None):
@@ -307,12 +307,13 @@ def _controller(monkeypatch, values=None):
   return honda_eps.LatControlHondaEps(CP, None, DT_CTRL), VehicleModel(CP), CP
 
 
-def test_only_the_modified_eps_clarity_and_insight_get_this_controller_by_default():
-  assert honda_eps.use_honda_eps_controller(_params(CLARITY_MODIFIED_FW), _Params())
-  assert not honda_eps.use_honda_eps_controller(_params(CLARITY_STOCK_FW), _Params())
-  assert honda_eps.use_honda_eps_controller(_params(b'39990-TXM,A040\x00\x00', CAR.HONDA_INSIGHT), _Params())
-  assert not honda_eps.use_honda_eps_controller(_params(b'39990-TXM-A040\x00\x00', CAR.HONDA_INSIGHT), _Params())
-  assert not honda_eps.use_honda_eps_controller(_params(b'39990-TBA,A030\x00\x00', CAR.HONDA_CIVIC_BOSCH), _Params())
+def test_only_calibrated_modified_eps_images_get_this_controller():
+  assert honda_eps.use_honda_eps_controller(_params(CLARITY_MODIFIED_FW))
+  assert not honda_eps.use_honda_eps_controller(_params(CLARITY_STOCK_FW))
+  assert honda_eps.use_honda_eps_controller(_params(b'39990-TXM,A040\x00\x00', CAR.HONDA_INSIGHT))
+  assert not honda_eps.use_honda_eps_controller(_params(b'39990-TXM-A040\x00\x00', CAR.HONDA_INSIGHT))
+  assert honda_eps.use_honda_eps_controller(_params(b'39990-TBA,C020\x00\x00', CAR.HONDA_CIVIC_BOSCH))
+  assert not honda_eps.use_honda_eps_controller(_params(b'39990-TBA,A030\x00\x00', CAR.HONDA_CIVIC_BOSCH))
 
 
 @pytest.mark.parametrize("v, delay", [(0.0, 0.15), (3.5, 0.15), (7.0, 0.08), (12.0, 0.10), (20.0, 0.20), (30.0, 0.30), (40.0, 0.30)])
@@ -329,8 +330,9 @@ def test_every_vehicle_tells_the_model_the_measured_schedule():
   for _, cal in eps_cal.EPS_FIRMWARE_CALIBRATIONS.values():
     assert cal.lat_delay_schedule == own.get(cal.name, eps_ff.CLARITY_TRW_A020_LAT_DELAY_SCHEDULE), cal.name
   CP = _params(b'39990-TBA,C020\x00\x00', CAR.HONDA_CIVIC_BOSCH)
-  assert honda_eps.lateral_delay_schedule(CP, _Params({"HondaEpsController": "1"})) == eps_cal.CIVIC_TBA_C020_LAT_DELAY_SCHEDULE
-  assert honda_eps.lateral_delay_schedule(CP, _Params()) is None   # not on this controller: liveDelay
+  assert honda_eps.lateral_delay_schedule(CP) == eps_cal.CIVIC_TBA_C020_LAT_DELAY_SCHEDULE
+  # not on this controller: liveDelay
+  assert honda_eps.lateral_delay_schedule(_params(b'39990-TGG,A020\x00\x00', CAR.HONDA_CIVIC_BOSCH)) is None
 
 
 @pytest.mark.parametrize("schedule, lag", [
@@ -420,25 +422,21 @@ CALIBRATION_CARS = [
   (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00', eps_cal.CRV_TLA_A220),
 ]
 ALL_PROFILES = [p for _, _, p in CALIBRATION_CARS]
-ON = {"HondaEpsController": "1"}
 
 
 @pytest.mark.parametrize("candidate,fw,cal", CALIBRATION_CARS, ids=[p.name for _, _, p in CALIBRATION_CARS])
-def test_calibration_matches_the_cars_torque_map_and_is_selected_only_when_enabled(candidate, fw, cal):
+def test_calibration_matches_the_cars_torque_map_and_is_selected_by_default(candidate, fw, cal):
   CP = _params(fw, candidate)
   # 7.0 keeps the command map in CarControllerParams, not CP.lateralParams
   ccp = CarControllerParams(CP)
   assert list(ccp.STEER_LOOKUP) == [-cal.e4_per_output, 0, cal.e4_per_output] == list(ccp.STEER_LOOKUP_V)
-  assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is cal
-  if candidate not in (CAR.HONDA_CLARITY, CAR.HONDA_INSIGHT):
-    assert honda_eps.eps_firmware_calibration(CP, _Params()) is None
+  assert honda_eps.eps_firmware_calibration(CP) is cal
 
 
 def test_clarity_always_steers_with_the_pminus5_build():
   # P-minus-5 is the Clarity standard; there is no build setting any more
   CP = _params(CLARITY_MODIFIED_FW)
-  assert honda_eps.eps_firmware_calibration(CP, _Params()) is eps_cal.CLARITY_TRW_A020
-  assert honda_eps.eps_firmware_calibration(CP, _Params({"HondaEpsClarityPminus5": "0"})) is eps_cal.CLARITY_TRW_A020
+  assert honda_eps.eps_firmware_calibration(CP) is eps_cal.CLARITY_TRW_A020
   assert not hasattr(eps_ff, "CLARITY_P123")
 
 
@@ -447,20 +445,20 @@ def test_clarity_always_steers_with_the_pminus5_build():
   (CAR.HONDA_CIVIC_BOSCH, b'39990-TGG,A020\x00\x00'),   # modified, but no PTM build exists
   (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,A030\x00\x00'),   # a known image on the wrong car
 ])
-def test_cars_without_a_matching_profile_keep_latcontrol_pid(candidate, fw):
-  assert honda_eps.eps_firmware_calibration(_params(fw, candidate), _Params(ON)) is None
+def test_cars_without_a_matching_profile_keep_the_pid(candidate, fw):
+  assert honda_eps.eps_firmware_calibration(_params(fw, candidate)) is None
 
 
-def test_a_torque_map_the_profile_does_not_expect_keeps_latcontrol_pid(monkeypatch):
+def test_a_torque_map_the_profile_does_not_expect_keeps_the_pid(monkeypatch):
   CP = _params(b'39990-TBA,C020\x00\x00', CAR.HONDA_CIVIC_BOSCH)
-  assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is not None
+  assert honda_eps.eps_firmware_calibration(CP) is not None
 
   class _OtherMap(CarControllerParams):
     def __init__(self, CP):
       super().__init__(CP)
       self.STEER_LOOKUP_V = [-4096, 0, 4096]  # the calibration expects [0, 3840]
   monkeypatch.setattr(honda_eps, "CarControllerParams", _OtherMap)
-  assert honda_eps.eps_firmware_calibration(CP, _Params(ON)) is None
+  assert honda_eps.eps_firmware_calibration(CP) is None
 
 
 def test_clarity_trw_a020_profile_is_the_validated_build():
@@ -539,7 +537,7 @@ def test_c020_full_output_lands_on_the_measured_rail():
 
 @pytest.mark.parametrize("candidate,fw,cal", CALIBRATION_CARS, ids=[p.name for _, _, p in CALIBRATION_CARS])
 def test_every_ptm_car_steers_with_its_own_calibration(monkeypatch, candidate, fw, cal):
-  monkeypatch.setattr(honda_eps, "Params", lambda: _Params(ON))
+  monkeypatch.setattr(honda_eps, "Params", lambda: _Params())
   CP = _params(fw, candidate)
   lac = honda_eps.LatControlHondaEps(CP, None, DT_CTRL)
   assert lac.calibration is cal and lac.core.ff.cal is cal
@@ -661,7 +659,7 @@ def test_rack_map_is_only_built_for_the_identified_car():
 
 def _ptm_cp(candidate, fw):
   CP = _params(fw, candidate)
-  return CP, honda_eps.eps_firmware_calibration(CP, _Params({"HondaEpsController": "1"}))
+  return CP, honda_eps.eps_firmware_calibration(CP)
 
 
 @pytest.mark.parametrize("candidate,fw,table", [
@@ -886,6 +884,6 @@ def test_every_ptm_calibration_names_its_required_corrected_build():
 def test_every_calibration_has_a_rack_map_and_the_controller_requires_one(monkeypatch):
   assert all(cal.rack is not None for _, cal in eps_cal.EPS_FIRMWARE_CALIBRATIONS.values())
   CP = _params(CLARITY_MODIFIED_FW)
-  assert honda_eps.eps_firmware_calibration(CP, _Params()) is eps_cal.CLARITY_TRW_A020
-  CP.flags = int(CP.flags) & ~int(HondaFlags.VGR_CLARITY_TRW_A020)   # no firmware A table: no geometry, so LatControlPID
-  assert honda_eps.eps_firmware_calibration(CP, _Params()) is None
+  assert honda_eps.eps_firmware_calibration(CP) is eps_cal.CLARITY_TRW_A020
+  CP.flags = int(CP.flags) & ~int(HondaFlags.VGR_CLARITY_TRW_A020)   # no firmware A table: no geometry, so the modified PID
+  assert honda_eps.eps_firmware_calibration(CP) is None

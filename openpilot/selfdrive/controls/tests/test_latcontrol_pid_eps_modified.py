@@ -201,7 +201,7 @@ def test_rdx_3g_ptm_shares_the_clarity_modified_eps_tune_on_pid(candidate):
   assert rdx.is_eps_modified and rdx.is_modified_eps_kf_car
 
   from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_firmware_calibration
-  assert eps_firmware_calibration(cp, SimpleNamespace(get_bool=lambda *a, **k: True, get=lambda *a, **k: b"1")) is None
+  assert eps_firmware_calibration(cp) is None
 
 
 def test_stock_rdx_3g_keeps_7_0s_tune():

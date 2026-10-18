@@ -129,6 +129,11 @@ struct StarPilotModelDataV2 @0x80ae746ee2596b11 {
   # why the external model is not driving, in a few words: the last handback, or the last join that was refused or failed;
   # empty while it drives or has nothing to report
   reason @8 :Text;
+  # Where this frame's steering curvature came from, and how the lateral delay reaches that model. The Honda EPS
+  # controller sizes its command delay from these: a plan is read at the told delay exactly, an action head follows
+  # only part of it. unknown in logs written before these existed.
+  lateralSource @9 :LateralSource;
+  delayInput @10 :DelayInput;
 
   enum TurnDirection {
     none @0;
@@ -140,6 +145,21 @@ struct StarPilotModelDataV2 @0x80ae746ee2596b11 {
     local @0;
     chestnut @1;
     jetlink @2;
+  }
+
+  enum LateralSource {
+    unknown @0;
+    plan @1;           # curvature read off the model's plan at the lateral action time
+    actionHead @2;     # the model's own action output
+    curvatureHead @3;  # the model's desired_curvature output (v9 and pre-tinygrad models)
+  }
+
+  # which model input carries the told delay, if any
+  enum DelayInput {
+    unknown @0;
+    none @1;
+    actionT @2;               # action_t (lateral and longitudinal action times)
+    lateralControlParams @3;  # lateral_control_params (v_ego, lateral delay)
   }
 
   # Jetlink's join state: none is "no accelerator wanted or possible"

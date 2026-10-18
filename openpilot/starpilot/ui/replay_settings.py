@@ -1,6 +1,7 @@
 """Native route picker and passive replay viewer; the shared owner runs playback."""
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
 from html import escape, unescape
 import math
@@ -13,11 +14,12 @@ from openpilot.selfdrive.ui.mici.widgets.button import BigButton, GreyBigButton
 from openpilot.selfdrive.ui.ui_state import device, ui_state
 from openpilot.starpilot.ui.clip import placed_at
 from openpilot.starpilot.ui.feature_settings import FeatureSettingsView
-from openpilot.starpilot.ui.feature_settings_state import FeatureInput, FeatureRow, FeatureSettingsState, FeatureUiAction, feature_scroll
+from openpilot.starpilot.ui.feature_settings_state import (FEATURE_ROW_HEIGHT, FeatureInput, FeatureRow, FeatureSettingsState,
+                                                         FeatureUiAction, feature_scroll)
 from openpilot.starpilot.ui.onroad_customization import read_customization
 from openpilot.starpilot.ui.presentation import FontRole, Profile
 from openpilot.starpilot.ui.settings_geometry import (ACCENT, CONTROL_BG, CONTROL_BORDER, CONTROL_PRESSED_BG,
-                                                     PANEL_BG, TEXT_MUTED, TEXT_PRIMARY, draw_rounded_fill,
+                                                     PANEL_BG, ROW_SEPARATOR, TEXT_MUTED, TEXT_PRIMARY, TEXT_SECONDARY, draw_rounded_fill,
                                                      draw_rounded_stroke, draw_settings_header, elide_text)
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.system.ui.widgets import Widget
@@ -26,6 +28,11 @@ from openpilot.system.ui.widgets.scroller import Scroller
 
 
 ACTIVE_STATES = frozenset(('preparing', 'playing', 'paused', 'seeking', 'buffering', 'ended', 'stopping'))
+
+
+@dataclass(frozen=True)
+class ReplayRouteRow(FeatureRow):
+  segment_count: int = 0
 
 
 def _request(payload):
@@ -362,10 +369,9 @@ class ReplayPage(Widget):
         segments = f'{count} segment' + ('s' if count != 1 else '')
         label = name if named or not clock else calendar + (f' - {clock}' if self.profile == Profile.LARGE else '')
         if self.profile == Profile.LARGE:
-          summary = f'{calendar} - {clock}' if named and clock else identifier
-          if not clock:
-            summary = calendar
-          value = ' - '.join(part for part in (summary, source, segments) if part)
+          label = name if named else calendar + (f' - {clock}' if clock else '')
+          summary = ' - '.join(part for part in (calendar, clock, identifier) if part) if named else identifier
+          value = ' - '.join(part for part in (summary, source) if part)
         else:
           value = f'{calendar}\n{clock}' if named and clock else f'{clock or calendar}\n{source or segments}'
           if named and clock and source:
@@ -373,9 +379,38 @@ class ReplayPage(Widget):
         reason = route.get('reason') or (route.get('availability', '') if route.get('availability') != 'ready' else '')
         if self.profile == Profile.COMPACT and named and source and not route.get('reason'):
           reason = ''  # Keep the date source visible within the card's two subtitle lines.
-        rows.append(FeatureRow(identifier, label, value, available=True, reason=reason, actions=(('DETAILS', True),)))
+        rows.append(ReplayRouteRow(identifier, label, value, available=True, reason=reason, segment_count=count,
+                                   page='detail' if self.profile == Profile.LARGE else '',
+                                   actions=() if self.profile == Profile.LARGE else (('DETAILS', True),)))
       self.route_rows = tuple(rows)
-    return self.route_rows or (FeatureRow('', 'No recorded routes' if owner.catalog_loaded else 'Loading recorded routes', ''),)
+    return self.route_rows or (FeatureRow('', 'No recorded routes' if owner.catalog_loaded else 'Loading recorded routes',
+                                         'Drives recorded on this device will appear here.' if owner.catalog_loaded else 'Reading routes on this device...'),)
+
+  def _render_route_row(self, row, y, left, pressed):
+    x, right = left + 55, 2094
+    if row.page and pressed == FeatureUiAction('open', row):
+      draw_rounded_fill(rl.Rectangle(left + 25, y + 2, 2100 - left, FEATURE_ROW_HEIGHT - 8), CONTROL_PRESSED_BG, radius_px=12)
+    rl.draw_line(x, y + FEATURE_ROW_HEIGHT - 3, right, y + FEATURE_ROW_HEIGHT - 3, ROW_SEPARATOR)
+    width = right - x - (360 if row.page else 0)
+    detail = ' - '.join(part for part in (row.value, row.reason) if part)
+    label = elide_text(self.fonts, row.label, FontRole.MEDIUM, 46, width)
+    detail = elide_text(self.fonts, detail, FontRole.NORMAL, 30, width)
+    top, bottom = self.fonts.vertical_ink(label, FontRole.MEDIUM, 46)
+    detail_top, detail_bottom = self.fonts.vertical_ink(detail, FontRole.NORMAL, 30) if detail else (0, 0)
+    height = bottom - top + (14 + detail_bottom - detail_top if detail else 0)
+    label_y = y + (FEATURE_ROW_HEIGHT - height) / 2 - top
+    self.fonts.draw(label, FontRole.MEDIUM, 46, x, label_y, TEXT_PRIMARY)
+    if detail:
+      self.fonts.draw(detail, FontRole.NORMAL, 30, x, label_y + bottom + 14 - detail_top, TEXT_SECONDARY)
+    if row.page:
+      count = f'{row.segment_count} segment' + ('s' if row.segment_count != 1 else '')
+      measured = self.fonts.measure(count, FontRole.NORMAL, 32)
+      top, bottom = self.fonts.vertical_ink(count, FontRole.NORMAL, 32)
+      self.fonts.draw(count, FontRole.NORMAL, 32, right - 76 - measured.width,
+                      y + (FEATURE_ROW_HEIGHT - top - bottom) / 2, TEXT_SECONDARY)
+      cx, cy = right - 12, y + FEATURE_ROW_HEIGHT / 2
+      rl.draw_line_ex(rl.Vector2(cx - 12, cy - 12), rl.Vector2(cx, cy), 3, TEXT_MUTED)
+      rl.draw_line_ex(rl.Vector2(cx, cy), rl.Vector2(cx - 12, cy + 12), 3, TEXT_MUTED)
 
   def _warnings(self):
     return tuple(dict.fromkeys([*(self.controller.detail or {}).get('warnings', []), *self.controller.source_warnings]))
@@ -438,25 +473,24 @@ class ReplayPage(Widget):
     gui_app.push_widget(picker)
 
   def _detail_buttons(self):
-    count = (self.controller.detail or {}).get('segmentCount', 0)
-    warnings = len(self._warnings())
     available = self._play_available()
     if self.profile == Profile.COMPACT:
+      count = (self.controller.detail or {}).get('segmentCount', 0)
+      warnings = len(self._warnings())
       return (('< Back', (12, 22, 88, 42), True, self._back),
               (f'{count} segments', (12, 84, 248, 52), available and bool(self._segments()), self._choose_segment),
               (f'Warnings ({warnings})' if warnings else 'No warnings', (276, 84, 248, 52), bool(warnings), self._show_warnings),
               ('Play', (12, 184, 512, 48), available, self.controller.start))
     return (('< Back', (20, 12, 208, 88), True, self._back),
-            (f'{count} segments - Choose segment', (72, 350, 2016, 136), available and bool(self._segments()), self._choose_segment),
-            (f'Warnings ({warnings})' if warnings else 'No warnings', (72, 518, 2016, 136), bool(warnings), self._show_warnings),
-            ('Play', (72, 916, 2016, 128), available, self.controller.start))
+            ('Choose segment', (72, 900, 640, 144), available and bool(self._segments()), self._choose_segment),
+            ('Play from beginning', (744, 900, 1344, 144), available, self.controller.start))
 
   def _render_detail(self):
     owner = self.controller
     route = owner.detail or {}
     large = self.profile == Profile.LARGE
     if large:
-      draw_settings_header(self.fonts, False, 'Replay', 'Recorded Routes', back=True)
+      draw_settings_header(self.fonts, False, 'Route details', 'Replay', back=True)
     if self.detail_source is not owner.detail:
       self.detail_source = owner.detail
       calendar, clock, zone, source = route_date(route, self.profile, self.clock24_hour)
@@ -468,18 +502,45 @@ class ReplayPage(Widget):
       title = name if named else calendar if clock else 'Recorded route'
       self.detail_text = title, date_line, identifier
     title, date_line, identifier = self.detail_text
-    size, width, x, y = (58, 2016, 72, 180) if large else (22, 412, 112, 30)
+    if large:
+      self._render_large_detail(title, date_line, identifier)
+      return
+    size, width, x, y = 22, 412, 112, 30
     self.fonts.draw(elide_text(self.fonts, title, FontRole.SEMI_BOLD, size, width), FontRole.SEMI_BOLD, size, x, y, TEXT_PRIMARY)
-    size, width, x, y = (32, 2016, 72, 264) if large else (15, 412, 112, 59)
+    size, width, x, y = 15, 412, 112, 59
     self.fonts.draw(elide_text(self.fonts, date_line, FontRole.NORMAL, size, width), FontRole.NORMAL, size, x, y, TEXT_MUTED)
-    size, width, x, y = (28, 2016, 72, 308) if large else (12, 512, 12, 167)
+    size, width, x, y = 12, 512, 12, 167
     self.fonts.draw(elide_text(self.fonts, identifier, FontRole.NORMAL, size, width), FontRole.NORMAL, size, x, y, TEXT_MUTED)
     reason = owner.error or route.get('reason') or ('Loading route details...' if owner.busy else '')
     if not reason and not self._play_available():
       reason = 'Replay is available while offroad and no other player is active'
-    size, width, x, y = (32, 2016, 72, 834) if large else (16, 512, 12, 146)
+    size, width, x, y = 16, 512, 12, 146
     self.fonts.draw(elide_text(self.fonts, reason, FontRole.NORMAL, size, width), FontRole.NORMAL, size, x, y, TEXT_MUTED)
-    for label, bounds, enabled, _ in self._detail_buttons()[1 if large else 0:]:
+    for label, bounds, enabled, _ in self._detail_buttons():
+      self._button(label, bounds, enabled)
+
+  def _render_large_detail(self, title, date_line, identifier):
+    owner = self.controller
+    route = owner.detail or {}
+    def text(value, size, x, y, width=2016, role=FontRole.NORMAL, color=TEXT_PRIMARY):
+      self.fonts.draw(elide_text(self.fonts, value, role, size, width), role, size, x, y, color)
+    text(title, 64, 72, 180, role=FontRole.SEMI_BOLD)
+    text(date_line, 36, 72, 274, color=TEXT_SECONDARY)
+    rl.draw_line(72, 366, 2088, 366, ROW_SEPARATOR)
+    text('Route ID', 30, 72, 418, color=TEXT_MUTED)
+    text(identifier, 38, 72, 472, width=1320, role=FontRole.MEDIUM)
+    text('Segments', 30, 1512, 418, color=TEXT_MUTED)
+    text(str(route.get('segmentCount', 0)), 38, 1512, 472, width=576, role=FontRole.MEDIUM)
+    if not owner.busy and route.get('segments') is not None:
+      text(f'{len(self._segments())} available to play', 30, 1512, 532, width=576, color=TEXT_SECONDARY)
+    rl.draw_line(72, 624, 2088, 624, ROW_SEPARATOR)
+    text('Play the route from the beginning, or choose a segment to start partway through.', 32, 72, 682, color=TEXT_SECONDARY)
+    reason = owner.error or ('Loading route details...' if owner.busy else route.get('reason'))
+    if not reason and not self._play_available():
+      reason = 'Replay is available while offroad and no other player is active'
+    if reason:
+      text(reason, 32, 72, 800, color=TEXT_MUTED)
+    for label, bounds, enabled, _ in self._detail_buttons()[1:]:
       self._button(label, bounds, enabled)
 
   def _state(self):
@@ -487,7 +548,10 @@ class ReplayPage(Widget):
     self.scroll = feature_scroll(self.scroll, 0, len(rows))
     return FeatureSettingsState(page=f'replay:{self.page}:{self.controller.selected_route}', title='Replay',
                                 parent_title='Device' if self.page == 'routes' else 'Recorded Routes', rows=rows,
-                                subtitle=self.controller.error, sidebar_expanded=False, scroll=self.scroll,
+                                subtitle=self.controller.error or (f'{len(self.controller.routes)} recorded route' +
+                                                                   ('s' if len(self.controller.routes) != 1 else '') + ' - Newest first'
+                                                                   if self.controller.routes else ''),
+                                sidebar_expanded=False, scroll=self.scroll,
                                 save_hint='Recorded driving routes on this device')
 
   def _action(self, action):
@@ -495,10 +559,10 @@ class ReplayPage(Widget):
       self._back()
     elif action.kind == 'scroll':
       self.scroll = feature_scroll(self.scroll, action.direction, len(self._rows()))
-    elif action.row in self._rows() and action.kind == 'action':
+    elif action.row in self._rows() and action.kind in ('action', 'open'):
       route = next((route for route in self.controller.routes if route['routeId'] == action.row.key), None)
       if route is not None and self.controller.select(route):
-        self.page, self.scroll = 'detail', 0
+        self.page = 'detail'
     self.input.cancel()
 
   def _back(self):
@@ -510,7 +574,7 @@ class ReplayPage(Widget):
         self.page = 'detail'
         self._clear_frame()
     elif self.page == 'detail':
-      self.page, self.scroll = 'routes', 0
+      self.page = 'routes'
     else:
       self.on_close()
 
@@ -548,13 +612,15 @@ class ReplayPage(Widget):
       elif self.page == 'detail':
         self._render_detail()
       elif self.profile == Profile.LARGE:
-        self.view.render(self._state(), self.input.drag_x)
+        self.view.render(self._state(), self.input.drag_x, draw_row=self._render_route_row)
 
   def _button(self, label, bounds, enabled=True):
     rect = rl.Rectangle(*bounds)
-    held = self.press is not None and self.press[2] == label
-    draw_rounded_fill(rect, CONTROL_PRESSED_BG if held else CONTROL_BG if self.controls else rl.Color(8, 8, 10, 210))
-    draw_rounded_stroke(rect, ACCENT if held else CONTROL_BORDER)
+    held = enabled and self.press is not None and self.press[2] == label
+    primary = enabled and self.profile == Profile.LARGE and self.page == 'detail' and label == 'Play from beginning'
+    fill = rl.color_lerp(ACCENT, PANEL_BG, 0.2) if primary and held else ACCENT if primary else CONTROL_PRESSED_BG if held else CONTROL_BG
+    draw_rounded_fill(rect, fill if self.controls else rl.Color(8, 8, 10, 210))
+    draw_rounded_stroke(rect, ACCENT if primary or held else CONTROL_BORDER)
     size = (48 if self.page == 'detail' else 38) if self.profile == Profile.LARGE else 22
     size = min(size, size * (rect.width - 12) / max(1, self.fonts.measure(label, FontRole.MEDIUM, size).width))
     measured = self.fonts.measure(label, FontRole.MEDIUM, size)
@@ -668,7 +734,11 @@ class ReplayPage(Widget):
       self.press = (x, y, self._target(x, y), self.controller.status.get('epoch'), self.controls)
       self._move_seek(x)
     elif self.view:
-      self.input.press(x, y, self._state())
+      state = self._state()
+      block_tap = self.view.reset(state) and FeatureInput._in_body(x, y, state)
+      self.input.press(x, y, state)
+      if block_tap:
+        self.input.cancel_tap()
 
   def _move_seek(self, x):
     if self.press and self.press[2] == 'seek':

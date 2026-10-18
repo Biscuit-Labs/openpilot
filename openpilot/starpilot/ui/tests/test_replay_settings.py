@@ -12,6 +12,7 @@ import pytest
 
 from openpilot.starpilot.ui.replay_settings import ReplayCompactPage, ReplayController, ReplayPage, duration, route_date
 from openpilot.starpilot.ui.presentation import Profile
+from openpilot.starpilot.ui.feature_settings_state import FEATURE_ROW_HEIGHT, feature_row_top
 
 
 ROUTE = {'routeId': '00000001--0123456789', 'displayName': 'Recorded route', 'segmentCount': 2,
@@ -60,7 +61,9 @@ def test_route_rows_prioritize_dates_preserve_names_and_keep_route_identity(utc,
   if profile == Profile.COMPACT:
     assert row.value.count('\n') == 1
   else:
-    assert '2 segments' in row.value
+    assert row.segment_count == 2
+    assert row.page == 'detail' and not row.actions
+    assert ROUTE['routeId'] in row.value
   assert page._rows()[0] is row
 
 
@@ -677,7 +680,8 @@ def test_owned_dynamic_source_warning_is_retained_for_route_details(playback):
 
 
 @pytest.fixture
-def route_detail():
+def route_detail(monkeypatch):
+  monkeypatch.setattr(rl, 'draw_line', Mock())
   page, owner = page_for_input()
   page.page = 'detail'
   page.fonts.measure.return_value = NS(width=200, height=50)
@@ -693,6 +697,59 @@ def route_detail():
   return page, owner
 
 
+@pytest.mark.parametrize('x', [30, 800, 1900, 2130])
+def test_large_route_row_opens_from_anywhere_and_back_keeps_catalog_page(route_detail, x):
+  page, owner = route_detail
+  page.page, page.scroll = 'routes', 5
+  owner.routes = [{**ROUTE, 'routeId': f'{number:08d}--0123456789', 'startTime': STAMP - number} for number in range(8)]
+  owner.select = Mock(return_value=True)
+  pos = NS(x=x, y=feature_row_top(page._state()) + FEATURE_ROW_HEIGHT / 2)
+  page._handle_mouse_press(pos)
+  page._handle_mouse_release(pos)
+  owner.select.assert_called_once_with(owner.routes[5])
+  assert page.page == 'detail'
+  page._back()
+  assert page.page == 'routes' and page.scroll == 5
+
+
+def test_route_swipe_pages_without_opening_and_cancels_taps_before_page_settles(route_detail):
+  page, owner = route_detail
+  page.page = 'routes'
+  owner.routes = [{**ROUTE, 'routeId': f'{number:08d}--0123456789'} for number in range(8)]
+  owner.select = Mock()
+  page.view._last_state = page._state()
+  y = feature_row_top(page._state()) + FEATURE_ROW_HEIGHT / 2
+  page._handle_mouse_press(NS(x=900, y=y))
+  page._handle_mouse_release(NS(x=650, y=y))
+  assert page.scroll == 5
+  owner.select.assert_not_called()
+  page._handle_mouse_press(NS(x=900, y=y))
+  page._handle_mouse_release(NS(x=900, y=y))
+  owner.select.assert_not_called()
+
+
+def test_large_details_show_route_inventory_without_diagnostic_action(route_detail, monkeypatch):
+  from openpilot.starpilot.ui import replay_settings as module
+  page, _ = route_detail
+  monkeypatch.setattr(module, 'draw_settings_header', Mock())
+  page._button = Mock()
+  page._render_detail()
+  texts = [call.args[0] for call in page.fonts.draw.call_args_list]
+  assert ROUTE['routeId'] in texts
+  assert 'Segments' in texts and '3' in texts and '2 available to play' in texts
+  assert [button[0] for button in page._detail_buttons()] == ['< Back', 'Choose segment', 'Play from beginning']
+
+
+@pytest.mark.parametrize('busy,available,playable', [(True, True, True), (False, False, True), (False, True, False)])
+def test_large_detail_playback_actions_disable_together(route_detail, busy, available, playable):
+  page, owner = route_detail
+  owner.busy, owner.available = busy, available
+  owner.detail['playable'] = playable
+  for _, (x, y, width, height), enabled, _ in page._detail_buttons()[1:]:
+    assert not enabled
+    assert page._target(x + width / 2, y + height / 2) is None
+
+
 @pytest.mark.parametrize('profile', [Profile.LARGE, Profile.COMPACT])
 def test_details_are_fixed_with_pinned_play_and_do_not_paginate(route_detail, monkeypatch, profile):
   from openpilot.starpilot.ui import replay_settings as module
@@ -703,10 +760,10 @@ def test_details_are_fixed_with_pinned_play_and_do_not_paginate(route_detail, mo
   monkeypatch.setattr(module, 'draw_settings_header', Mock())
   page._render_detail()
   buttons = page._button.call_args_list
-  assert len(buttons) == (3 if profile == Profile.LARGE else 4)  # Warnings cannot grow the summary into more pages.
+  assert len(buttons) == (2 if profile == Profile.LARGE else 4)
   label, bounds, enabled = buttons[-1].args
-  assert label == 'Play' and enabled
-  assert bounds == ((72, 916, 2016, 128) if profile == Profile.LARGE else (12, 184, 512, 48))
+  assert label == ('Play from beginning' if profile == Profile.LARGE else 'Play') and enabled
+  assert bounds == ((744, 900, 1344, 144) if profile == Profile.LARGE else (12, 184, 512, 48))
   for _, rect, _, _ in page._detail_buttons():
     x, y, w, h = rect
     assert 0 <= x < x + w <= profile.size[0] and 0 <= y < y + h <= profile.size[1]

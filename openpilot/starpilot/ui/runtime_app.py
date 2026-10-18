@@ -174,7 +174,9 @@ class StarShellSession:
                                                  lateral_active=state.lateral_active,
                                                  road_style=state.customization["roadColors"]["compact"], paint=self.camera_paint)
         else:
-          camera_owner.render_camera_model_layer(rect, road_style=state.customization["roadColors"]["large"])
+          camera_owner.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
+                                                 reverse_driver=state.reverse_driver_camera,
+                                                 road_style=state.customization["roadColors"]["large"])
       self.view = ShellView(self.fonts, Path(__file__).parents[2] / "selfdrive/assets",
                             camera_layer=camera_layer,
                             pip_layer=self._render_pip)

@@ -1578,6 +1578,48 @@ class SelfdriveD:
         sample.vEgo < (self.aol_settings.pause_brake_mps if self.aol_settings is not None else 0.0)
         for sample, _ in getattr(self, 'car_state_samples', ())))
 
+  def ordinary_native_long_withdrawal(self, CS, native, previous, requested, intent, *, source_current, now_ns):
+    """Keep the existing ordinary Panda mismatch owner for a LONG-only drop.
+
+    This classifies no new native permission. The unchanged per-axis decision
+    withdraws LONG immediately; genuine hardware faults and the ordinary
+    mismatch counter retain their original fault ownership.
+    """
+    from openpilot.starpilot.aol.transport_pause import independent_lateral_health
+    proof = getattr(self, 'aol_published_input_proof', None)
+    prior = getattr(self, 'aol_published_input_native', None)
+    anchor = getattr(self, 'aol_ordinary_source_anchor', None)
+    companion = getattr(self, 'aol_intent_companion', None)
+    if (not self.enabled or not self.active or not self.CP.openpilotLongitudinalControl or
+        not previous.lateral_active or not previous.longitudinal_active or
+        not requested.desired_lateral or not requested.desired_longitudinal or not source_current or
+        not self.conditional_car_state_valid or not 0 < self.aol_car_state_log_ns <= now_ns or
+        now_ns - self.aol_car_state_log_ns > INTENT_MAX_AGE_NS or
+        native is None or prior is None or proof is None or anchor is None or
+        anchor[3] != cp_identity(self.CP) or proof[0] != self.aol_session_id or
+        not proof[8] or not proof[9] or not 0 < proof[2] <= now_ns <= proof[3] or
+        intent is None or companion is None or proof[4] != intent.producerSessionId or
+        proof[5] != companion.integrity_epoch or not intent.allowedLatch or not intent.lateralArmed or
+        not native.requestedLateral or not native.lateralAllowed or
+        not native.requestedLongitudinal or native.longitudinalAllowed or not native.pandaInventory or
+        CS.brakePressed or CS.regenBraking or CS.gasPressed or CS.steeringPressed or
+        any(self.events.contains(kind) for kind in (ET.IMMEDIATE_DISABLE, ET.SOFT_DISABLE, ET.USER_DISABLE,
+                                                  ET.OVERRIDE_LATERAL, ET.OVERRIDE_LONGITUDINAL))):
+      return False
+    def identity(state):
+      return (state.axisSessionId, state.pandaSerial, state.safetyModel, state.safetyParam,
+              tuple((slot.slotIndex, slot.hardwareSerial, slot.safetyModel, slot.safetyParam,
+                     slot.alternativeExperience) for slot in state.pandaInventory))
+    if (identity(prior) != identity(native) or
+        not 0 < prior.observedMonoTime <= native.observedMonoTime <= now_ns <= prior.validUntilMonoTime or
+        independent_lateral_health(self.sm, self.CP, CS, self.aol_session_id, now_ns) != native):
+      return False
+    owners = [index for index, config in enumerate(self.CP.safetyConfigs)
+              if str(config.safetyModel) not in ('silent', 'noOutput')]
+    return bool(len(owners) == 1 and
+                not native.pandaInventory[owners[0]].controlsAllowed and
+                not self.sm['pandaStates'][owners[0]].controlsAllowed)
+
   def honda_native_lateral_grant_lost(self, CS, native, previous, requested, *, source_current, previous_intent, intent, now_ns):
     """An established host LAT request lost its native grant, not a cold wait."""
     pause = getattr(self, 'aol_transport_pause', None)
@@ -1700,11 +1742,15 @@ class SelfdriveD:
       lost_honda_lateral_grant = self.honda_native_lateral_grant_lost(
         CS, native, previous, requested, source_current=source_current,
         previous_intent=previous_intent, intent=intent, now_ns=now_ns)
+      ordinary_long_withdrawal = bool(native is not None and not native.longitudinalAllowed and
+        self.ordinary_native_long_withdrawal(
+          CS, native, previous, requested, intent, source_current=source_current, now_ns=now_ns))
       lost_permission = bool(lost_honda_lateral_grant or native is not None and not driver_override and (
         previous.lateral_active and requested.desired_lateral and native.requestedLateral and
         not native.lateralAllowed and not CS.steeringPressed and not self.events.contains(ET.OVERRIDE_LATERAL) or
         previous.longitudinal_active and requested.desired_longitudinal and native.requestedLongitudinal and
-        not native.longitudinalAllowed and not self.events.contains(ET.OVERRIDE_LONGITUDINAL)))
+        not native.longitudinalAllowed and not ordinary_long_withdrawal and
+        not self.events.contains(ET.OVERRIDE_LONGITUDINAL)))
       if not hasattr(self, 'aol_transport_pause'):
         self.aol_transport_pause = TransportPause(self.CP, self.aol_session_id)
       pause, upgraded = self.aol_transport_pause.observe(

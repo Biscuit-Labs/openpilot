@@ -334,6 +334,7 @@ class Ioniq6HostTests(unittest.TestCase):
         self.assertEqual(cp.safetyConfigs[0].safetyParam, raw)
         Params().put('CarParams', cp.to_bytes(), block=True)
         controls = Controls()
+        controls.sm.alive['modelV2'] = True   # Night Star port: controlsd steers only while a driving model is publishing (stopped-model guard)
         self.assertTrue(controls.aol_replay)
         cs = state()
         cs.cruiseState.available = True
@@ -387,7 +388,9 @@ class Ioniq6HostTests(unittest.TestCase):
         axis.sourceCarStateMonoTime = stamp
         axis.observedMonoTime = stamp
         axis.validUntilMonoTime = stamp + 30_000_000
-        events = [car_msg, drive_msg, axis_msg]
+        model_msg = messaging.new_message('modelV2', valid=True)   # Night Star port: controlsd steers only while a driving model is publishing (stopped-model guard)
+        model_msg.logMonoTime = stamp
+        events = [car_msg, drive_msg, axis_msg, model_msg]
         if native_receipt:
           safety_msg = messaging.new_message('aolSafetyWire', 0, valid=True)
           safety_msg.logMonoTime = stamp

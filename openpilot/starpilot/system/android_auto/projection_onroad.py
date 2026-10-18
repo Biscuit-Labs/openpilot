@@ -201,7 +201,9 @@ class ProjectionOnroad:
     appearance = getattr(state, 'appearance', None)
     lead_display = ((appearance.show_lead_indicator, int(appearance.lead_info_mode), appearance.lead_info_metric)
                     if appearance is not None else (False, 0, None))
-    self.camera.render_camera_model_layer(rect, road_style=state.customization['roadColors']['large'], lead_display=lead_display)
+    self.camera.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
+                                          reverse_driver=state.reverse_driver_camera,
+                                          road_style=state.customization['roadColors']['large'], lead_display=lead_display)
     # The camera can switch narrow/wide while rendering. Pace the stream actually
     # drawn, not the previous selection (whose next frame may arrive later).
     self.camera_stream = self.camera.stream_type
@@ -395,8 +397,7 @@ class ProjectionOnroad:
           # The car screen's display options live in the AA layout, not the comma's settings.
           self._projection_appearance = self._own_appearance(state.appearance)
           self._base_appearance = state.appearance
-        state = replace(state, customization=self._projection_customization, appearance=self._projection_appearance,
-                        reverse_driver_camera=False)
+        state = replace(state, customization=self._projection_customization, appearance=self._projection_appearance)
       self._state = self._with_certificate_notice(state, now_ns)
       self.onroad.render(self._state)
       self.fonts.draw('StarPilot', self.native.font_role.BRAND, 30, self.width - 210, self.height - 90)

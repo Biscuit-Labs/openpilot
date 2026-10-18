@@ -19,6 +19,7 @@ class TestBoltCcControls(unittest.TestCase):
     with OpenpilotPrefix(), patch.dict(os.environ, {'SIMULATION': '1'}):
       Params().put('CarParams', cp.to_bytes(), block=True)
       controls = Controls()
+      controls.sm.alive['modelV2'] = True   # Night Star port: controlsd steers only while a driving model is publishing (stopped-model guard)
       controls.sm.data['carState'] = out.as_reader()
       drive = log.SelfdriveState.new_message()
       drive.enabled = drive.active = True

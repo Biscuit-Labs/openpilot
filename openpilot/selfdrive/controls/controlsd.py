@@ -191,8 +191,11 @@ class Controls:
     if isinstance(self.LaC, LatControlTorque) and self.torque_host is None and self.torque_learning_allowed:
       torque_params = self.sm['lateralTorqueParameters']
       if self.sm.all_checks(['lateralTorqueParameters']) and torque_params.useParams:
-        self.LaC.update_torque_parameters(torque_params.latAccelFactorFiltered, torque_params.latAccelOffsetFiltered,
-                                           torque_params.frictionCoefficientFiltered)
+        from openpilot.starpilot.flm.native_baseline import apply_native_refinement
+        apply_native_refinement(self.LaC, self.CP, self.sm,
+          now_ns=int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns(),
+          apply=lambda: self.LaC.update_torque_parameters(torque_params.latAccelFactorFiltered, torque_params.latAccelOffsetFiltered,
+                                                        torque_params.frictionCoefficientFiltered))
 
     long_plan = self.sm['longitudinalPlan']
     model_v2 = self.sm['modelV2']
@@ -266,7 +269,14 @@ class Controls:
       CC.latActive = bool(CC.latActive and CS.canValid and not CS.canTimeout)
       now_ns = int(self.sm.logMonoTime['carState']) if os.getenv('REPLAY') == '1' else time.monotonic_ns()
       tune = self.torque_host.sample(self.sm, now_ns=now_ns, lat_active=bool(CC.latActive))
-      self.torque_host.apply(self.LaC, tune)
+      from openpilot.starpilot.flm.native_baseline import apply_native_refinement
+      from openpilot.starpilot.lateral.torque_tuning import TorqueSource
+      native_applied = bool(self.torque_learning_allowed and tune.source == TorqueSource.LEARNED and
+        self.torque_host.settings.user_factor is None and self.torque_host.settings.user_friction is None and
+        apply_native_refinement(self.LaC, self.CP, self.sm, now_ns=now_ns, host=True,
+          apply=lambda: self.torque_host.apply(self.LaC, tune)))
+      if not native_applied:
+        self.torque_host.apply(self.LaC, tune)
       if not CC.latActive:
         self.LaC.pid.reset()
 
@@ -358,7 +368,7 @@ class Controls:
         automatic.prepare(self.sm, now_ns=time.monotonic_ns(), active=bool(CC.latActive),
           healthy=bool(CS.canValid and not CS.canTimeout and not CS.steerFaultTemporary and
                        not CS.steerFaultPermanent and not CS.accFaulted and not CS.steeringPressed and
-                       not CS.brakePressed and not CS.gasPressed and not CS.regenBraking and
+                       not CS.brakePressed and not CS.regenBraking and
                        not any(str(button.type) == 'cancel' for button in CS.buttonEvents) and
                        not any(event.softDisable or event.immediateDisable for event in self.sm['onroadEvents']) and
                        not self.sm['driverMonitoringState'].noResponseForceDecel), controller=self.LaC,

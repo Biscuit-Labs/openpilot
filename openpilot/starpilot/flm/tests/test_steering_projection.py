@@ -252,17 +252,26 @@ def test_rivian_captures_actual_dynamic_max(speed, expected):
   check_packet(ci, frames, witness)
 
 
-def test_modified_civic_has_no_controller_filter_and_lookup_context():
-  # a modified-EPS Honda's car controller no longer filters the command (the old Civic Bosch low-pass read as
-  # safety limiting in controlsd), so the projection carries no filter state for it
-  firmware = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0, fwVersion=b'39990-TGG,A020\x00\x00', brand='honda')
-  ci = make_interface(HONDA.HONDA_CIVIC_BOSCH, (firmware,))
+@pytest.mark.parametrize('platform,fw', (
+  (HONDA.HONDA_CIVIC_BOSCH, b'39990-TGG,A020\x00\x00'),   # modified, no calibration: the modified PID
+  (HONDA.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'),   # calibrated PTM image: LatControlHondaEps
+  (HONDA.HONDA_CLARITY, b'39990-TRW,A020\x00\x00'),
+))
+def test_modified_eps_honda_refuses_observer(platform, fw):
+  # Night Star port: FLM stays off on modified-EPS Hondas, which steer through their own steering stage
+  firmware = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0, fwVersion=fw, brand='honda')
+  ci = make_interface(platform, (firmware,))
   assert ci.CC.modified_eps_steering is not None
+  assert install_observer(ci) is False
+  assert ci.CC.learning_projection_observer is None
+
+
+def test_stock_eps_honda_keeps_observer():
+  firmware = structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0,
+                                     fwVersion=b'39990-TBA-C020\x00\x00', brand='honda')
+  ci = make_interface(HONDA.HONDA_CIVIC_BOSCH, (firmware,))
+  assert ci.CC.modified_eps_steering is None
   assert install_observer(ci)
-  cc = control(0.005)
-  output, frames, witness = settle(ci, cc)[-1]
-  assert not witness.shape
-  assert witness.mapping_kind == 'honda_lookup'
 
 
 def test_changed_configuration_and_fabricated_observation_refused():

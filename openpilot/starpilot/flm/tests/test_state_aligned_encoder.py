@@ -17,6 +17,10 @@ def captured_event(platform, *, modified=False):
   firmware = (structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0,
     fwVersion=b'39990-TGG,A020\x00\x00', brand='honda'),) if modified else ()
   ci = make_interface(platform, firmware)
+  if modified:
+    # Night Star port: FLM is off on modified-EPS Hondas (steering_projection._modified_eps_honda)
+    assert not install_observer(ci)
+    pytest.skip('FLM does not run on modified-EPS Hondas')
   assert install_observer(ci)
   settle(ci, control(0.))
   requested = .8 if platform in (HONDA.HONDA_CIVIC, HONDA.HONDA_CIVIC_BOSCH) else .1

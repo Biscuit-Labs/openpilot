@@ -404,6 +404,15 @@ def inspect_projection(CI: Any, CC: Any, output: Any, witness: Any) -> bool | No
     return None
 
 
+def _modified_eps_honda(CP: Any) -> bool:
+  """Night Star port: a modified-EPS Honda steers through its own steering stage (LatControlHondaEps or the modified
+  PID), not the modified-Civic path this projection models, so FLM stays off on it."""
+  if str(CP.brand) != 'honda':
+    return False
+  from opendbc.car.honda.values import HondaFlags
+  return bool(int(CP.flags) & HondaFlags.EPS_MODIFIED)
+
+
 def install_observer(CI: Any) -> bool:
   """Startup-only; caller owns the cached feature enable/disable decision."""
   try:
@@ -417,6 +426,7 @@ def install_observer(CI: Any) -> bool:
       or CI.CP.notCar
       or CI.CP.passive
       or CI.CP.dashcamOnly
+      or _modified_eps_honda(CI.CP)
     ):
       return False
     CI.CC.learning_projection_observer = TorqueProjectionObserver(CI.CP)

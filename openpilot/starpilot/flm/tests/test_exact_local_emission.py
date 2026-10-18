@@ -33,6 +33,8 @@ def first_emission(ci, request):
 
 def crossing(platform):
   modified = platform == HONDA.HONDA_CIVIC_BOSCH
+  if modified:
+    pytest.skip('Night Star port: FLM does not run on modified-EPS Hondas')
   honda = platform in (HONDA.HONDA_CIVIC, HONDA.HONDA_CIVIC_BOSCH)
   firmware = (structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0,
     fwVersion=b'39990-TGG,A020\x00\x00', brand='honda'),) if modified else ()

@@ -97,6 +97,8 @@ def test_shadow_can_measure_new_clipped_flat_region_but_final_cannot_admit_it(pl
 
 @pytest.mark.parametrize('platform,modified', ((HONDA.HONDA_CIVIC, False), (HONDA.HONDA_CIVIC_BOSCH, True)))
 def test_real_honda_unwind_uses_decoded_output_and_full_filter(platform, modified):
+  if modified:
+    pytest.skip('Night Star port: FLM does not run on modified-EPS Hondas')
   from opendbc.car import structs
   from opendbc.car.steering_projection import normalized_applied_command
   firmware = (structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0,

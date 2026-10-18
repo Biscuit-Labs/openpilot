@@ -8,9 +8,10 @@
 #     bash -c 'export HOME=/tmp UV_CACHE_DIR=/work/.cache/uv UV_PYTHON_INSTALL_DIR=/work/.cache/uv-python;
 #              UV_PROJECT_ENVIRONMENT=/work/.venv-linux-arm64 uv sync --frozen --all-extras'
 # UV_PYTHON_INSTALL_DIR matters: without it uv puts the interpreter under HOME=/tmp and the venv dies with the container.
+# --init: pytest must not be PID 1 (the FLM analysis worker refuses a parent PID <= 1).
 W="$(cd "$(dirname "$0")/../.." && pwd)"
 M="${PORT_MAIN_REPO:-$HOME/nrdr/openpilot}"  # supplies the larch64 sysroot (.comma_sysroot)
-docker run --rm --platform linux/arm64 --user "$(id -u):$(id -g)" -v "$W:/work" \
+docker run --rm --init --platform linux/arm64 --user "$(id -u):$(id -g)" -v "$W:/work" \
   -v "$M/.comma_sysroot:/opt/tici-sysroot:ro" -v "$M/.comma_sysroot/system/vendor/lib64:/system/vendor/lib64:ro" \
   -w /work "${COMMA_BUILD_IMAGE:-starpilot-larch64-builder:latest}" bash -c '
 export SP_FORCE_TICI=1 SP_FORCE_ARCH=larch64 HOME=/tmp PARAMS_ROOT=/tmp/params

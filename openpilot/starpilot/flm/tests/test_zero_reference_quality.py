@@ -101,6 +101,8 @@ def test_registered_native_boundary_old_rejects_new_exact_reference_admits(platf
 @pytest.mark.parametrize('modified', (False, True))
 def test_honda_zero_reference_remains_in_shaped_normalized_and_decoded_domain(modified):
   platform = HONDA.HONDA_CIVIC_BOSCH if modified else HONDA.HONDA_CIVIC
+  if modified:
+    pytest.skip('Night Star port: FLM does not run on modified-EPS Hondas')
   # Original production witness is a real normalized-rate unwind, inverse CAN sign.
   from opendbc.car import structs
   firmware = (structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0,

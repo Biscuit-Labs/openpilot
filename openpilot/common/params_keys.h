@@ -349,6 +349,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ChestnutActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | CLEAR_ON_IGNITION_ON, BOOL}},
     {"ChestnutLoading", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION | CLEAR_ON_IGNITION_ON, BOOL}},
     {"ReprojectRotation", {PERSISTENT, JSON}},  // fitted 3X narrow->wide camera rotation (reprojectcalibd)
+    {"ModelLateralSource", {CLEAR_ON_MANAGER_START | DONT_LOG, STRING}},  // Night Star: modeld's lateral source, see selfdrive/modeld/lateral_source.py
     {"ReprojectSessionActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION | CLEAR_ON_OFFROAD_TRANSITION | DONT_LOG, BOOL}},
     {"JetlinkMode", {PERSISTENT, INT, "0"}},
     {"JetlinkChargePhone", {PERSISTENT, BOOL, "0"}},

@@ -20,6 +20,9 @@ REPROJECT_DEVICE_TYPES = ("tizi",)   # the 3X; the lens and pair geometry in rep
 # Off: 7.0's catalog compiles Chestnut models with WARP_DEV=QCOM, so the model warp already runs on
 # the comma GPU and only the warped model inputs cross USB; the virtual pair would just be a second full-frame QCOM
 # warp (and a second resample). It only pays when the model warp runs on the Chestnut, as comma master's does.
+# Before turning it on: reprojectd's reprojectState / reprojectFit left the schema (StarPilot's fork-compatibility
+# policy has no free Event slot), so its fitted state and fit progress must move to params first, and calibrationd's
+# reproject_ready and the "Aligning Cameras" calibration alert re-wired to them.
 REPROJECT_ENABLED = False
 
 

@@ -1,6 +1,7 @@
 """The Honda EPS command delay follows where the model's steering comes from (ns-bosch 023b532e26, ported to 7.0).
 
-On 7.0 modeld publishes it on modelLateralSource (selfdrive/modeld/lateral_source.py), derived from 7.0's runners.
+On 7.0 modeld writes it to the ModelLateralSource param when it changes (selfdrive/modeld/lateral_source.py), derived
+from 7.0's runners; controlsd reads it once a second.
 """
 from pathlib import Path
 from types import SimpleNamespace
@@ -8,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from opendbc.car.structs import car
-from openpilot.cereal import custom, log
+from openpilot.cereal import log
 import openpilot.selfdrive.controls.lib.latcontrol_honda_eps as honda_eps
 from openpilot.selfdrive.controls.tests.test_honda_eps_firmware_ff import _controller
 from openpilot.selfdrive.modeld import lateral_source as ls
@@ -39,15 +40,19 @@ def test_the_big_model_runners_follow_their_output():
   assert ls.lateral_source(SimpleNamespace(), {"plan": 1}) == "unknown"
 
 
-def test_the_published_names_are_the_schema_enums():
-  names = set(custom.ModelLateralSource.Source.schema.enumerants)
-  assert {ls.UNKNOWN, ls.PLAN, ls.ACTION_HEAD, ls.CURVATURE_HEAD} == names
-  assert custom.ModelLateralSource.new_message().source == "unknown"
+def test_every_source_the_controller_knows():
+  assert set(ls.SOURCES) == {"unknown", "plan", "actionHead", "curvatureHead"}
+  assert set(honda_eps.CMD_DELAY_SCALE_BY_SOURCE) <= set(ls.SOURCES)
 
 
-def test_modeld_publishes_the_source_and_tells_the_model_the_schedule():
+def test_modeld_writes_the_source_on_change_and_tells_the_model_the_schedule():
   source = (Path(__file__).parents[2] / "modeld" / "modeld.py").read_text()
-  assert "source_send.modelLateralSource.source = lateral_source(model, model_output)" in source
+  assert "source = lateral_source(model, model_output)" in source
+  assert "if source != last_lateral_source:" in source
+  assert 'params.put("ModelLateralSource", source)' in source
+  assert 'cloudlog.event("modelLateralSource"' in source
+  controls = (Path(__file__).parents[1] / "controlsd.py").read_text()
+  assert 'self.LaC.update_lateral_source(self.params.get("ModelLateralSource") or "unknown")' in controls
   assert "scheduled_lateral_delay(lat_delay_schedule, v_ego)" in source
 
 

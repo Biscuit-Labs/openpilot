@@ -185,7 +185,7 @@ class LatControlHondaEps(LatControl):
     self.core.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs", OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
 
   def update_lateral_source(self, source: str) -> None:
-    """controlsd: where the model's steering comes from (starpilotModelV2.lateralSource)."""
+    """controlsd: where the model's steering comes from (modeld's ModelLateralSource param)."""
     self.lateral_source = str(source)
 
   def _command_delay(self, v_ego: float) -> float:

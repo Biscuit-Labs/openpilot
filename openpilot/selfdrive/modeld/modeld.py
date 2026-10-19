@@ -422,7 +422,7 @@ def main(demo=False):
   config_realtime_process(7, 54)
 
   # messaging
-  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire", "modelLateralSource"] + \
+  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire"] + \
     (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
@@ -434,6 +434,7 @@ def main(demo=False):
 
   # setup filter to track dropped frames
   frame_dropped_filter = FirstOrderFilter(0., 10., 1. / ModelConstants.MODEL_RUN_FREQ)
+  last_lateral_source = None
   frame_id = 0
   last_vipc_frame_id = 0
   run_count = 0
@@ -595,9 +596,15 @@ def main(demo=False):
         prev_action.desiredCurvature = sm['controlsState'].curvature
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       prev_action = action
-      source_send = messaging.new_message('modelLateralSource')
-      source_send.modelLateralSource.source = lateral_source(model, model_output)
-      pm.send('modelLateralSource', source_send)
+      # Night Star port: the Honda EPS command delay follows where the steering comes from. It changes only when the
+      # driving model does (a swap, a Chestnut stall that restarts the small model), so it rides on a param rather
+      # than a schema field, written on change, with a log line each time for lateral A/B analysis.
+      source = lateral_source(model, model_output)
+      if source != last_lateral_source:
+        params.put("ModelLateralSource", source)
+        cloudlog.event("modelLateralSource", source=source, previous=last_lateral_source,
+                       model_id=getattr(model, "model_id", None), chestnut=bool(getattr(model, "chestnut", False)))
+        last_lateral_source = source
       fill_model_msg(modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
                      frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, extrinsics_calibration_seen)

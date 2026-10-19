@@ -1,6 +1,7 @@
 """Where a frame's steering curvature comes from (Night Star port of ns-bosch's lateral_source.py, for 7.0's runners).
 
-modeld publishes it every frame on modelLateralSource for the Honda EPS controller, which sizes its command delay from
+modeld writes it to the ModelLateralSource param whenever it changes (and logs a modelLateralSource event), for the
+Honda EPS controller, which sizes its command delay from
 it: a plan read at the told delay exactly needs none, an action head follows the told delay only in part.
 
   actionHead     v14, v15, v16 catalog models, and any runner whose output carries "action": the model's own action.
@@ -15,6 +16,7 @@ UNKNOWN = "unknown"
 PLAN = "plan"
 ACTION_HEAD = "actionHead"
 CURVATURE_HEAD = "curvatureHead"
+SOURCES = (UNKNOWN, PLAN, ACTION_HEAD, CURVATURE_HEAD)
 
 ACTION_HEAD_VERSIONS = ("v14", "v15", "v16")
 

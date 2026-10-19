@@ -28,7 +28,7 @@ firmware-inversion feedforward -> output filter -> carcontroller.
 | `openpilot/selfdrive/controls/lib/latcontrol_honda_modified_pid.py` | `LatControlHondaModifiedPID`, the fallback for modified images with no calibration |
 | `openpilot/selfdrive/controls/lib/honda_lateral_common.py` | what the modified PID shares: road steer-ratio curves, slew limit, param readers |
 | `openpilot/selfdrive/controls/lib/lateral_controller_factory.py` | which controller a car gets |
-| `openpilot/selfdrive/modeld/lateral_source.py` | where the steering comes from, published on `modelLateralSource` |
+| `openpilot/selfdrive/modeld/lateral_source.py` | where the steering comes from, written to the `ModelLateralSource` param |
 | `opendbc_repo/opendbc/car/honda/steer_ratio.py` | each image's firmware A (position) table |
 | `opendbc_repo/opendbc/car/honda/yaw_rate.py` | each car's VSA yaw (0x94) calibration |
 
@@ -79,8 +79,9 @@ them apart: `REQUIRED_PTM_RWD` names the build each calibration models, and the 
   front-axle mass / R0^2 for an image with no sibling (holds within ~12%, turn rates ~15%, held out).
 - **Command delay.** The curvature the car executes is delayed by the calibration's `cmd_delay_s` below 10 m/s and
   `cmd_delay_highway_s` from 15 m/s (the Civics hold theirs flat and the Clarity takes 0.10 s, since they ran as early
-  on the highway as in town; 0 on the Insight), scaled by where the steering comes from (`modelLateralSource.source`,
-  which modeld sets per frame from the model actually steering):
+  on the highway as in town; 0 on the Insight), scaled by where the steering comes from (the `ModelLateralSource` param,
+  which modeld writes whenever the model actually steering changes, a Chestnut stall included; controlsd reads it once
+  a second):
   - **actionHead** (v14-v16, e.g. Cinque v3): the full `cmd_delay_s`. The model moves its aim only ~0.53 of a change
     in the told delay (aim ~0.30 + 0.53 x action_t), and this controller reaches a command faster than the model
     assumes; the measured values come from these drives.
@@ -117,7 +118,9 @@ ones first.
 ## Logged
 
 `starpilotLateralState`: `epsFfActive`, `epsFfFeedforward`, `epsFfR5`, `epsFfLoad`, `epsFfDesiredRate`, `epsFfWeight`,
-`epsCalibration`, `epsCommandDelay`, `epsModelDelay`. `modelLateralSource` carries the steering source per frame.
+`epsCalibration`, `epsCommandDelay`, `epsModelDelay`. The steering source is not a schema field (StarPilot's
+fork-compatibility policy has no free Event slot): modeld logs a `modelLateralSource` cloudlog event, with the model
+id, each time it changes.
 
 ## Measuring a car
 

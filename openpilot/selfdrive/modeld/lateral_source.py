@@ -29,12 +29,11 @@ def source_for_version(version: str | None) -> str:
 
 def lateral_source(model, model_output) -> str:
   """The source modeld's action for this frame was taken from (mirrors how each 7.0 runner builds its action)."""
-  from openpilot.starpilot.models.jetlink_adapter import JetlinkModel
   from openpilot.starpilot.models.runner import CatalogModelState
+  # A joining Jetlink model drives as the small model itself until its big model is ready, so that is a catalog model
+  # or the bundled runner here; Jetlink's JetlinkModelState is always the big-model role.
   if isinstance(model, CatalogModelState):
     return source_for_version(model.behavior_version)
-  if isinstance(model, JetlinkModel) and not model.chestnut:
-    return source_for_version(model.small.behavior_version)
   # the bundled Chestnut runner and Jetlink's big model: get_action_from_model
   if model_output is not None and 'action' in model_output:
     return ACTION_HEAD

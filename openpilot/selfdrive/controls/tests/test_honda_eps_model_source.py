@@ -12,20 +12,12 @@ from openpilot.cereal import custom, log
 import openpilot.selfdrive.controls.lib.latcontrol_honda_eps as honda_eps
 from openpilot.selfdrive.controls.tests.test_honda_eps_firmware_ff import _controller
 from openpilot.selfdrive.modeld import lateral_source as ls
-from openpilot.starpilot.models.jetlink_adapter import JetlinkModel
 from openpilot.starpilot.models.runner import CatalogModelState
 
 
 def _catalog(version):
   model = CatalogModelState.__new__(CatalogModelState)
   model.behavior_version = version
-  return model
-
-
-def _jetlink(chestnut, version="v12"):
-  model = JetlinkModel.__new__(JetlinkModel)
-  model.chestnut = chestnut
-  model.small = SimpleNamespace(behavior_version=version)
   return model
 
 
@@ -37,12 +29,13 @@ def test_catalog_models_by_version(version, expected):
   assert ls.lateral_source(_catalog(version), {"plan": 1}) == expected
 
 
-def test_jetlink_small_follows_its_catalog_model_and_the_chestnut_runner_its_output():
-  assert ls.lateral_source(_jetlink(False, "v12"), {}) == "plan"
-  assert ls.lateral_source(_jetlink(False, "v16"), {}) == "actionHead"
-  # the Chestnut runners go through get_action_from_model: an action head, or a plan read through the 0.3 s floor
-  assert ls.lateral_source(_jetlink(True), {"action": 1}) == "actionHead"
-  assert ls.lateral_source(_jetlink(True), {"plan": 1}) == "unknown"
+def test_the_big_model_runners_follow_their_output():
+  # the bundled Chestnut runner and Jetlink's JetlinkModelState (always the big-model role; a joining Jetlink model
+  # drives as the small model itself) go through get_action_from_model: an action head, or a plan read through the
+  # 0.3 s floor
+  big = SimpleNamespace(chestnut=True)
+  assert ls.lateral_source(big, {"action": 1}) == "actionHead"
+  assert ls.lateral_source(big, {"plan": 1}) == "unknown"
   assert ls.lateral_source(SimpleNamespace(), {"plan": 1}) == "unknown"
 
 

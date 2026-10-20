@@ -7,6 +7,8 @@ from functools import cached_property
 import os
 os.environ['GMMU'] = '0' # for chestnut fast loading, noop for qcom
 os.environ.setdefault('AM_POWER_LIMIT', '100')
+from openpilot.starpilot.models.runtime_bridge.runtime import prepare as prepare_model_runtime, selected_legacy
+prepare_model_runtime('driving')
 from tinygrad.device import Buffer, Device
 from tinygrad.dtype import DType, dtypes
 from tinygrad.engine.realize import lower_and_compile
@@ -44,6 +46,7 @@ from openpilot.starpilot.lateral.lane_change_status_wire import (
 from openpilot.starpilot.models.receipt import ModelReceiptOwner
 from openpilot.starpilot.models.status import ModelVariant
 from openpilot.starpilot.models.startup import report_load_timeout, wait_for_chestnut_power
+from openpilot.starpilot.models.recovery import STARTUP_FALLBACK_EXIT
 from openpilot.starpilot.navigation.intent import TurnIntent, matching_turn_signal
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, BY_ID, DEFAULT_SMALL, DEFAULT_SMALL_SHA256
 from openpilot.starpilot.models.runner import CatalogModelState, load_verified_model
@@ -155,11 +158,17 @@ class FrameMeta:
 
 
 def input_view(buffer: Buffer, shape: tuple[int, ...], dtype: DType, offset: int) -> Tensor:
-  view = buffer.view(math.prod(shape), dtype, offset).ensure_allocated()
-  return Tensor(UOp.from_buffer(view)).reshape(shape)
+  from openpilot.starpilot.models.runtime_bridge.runtime import selected_legacy
+  if selected_legacy():
+    view = buffer.view(math.prod(shape), dtype, offset).ensure_allocated()
+    return Tensor(UOp.from_buffer(view)).reshape(shape)
+  view = buffer.view(math.prod(shape) * dtype.itemsize, offset).ensure_allocated()
+  return Tensor(UOp.from_buffer(view, dtype)).reshape(shape)
 
 
 class ModelState:
+  lat_delay: float
+  frame_drop_ratio: float
   prev_desire: np.ndarray  # for tracking the rising edge of the pulse
   get_action_from_model = staticmethod(get_action_from_model)
 
@@ -230,6 +239,8 @@ class ModelState:
     self.input_device.copy_from(self.input_host)
     self.input_queues['new_img'] = self.run_warp(**self.warp_inputs)
     self.run_model(output_buffers=self.outputs, **self.input_queues)
+    if self.chestnut and not selected_legacy() and (err := Device[self.outputs['outputs'].device].error_state.host.view(fmt='q')[0]):
+      raise RuntimeError(f"chestnut failed with {err}")
     if after_enqueue is not None:
       after_enqueue()
     model_output = self.outputs['outputs'].numpy()[0]
@@ -393,7 +404,10 @@ def main(demo=False):
     model = big_model
     params.put_bool("ChestnutActive", model is not None)
     if model is None:
-      drop_chestnut()
+      # A timed-out loader can still mutate tinygrad's shared device state.
+      # The manager must confirm this process has exited before starting Small.
+      cloudlog.error("Chestnut startup failed; requesting isolated Small restart")
+      raise SystemExit(STARTUP_FALLBACK_EXIT)
 
   if small_model is None:
     small_model, small_prepared, selected_small_failed = load_small()
@@ -547,6 +561,9 @@ def main(demo=False):
       'action_t': np.array([lat_action_t, long_action_t], dtype=np.float32),
     }
 
+    if not sm['carControl'].latActive:
+      prev_action.desiredCurvature = sm['controlsState'].curvature
+
     if isinstance(model, CatalogModelState) or model is jetlink_model:
       inputs['prev_action'] = np.array([prev_action.desiredCurvature * max(1.0, v_ego) ** 2,
                                         prev_action.desiredAcceleration], dtype=np.float32)
@@ -593,9 +610,6 @@ def main(demo=False):
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
 
-      # comma #39091 (2b09bc94a9): while lateral is not active, smooth from the curvature the car is driving
-      if not sm['carControl'].latActive:
-        prev_action.desiredCurvature = sm['controlsState'].curvature
       action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
       prev_action = action
       # Night Star port: the Honda EPS command delay follows where the steering comes from. It changes only when the

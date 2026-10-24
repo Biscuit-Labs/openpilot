@@ -53,6 +53,8 @@ def observe(sm, cp, collector, now_ns, current_native):
     adapter.current_physical_valid = False
     adapter.last_physical_ns = collector.last_qualified_response = 0
   if not current_native:
+    from openpilot.starpilot.flm.source_observation_report import record_refusal
+    record_refusal(collector, sm, now_ns, 'current_native_unavailable')
     revoke()
     return
   row = original_source_pose_observer(sm,cp,collector,now_ns,distinguish_pending=True)

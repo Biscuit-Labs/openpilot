@@ -175,6 +175,14 @@ def configure_controller(CI, params):
       prepare_rav4h_stock(cp)
     elif controller is not None:
       controller.rav4h_filter_input = Rav4hFilterPreference(cp, params)
+  from opendbc.car.toyota import advert_filter
+  if advert_filter.enabled(cp):
+    from openpilot.starpilot.car.toyota.advert_preferences import AdvertFilterPreference
+    from openpilot.starpilot.car.toyota.prius_preferences import filter_preference_enabled
+    if not filter_preference_enabled(params):
+      advert_filter.prepare_stock(cp)
+    elif controller is not None:
+      controller.advert_filter_input = AdvertFilterPreference(cp, params)
   from opendbc.car.toyota.prius_longitudinal import enabled as prius_filter_enabled, prepare_stock as prepare_prius_stock
   if prius_filter_enabled(cp):
     from openpilot.starpilot.car.toyota.prius_preferences import PriusFilterPreference, filter_preference_enabled

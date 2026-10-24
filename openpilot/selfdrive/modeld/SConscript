@@ -6,7 +6,7 @@ from SCons.Script import Action, Value
 from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
 from openpilot.common.transformations.model import MEDMODEL_INPUT_SIZE, DM_INPUT_SIZE
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
-from tools.laptop_device_build.qcom_artifact_contract import import_artifact
+from tools.laptop_device_build.qcom_artifact_contract import import_artifact, native_records, verify_native_defaults
 
 
 Import('env', 'arch')
@@ -33,6 +33,31 @@ tinygrad_files = ["#"+x for x in glob.glob(compiler_tree.relpath + "/**", recurs
 camera_configs = [(c.width, c.height) for c in (_ar_ox_fisheye, _os_fisheye)]
 laptop_qcom_import = arch == 'comma_arm64' and os.getenv('COMMA_LAPTOP_CROSS_BUILD') == '1'
 qcom_package = Dir('#.cache/qcom-artifact-package').abspath
+
+
+# Native defaults are release artifacts, not outputs of the legacy model compiler.
+# Validate their current source/vendor/guard contract without regenerating them.
+native_bundle = native_records(Path(Dir('#').abspath)) if arch == 'comma_arm64' else None
+if native_bundle is not None:
+  native_root = Path(Dir('#').abspath)
+  native_bridge = native_root / 'openpilot/starpilot/models/runtime_bridge'
+  native_sources = [native_bridge / name for name in (
+    'native.py', 'native-policy.json', 'native_guards.py', 'bounded_wait.c', 'usb_guards.c',
+    'libbounded_wait.so', 'libusb_guards.so')]
+  native_sources += [native_bridge.parent / 'catalog-native02e.json']
+  for name in native_bundle:
+    base = native_root / 'openpilot/selfdrive/modeld/models' / name
+    native_sources += [path for path in (base, *base.parent.glob(base.name + '.chunk*')) if path.is_file()]
+
+  def verify_native_bundle(target, source, env):
+    records = verify_native_defaults(native_root, prefer_regular=True)
+    stamp = Path(str(target[0]))
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(str({name: row['artifact_sha256'] for name, row in records.items()}) + '\n')
+
+  native_node = lenv.Command('#.cache/native-model-defaults/verified', [File(str(path)) for path in native_sources],
+                            Action(verify_native_bundle, '  [NATIVE MODEL VERIFY] $TARGET'))
+  lenv.AlwaysBuild(native_node)
 
 
 def model_action(command):
@@ -77,7 +102,8 @@ def compile_model(onnx_path, pkl_path):
   if laptop_qcom_import:
     lenv.AlwaysBuild(node)
 
-compile_model('models/dmonitoring_model.onnx', 'models/dmonitoring_model_tinygrad.pkl')
+if native_bundle is None:
+  compile_model('models/dmonitoring_model.onnx', 'models/dmonitoring_model_tinygrad.pkl')
 
 model_w, model_h = MEDMODEL_INPUT_SIZE
 for cam_w, cam_h in camera_configs:
@@ -92,7 +118,7 @@ for cam_w, cam_h in camera_configs:
     lenv.AlwaysBuild(node)
 
 dm_w, dm_h = DM_INPUT_SIZE
-for cam_w, cam_h in camera_configs:
+for cam_w, cam_h in (() if native_bundle is not None else camera_configs):
   dm_pkl_path = File(f"models/dm_warp_{cam_w}x{cam_h}_tinygrad.pkl").abspath
   stride, y_height, uv_height, frame_size = get_nv12_info(cam_w, cam_h)
   cmd = (f'{tg_flags} {mac_brew_string} python3 "{compiler}/compile_warp.py" '

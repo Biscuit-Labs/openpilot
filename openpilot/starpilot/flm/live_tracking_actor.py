@@ -613,17 +613,20 @@ class LiveTrackingActor:
           pass  # Pending/invalid bytes still fail their exact verification.
 
   def _retire_identified_history(self, collector):
-    """Retain live prefixes after independent identification has completed.
+    """Retain recent prefixes for an exact source or identified response.
+
+    Source tracking has no plant-bootstrap job requiring the pre-ingress tape.
+    Retiring old history never admits a response, command or numerical trial.
 
     Pending workers own fork-frozen originals. Live endpoints are at most2s
     old with at most1s checkpoint history; retain4s plus its preceding original
     checkpoint. No decoder state, unconsumed CAN, certificate or episode score
     is replaced. Release at most32 rows per structure per tick.
     """
-    if self.ingress is None or self.certificate is None:
+    binding = self.certificate.binding if self.certificate is not None else self.seed if self.source_tracking else None
+    if binding is None or not self.source_tracking and self.ingress is None:
       return
     replay = collector.adapter.replay
-    binding = self.certificate.binding
     if (
       replay.raw_mode is not True
       or replay.identity != binding.identity

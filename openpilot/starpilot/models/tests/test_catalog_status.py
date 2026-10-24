@@ -2,13 +2,33 @@ import hashlib
 import json
 from pathlib import Path
 import unittest
+import tempfile
+from unittest.mock import patch
 
+from openpilot.starpilot.models import manager
+from openpilot.starpilot.models.runtime_selection import NATIVE_ABI
+from openpilot.starpilot.models.tests.native_fixture import native_fixture
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, CATALOG, CATALOG_PATH, DEFAULT_SMALL, resolve_selection
 from openpilot.starpilot.models.status import (ModelHealth, ModelLoad, ModelOutput, ModelProcess,
                                               ModelVariant, project_status)
 
 
 class TestModelCatalogStatus(unittest.TestCase):
+  def setUp(self):
+    temporary = self.enterContext(tempfile.TemporaryDirectory())
+    self.root = Path(temporary)
+    self.enterContext(patch.object(manager, "SHIPPED_MODELS", self.root / "shipped"))
+    document = self.enterContext(native_fixture(self.root, b"catalog source identity fixture"))
+    # Status requests need a qualified published BIG identity, not a pending
+    # historical catalog row. No artifact is executed or marked installed.
+    historical = json.loads(CATALOG_PATH.read_text())["models"]
+    big = next(row for row in historical if row["id"] == "cinquev3")
+    document["models"].append({"id": big["id"], "name": big["name"], "version": big["version"],
+                               "uses_external_gpu": True, "artifact_sha256": "b" * 64,
+                               "artifact_size": 123, "artifact_chunk_count": 1,
+                               "artifact_format": NATIVE_ABI, "qualification_sha256": "c" * 64})
+    manager.NATIVE_CATALOG_PATH.write_text(json.dumps(document))
+
   def test_catalog_pins_current_source_and_lists_model_metadata(self):
     manifest_ids = [row['id'] for row in json.loads(CATALOG_PATH.read_text())['models']]
     self.assertEqual(len(manifest_ids), len(set(manifest_ids)))
@@ -17,7 +37,7 @@ class TestModelCatalogStatus(unittest.TestCase):
     self.assertCountEqual(catalog_ids, [BUNDLED_CURRENT, *manifest_ids])
     entry = resolve_selection(None)
     self.assertEqual(entry.model_id, DEFAULT_SMALL)
-    source = Path(__file__).resolve().parents[4] / entry.source_path
+    source = manager.SHIPPED_MODELS / Path(entry.source_path).name
     from openpilot.common.file_chunker import get_existing_chunks
     digest = hashlib.sha256()
     for part in get_existing_chunks(source)[1:]:

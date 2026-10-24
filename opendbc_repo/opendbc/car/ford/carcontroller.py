@@ -75,7 +75,7 @@ class CarController(CarControllerBase):
     self.manual_turn_inputs = None
     self.mache_lateral = MachELateralController(CP) if mache_qualified(CP) else None
     self.mache_extended_announced = False
-    self.mache_ui_active = False
+    self.mache_ui_owned = False
     self.hands_free_cluster_input = None
     self.cluster_extended_announced = False
     self.generic_canfd = generic_canfd_qualified(CP)
@@ -104,7 +104,7 @@ class CarController(CarControllerBase):
     if self.hands_free_cluster_input is not None:
       self.hands_free_cluster_input.update()
     if not CC.latActive:
-      self.mache_ui_active = False
+      self.mache_ui_owned = False
     if (self.mache_lateral is not None or self.classic_lateral is not None or self.new_port_curvature is not None) and self.manual_turn_inputs is not None:
       self.manual_turn_inputs.update()
       self.manual_turn_inputs.apply_blend_settings(self)
@@ -163,7 +163,7 @@ class CarController(CarControllerBase):
       demanded = self.mache_lateral.update(CC, CS, actuators) if self.mache_extended_announced else FordLateralResult()
       lateral = bounded_command(self.mache_lateral, demanded, previous, CS.out.vEgoRaw, previous_path_angle)
       self.mache_lateral_demand = demanded
-      self.mache_ui_active = bool(lateral.active)
+      self.mache_ui_owned |= bool(lateral.active)
       self.apply_curvature_last = lateral.curvature
       counter = (self.frame // CarControllerParams.STEER_STEP) % 0x10
       can_sends.append(mache_can.create_lat_ctl2_msg(
@@ -335,10 +335,10 @@ class CarController(CarControllerBase):
       self.cluster_extended_announced = True
 
     ### ui ###
-    # AOL safety forwards stock UI until an active lateral replacement owns it.
-    # Avoid competing cluster messages while stock remains the display owner.
+    # Acquire the display after the first active replacement, then retain it while
+    # AOL stays active, including a manual-turn steering handoff (as on Dom).
     aol_mache_ui = self.mache_lateral is not None and qualified_aol(self.CP, marked_only=True)
-    ui_enabled = CC.latActive and (not aol_mache_ui or self.mache_ui_active)
+    ui_enabled = CC.latActive and (not aol_mache_ui or self.mache_ui_owned)
     if not aol_mache_ui or ui_enabled:
       send_ui = (self.main_on_last != main_on) or (self.lkas_enabled_last != ui_enabled) or (self.steer_alert_last != steer_alert)
       # send lkas ui msg at 1Hz or if ui state changes

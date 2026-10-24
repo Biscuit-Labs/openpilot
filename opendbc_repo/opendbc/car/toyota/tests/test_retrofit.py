@@ -47,6 +47,53 @@ class TestRetrofit(unittest.TestCase):
       if identity == CAR.TOYOTA_PRIUS_RETROFIT:
         self.assertTrue(cp.dashcamOnly)
 
+  def test_matrix_stock_aol_admission(self):
+    import struct
+    from openpilot.starpilot.car.toyota.aol import qualified, native_accepts_cp
+    from opendbc.car import structs
+
+    for alpha in (False, True):
+      cp = params(CAR.TOYOTA_MATRIX_RETROFIT, alpha=alpha)
+      self.assertEqual(cp.safetyConfigs[0].safetyParam, 856)
+      self.assertEqual(cp.flags, 0)
+      self.assertTrue(qualified(cp))
+      cp.alternativeExperience = 32
+      self.assertTrue(qualified(cp, marked_only=True))
+      self.assertTrue(native_accepts_cp(cp, int(structs.CarParams.SafetyModel.toyota), 856))
+      self.assertFalse(cp.openpilotLongitudinalControl)
+      self.assertEqual(cp.lateralTuning.torque.latAccelFactor, struct.unpack('<f', struct.pack('<f', 4.05))[0])
+      self.assertEqual(cp.lateralTuning.torque.friction, struct.unpack('<f', struct.pack('<f', .10))[0])
+      for field, value in (('passive', True), ('notCar', True), ('dashcamOnly', True),
+                           ('pcmCruise', False), ('openpilotLongitudinalControl', True),
+                           ('secOcRequired', True), ('flags', int(ToyotaFlags.GAS_INTERCEPTOR)),
+                           ('carFingerprint', CAR.TOYOTA_COROLLA), ('alternativeExperience', 160)):
+        rejected = cp.as_reader().as_builder()
+        setattr(rejected, field, value)
+        self.assertFalse(qualified(rejected), field)
+      for word in (855, 857, 88, 344, 600, 73, 585, 4169, 4681):
+        rejected = cp.as_reader().as_builder()
+        rejected.safetyConfigs[0].safetyParam = word
+        self.assertFalse(qualified(rejected), word)
+        self.assertFalse(native_accepts_cp(rejected, int(structs.CarParams.SafetyModel.toyota), word), word)
+      for ae in (0, 1, 33, 128, 160, 256, 288):
+        rejected = cp.as_reader().as_builder()
+        rejected.alternativeExperience = ae
+        self.assertFalse(qualified(rejected, marked_only=True), ae)
+        self.assertFalse(native_accepts_cp(rejected, int(structs.CarParams.SafetyModel.toyota), 856), ae)
+      rejected = cp.as_reader().as_builder()
+      rejected.steerControlType = structs.CarParams.SteerControlType.angle
+      self.assertFalse(qualified(rejected))
+      rejected = cp.as_reader().as_builder()
+      rejected.safetyConfigs = []
+      self.assertFalse(qualified(rejected))
+      rejected = cp.as_reader().as_builder()
+      rejected.safetyConfigs[0].safetyModel = structs.CarParams.SafetyModel.noOutput
+      self.assertFalse(qualified(rejected))
+      for fp in ({0: {0x2FF: 8}, 1: {}, 2: {}}, {0: {}, 1: {}, 2: {0x343: 8}}):
+        takeover = params(CAR.TOYOTA_MATRIX_RETROFIT, fp, alpha)
+        self.assertTrue(takeover.dashcamOnly)
+        self.assertFalse(qualified(takeover))
+
   def test_original_stock_contracts(self):
     for car, word, factor, friction in ((CAR.TOYOTA_MATRIX_RETROFIT, 856, 4.05, .10),
                                         (CAR.TOYOTA_PRIUS_RETROFIT, 585, 1.60, .151515)):

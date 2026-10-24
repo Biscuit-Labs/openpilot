@@ -47,8 +47,8 @@ class ModelState:
     self.model_run = jits['run']
     self.outputs = {name: Tensor(np.zeros(shape, dtype=dtype), device=device).realize() for name, (shape, dtype, device) in jits['output_specs'].items()}
     warp_path = MODELS_DIR / f'dm_warp_{cam_w}x{cam_h}_tinygrad.pkl'
-    from openpilot.starpilot.models.runtime_bridge.runtime import selected_legacy, load_warp
-    if selected_legacy():
+    from openpilot.starpilot.models.runtime_bridge.runtime import prepared, load_warp
+    if prepared():
       self.image_warp = load_warp(warp_path)
     else:
       with warp_path.open('rb') as f:

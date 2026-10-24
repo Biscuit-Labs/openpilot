@@ -215,6 +215,8 @@ class CarState(CarStateBase):
         gear = ("Gear_Shift_by_Wire_FD1" if CP.flags & FordFlags.CANFD else
                 "TransGearData" if CP.flags & FordFlags.ALT_STEER_ANGLE else "PowertrainData_10")
         pt_messages.append((gear, 10))
+    if CP.transmissionType == TransmissionType.manual:
+      pt_messages.append(("BCM_Lamp_Stat_FD1", 10))
     if CP.flags & FordFlags.LKA_STEERING:
       pt_messages.append(("Lane_Assist_Data3_FD1", 30))
       cam_messages.append(("LateralMotionControl", 20))

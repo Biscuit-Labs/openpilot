@@ -851,7 +851,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertEqual(read_lane_change(self.params).policy.close_gap_seconds, 0.8)
     self.assertEqual(self.page("lane_change")["rows"][gap]["value"], "0.8")
-    self.assertEqual(self.params.get("LaneChangePreferences")["version"], 4)
+    self.assertEqual(self.params.get("LaneChangePreferences")["version"], 5)
 
     saved = self.page("lane_change")
     revoke = self.gateway.preview(saved["view"], close, -1, self.session, self.generation)

@@ -14,7 +14,8 @@ from openpilot.selfdrive.controls.lib.drive_helpers import MIN_SPEED, smooth_val
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import load_oob
 from openpilot.starpilot.models.parser import Parser
-from openpilot.starpilot.models.catalog import ARTIFACT_ABI, COMPILER_REVISION
+from openpilot.starpilot.models.runtime_bridge.runtime import selected_plan
+from openpilot.starpilot.models.runtime_selection import require_artifact_contract
 from openpilot.starpilot.models.receipt import PreparedArtifact, artifact_identity, prepare_artifact
 from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 
@@ -63,9 +64,7 @@ def load_verified_model(cam_w: int, cam_h: int, artifact_path: Path, behavior_ve
 
 
 def validate_artifact(artifact: dict, version: str, camera_size: tuple[int, int]) -> None:
-  if (not isinstance(artifact, dict) or artifact.get("artifact_abi") != ARTIFACT_ABI or
-      artifact.get("compiler_revision") != COMPILER_REVISION or artifact.get("format_version") != 1):
-    raise ValueError("catalog model compiler/ABI mismatch")
+  require_artifact_contract(artifact, selected_plan())
   if version not in SUPPORTED_VERSIONS or artifact.get("behavior_version") != version:
     raise ValueError("catalog model behavior version mismatch")
   if artifact.get("model_type") not in ("supercombo", "vision_policy", "vision_multi_policy"):

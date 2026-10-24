@@ -201,9 +201,22 @@ class TestHighlanderAol(unittest.TestCase):
     bad.safetyConfigs[0].safetyParam ^= 0x4000
     self.assertFalse(qualified(bad))
     for car in (CAR.LEXUS_RC,
-                CAR.TOYOTA_RAV4_TSS2_2023, CAR.TOYOTA_RAV4_PRIME, CAR.TOYOTA_SIENNA_4TH_GEN):
+                CAR.TOYOTA_RAV4_PRIME, CAR.TOYOTA_SIENNA_4TH_GEN):
       cp = CarInterface.get_params(car, gen_empty_fingerprint(), [], True, False, False)
       self.assertFalse(qualified(cp))
+
+  def test_rav4_2023_angle_factory_and_exact_experience(self):
+    for alpha, word in ((False, 0x649), (True, 0x449)):
+      with self.subTest(alpha=alpha):
+        cp = CarInterface.get_params(CAR.TOYOTA_RAV4_TSS2_2023, gen_empty_fingerprint(), [], alpha, False, False)
+        self.assertEqual(cp.safetyConfigs[0].safetyParam, word)
+        self.assertEqual(cp.steerControlType, structs.CarParams.SteerControlType.angle)
+        self.assertTrue(qualified(cp))
+        cp.alternativeExperience |= policy_for(cp).alternative_experience_addition
+        self.assertEqual(cp.alternativeExperience, 32)
+        self.assertTrue(qualified(cp, marked_only=True))
+        cp.safetyConfigs[0].safetyParam ^= 1
+        self.assertFalse(qualified(cp, marked_only=True))
 
   def test_camera_torque_group_consumes_same_physical_sources(self):
     for car in CAMERA_TORQUE_CASES:

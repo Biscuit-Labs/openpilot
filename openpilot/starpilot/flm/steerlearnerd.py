@@ -333,6 +333,7 @@ def run(
   retained_event = pending_event = None
   live_offer = None
   previous_tracking_pose_header = 0
+  next_tracking_status_ns = 0
   saved_live_targets = set()
   live_history = _LiveHistoryRestore(confirmed_history)
   import gc
@@ -571,7 +572,14 @@ def run(
 
       drain(control_socket, control, messaging.recv_one_or_none, sink, now)
       drain(applied_socket, output, messaging.recv_one_or_none, sink, now)
-      source_valid, now = source_current()
+      if collector is not None:
+        # Decoding queued frames may outlast the sampled shared inputs. Consume
+        # real pending deliveries before pose/native checks; keep their original
+        # headers and receipts for the next iteration instead of polling twice.
+        source_delivery.refresh(sm)
+      source_valid, now = source_current(read=collector is not None)
+      if tracking_pose_header < source_delivery.pose_header <= now:
+        tracking_pose_header = source_delivery.pose_header
       current_native = False
       if source_valid and collector is not None and collector.ready:
         current_native = current_native_health(sm, CP, collector.ready[-1][0], now)
@@ -663,13 +671,17 @@ def run(
           else:
             hardware_inventory = tuple((index, str(panda.pandaType)) for index, panda in enumerate(sm['pandaStates']))
         # Collection status carries no trial or restore authority. Send its
-        # genuine new-pose source receipt before optional snapshot work can
-        # delay delivery; its original lease is never renewed here.
+        # independently paced source receipt before optional snapshot work can
+        # delay delivery. This neutral status is not a new physical witness;
+        # the original settings lease and all trial/restore leases stay fixed.
         if (source_valid and live_offer is None and live_history.offer is None and
-            tracking_pose_header > previous_tracking_pose_header):
+            now + 10_000_000 >= next_tracking_status_ns):
           pm.send('starpilotSteeringTracking', tracking_message(source, now_ns=now,
             current_native=False, offer=None, restore=None))
-          previous_tracking_pose_header = tracking_pose_header
+          if next_tracking_status_ns == 0:
+            next_tracking_status_ns = now
+          next_tracking_status_ns += max(1, (now - next_tracking_status_ns) // 50_000_000 + 1) * 50_000_000
+          previous_tracking_pose_header = max(previous_tracking_pose_header, tracking_pose_header)
         prior_restore_offer = live_history.offer
         if live_offer is None:
           live_history.advance(live_actor, collector, source if source_valid else None, now_ns=now,
@@ -704,7 +716,9 @@ def run(
         # collection from recovering after a withdrawal. A cached offer keeps
         # its ORIGINAL observed time, sequence, witness and expiry; the writer
         # omits it when expired or current permission is absent.
-        publish_tracking = latest is not None or new_restore or new_raw_pose
+        source_withdrawal = not source_valid and _source_config_known(source, now)
+        publish_tracking = (latest is not None or new_restore or
+                            new_raw_pose and (source_withdrawal or live_offer is not None or live_history.offer is not None))
         if publish_tracking:
           message = tracking_message(source, now_ns=now, current_native=current_native,
             offer=live_offer, restore=live_history.offer)

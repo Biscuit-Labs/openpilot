@@ -23,8 +23,6 @@
 #define VOLKSWAGEN_MEB_ACC_AKTIV_REGELT        3U
 #define VOLKSWAGEN_MEB_ACC_OVERRIDE            4U
 
-#include "opendbc/safety/modes/volkswagen_meb_aol.h"
-
 static bool volkswagen_meb_alt_crc = false;
 
 #define VOLKSWAGEN_MEB_COMMON_RX_CHECKS \
@@ -98,14 +96,6 @@ static uint32_t volkswagen_meb_alt_crc_compute(const CANPacket_t *msg) {
 }
 
 static safety_config volkswagen_meb_init(uint16_t param) {
-  static const CanMsg VOLKSWAGEN_MEB_STOCK_TX_MSGS[] = {
-    {MSG_HCA_03, 0, 24, .check_relay = true},
-    {MSG_GRA_ACC_01, 0, 8, .check_relay = false},
-    {MSG_GRA_ACC_01, 2, 8, .check_relay = false},
-    {MSG_LDW_02, 0, 8, .check_relay = true},
-    {MSG_KLR_01, 0, 8, .check_relay = false},
-    {MSG_KLR_01, 2, 8, .check_relay = true},
-  };
   static const CanMsg VOLKSWAGEN_MEB_TX_MSGS[] = {
     {MSG_HCA_03, 0, 24, .check_relay = true},
     {MSG_LDW_02, 0, 8, .check_relay = true},
@@ -119,22 +109,6 @@ static safety_config volkswagen_meb_init(uint16_t param) {
   volkswagen_common_init();
   const uint16_t FLAG_VOLKSWAGEN_MEB_ALT_CRC = 2;
   volkswagen_meb_alt_crc = GET_FLAG(param, FLAG_VOLKSWAGEN_MEB_ALT_CRC);
-  volkswagen_meb_stock_acc = GET_FLAG(param, 4U);
-  vw_meb_aol_reset();
-  const bool aol_word = (param == 8U) || (param == 10U) || (param == 12U) || (param == 14U) ||
-                        (param == 24U) || (param == 26U) || (param == 28U) || (param == 30U);
-  vw_meb_aol_enabled = ((unsigned int)alternative_experience == 32U) && aol_word;
-  vw_meb_aol_alt_gear = GET_FLAG(param, 16U);
-  if (vw_meb_aol_enabled) {
-    static const AolSafetyPolicy policy = {
-      .reset = vw_meb_aol_reset,
-      .host_request = vw_meb_aol_request,
-      .request_mask = vw_meb_aol_request_mask,
-      .permission_mask = vw_meb_aol_permission,
-      .rx_invalid = vw_meb_aol_clear,
-    };
-    aol_policy = &policy;
-  }
 
   safety_config ret;
   if (volkswagen_meb_alt_crc) {
@@ -153,15 +127,6 @@ static safety_config volkswagen_meb_init(uint16_t param) {
     };
 
     ret = BUILD_SAFETY_CFG(volkswagen_meb_rx_checks, VOLKSWAGEN_MEB_TX_MSGS);
-  }
-  if (volkswagen_meb_stock_acc) {
-    ret.tx_msgs = VOLKSWAGEN_MEB_STOCK_TX_MSGS;
-    ret.tx_msgs_len = sizeof(VOLKSWAGEN_MEB_STOCK_TX_MSGS) / sizeof(CanMsg);
-  }
-  if ((((param & ~6U) != 0U) && !vw_meb_aol_enabled) ||
-      (((unsigned int)alternative_experience == 32U) && !vw_meb_aol_enabled)) {
-    ret.tx_msgs = NULL;
-    ret.tx_msgs_len = 0;
   }
   return ret;
 }
@@ -199,9 +164,6 @@ static void volkswagen_meb_rx_hook(const CANPacket_t *msg) {
     bool cruise_engaged = (acc_status == 3) || (acc_status == 4) || (acc_status == 5);
     acc_main_on = cruise_engaged || (acc_status == 2);
 
-    if (volkswagen_meb_stock_acc) {
-      pcm_cruise_check(cruise_engaged);
-    }
     if (!acc_main_on) {
       controls_allowed = false;
     }
@@ -216,8 +178,7 @@ static void volkswagen_meb_rx_hook(const CANPacket_t *msg) {
     // Signal: GRA_ACC_01.GRA_Tip_Wiederaufnahme
     bool set_button = GET_BIT(msg, 16U);
     bool resume_button = GET_BIT(msg, 19U);
-    if (!volkswagen_meb_stock_acc &&
-        ((volkswagen_set_button_prev && !set_button) || (volkswagen_resume_button_prev && !resume_button))) {
+    if ((volkswagen_set_button_prev && !set_button) || (volkswagen_resume_button_prev && !resume_button)) {
       controls_allowed = acc_main_on;
     }
     volkswagen_set_button_prev = set_button;
@@ -232,7 +193,6 @@ static void volkswagen_meb_rx_hook(const CANPacket_t *msg) {
   if (msg_matches(msg, MSG_MOTOR_14, 0U)) {
     brake_pressed = GET_BIT(msg, 28U);
   }
-  vw_meb_aol_rx(msg);
 }
 
 static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
@@ -250,8 +210,7 @@ static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
     // Signal: ACC_18.ACC_Sollbeschleunigung_02 (acceleration in m/s2, scale 0.005, offset -7.22)
     int desired_accel = ((((msg->data[4] & 0x7U) << 8) | msg->data[3]) * 5U) - 7220U;
     // MEB inactive accel is 3.01, but we also need to send 0.0 for gas override
-    const bool current_long_allowed = vw_meb_aol_enabled ? longitudinal_controls_allowed() : controls_allowed;
-    bool accel_override = current_long_allowed && (desired_accel == 0);
+    bool accel_override = controls_allowed && (desired_accel == 0);
     if (!accel_override && longitudinal_accel_checks(desired_accel, VOLKSWAGEN_MEB_LONG_LIMITS)) {
       tx = false;
     }
@@ -263,7 +222,7 @@ static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
     uint8_t hold_type = (msg->data[9] >> 5) & 0x07U;
     bool hold_type_allowed = (hold_type == VOLKSWAGEN_MEB_HMS_KEINE_ANFORDERUNG) ||
                              (hold_type == VOLKSWAGEN_MEB_HMS_LOESEN_UEBER_RAMPE) ||
-                             (current_long_allowed && ((hold_type == VOLKSWAGEN_MEB_HMS_HALTEN) ||
+                             (controls_allowed && ((hold_type == VOLKSWAGEN_MEB_HMS_HALTEN) ||
                                                    (hold_type == VOLKSWAGEN_MEB_HMS_ANFAHREN)));
     if (!hold_type_allowed) {
       tx = false;
@@ -274,7 +233,7 @@ static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
     // These carry the same drive off and hold requests as the hold type, so they are gated the same way
     bool acc_anfahren = GET_BIT(msg, 56U);
     bool acc_anhalten = GET_BIT(msg, 57U);
-    if ((acc_anfahren || acc_anhalten) && !current_long_allowed) {
+    if ((acc_anfahren || acc_anhalten) && !controls_allowed) {
       tx = false;
     }
 
@@ -284,7 +243,7 @@ static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
     uint8_t acc_status = (msg->data[7] >> 4) & 0x07U;
     bool acc_status_active = (acc_status == VOLKSWAGEN_MEB_ACC_AKTIV_REGELT) ||
                              (acc_status == VOLKSWAGEN_MEB_ACC_OVERRIDE);
-    if (acc_status_active && !current_long_allowed) {
+    if (acc_status_active && !controls_allowed) {
       tx = false;
     }
   }
@@ -314,9 +273,6 @@ static bool volkswagen_meb_tx_hook(const CANPacket_t *msg) {
     }
   }
 
-  if ((msg->addr == MSG_GRA_ACC_01) && !controls_allowed && ((msg->data[2] & 0x9U) != 0U)) {
-    tx = false;
-  }
   return tx;
 }
 
@@ -324,7 +280,6 @@ const safety_hooks volkswagen_meb_hooks = {
   .init = volkswagen_meb_init,
   .rx = volkswagen_meb_rx_hook,
   .tx = volkswagen_meb_tx_hook,
-  .optional_rx = vw_meb_aol_optional_rx,
   .get_counter = volkswagen_mxb_get_counter,
   .get_checksum = volkswagen_mxb_get_checksum,
   .compute_checksum = volkswagen_meb_alt_crc_compute,

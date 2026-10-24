@@ -1,6 +1,5 @@
 import { GalaxySelect } from "./galaxy-select.js"
 import { haptic } from "./haptics.js"
-import { beginSave, finishSave, showDraftChange } from "./save-feedback.js"
 
 export const FINE_SCRUB_HOLD_MS = 300
 export const FINE_SCRUB_FACTOR = 5
@@ -65,7 +64,6 @@ export const GalaxySettingRow = {
     index: { type: Number, required: true },
     disabled: { type: Boolean, default: false },
     busy: { type: Boolean, default: false },
-    feedback: { type: String, default: "saved" },
     saveValue: { type: Function, required: true },
   },
   emits: ["open", "review", "reset-default"],
@@ -101,18 +99,7 @@ export const GalaxySettingRow = {
       if (savedValue === null) return
       this.preview = value
       this.updating = true
-      const token = this.feedback === "saved" && this.control === "switch" ? beginSave() : null
-      try {
-        const result = await this.saveValue(this.index, savedValue)
-        if (token !== null) {
-          await this.$nextTick()
-          finishSave(token, result !== false && result !== null &&
-            (result === true || result?.saved === true || String(this.presentedRow.value) === String(value)))
-        } else if (this.feedback === "draft" && this.control === "switch" && result !== false) showDraftChange()
-      } catch (error) {
-        if (token !== null) finishSave(token, false)
-        throw error
-      }
+      try { await this.saveValue(this.index, savedValue) }
       finally { this.preview = undefined; this.updating = false }
     },
     onSwitch(event) {

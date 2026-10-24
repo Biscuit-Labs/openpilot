@@ -17,10 +17,7 @@ def crc(data):
 
 class TestGmCcPedal(unittest.TestCase):
   def setUp(self):
-    self.configure_native(libsafety_py.libsafety)
-
-  def configure_native(self, native):
-    self.safety = native
+    self.safety = libsafety_py.libsafety
     self.packer = CANPacker('gm_global_a_powertrain_generated')
     self.init(0xC180)
 
@@ -300,24 +297,3 @@ class TestGmCcPedal(unittest.TestCase):
     self.safety.set_timer(100001)
     self.assertFalse(self.safety.safety_tx_hook(self.command(2)))
     self.assertTrue(self.safety.safety_tx_hook(self.command(2, 0.)))
-
-
-def test_release_interceptor_guards_keep_stock_steering_without_mutating_default_native():
-  """Execute the existing physical-traffic guards on a real RELEASE library."""
-  from opendbc.safety.tests.test_gm_camera_acc_pedal import TestGmCameraAccPedal
-
-  default, default_path = libsafety_py.libsafety, libsafety_py.libpath
-  release = libsafety_py.ffi.dlopen(libsafety_py._build_libsafety(release=True))
-  volt = TestGmCcPedal(methodName='test_volt_cc_exact_records_and_release_denial')
-  camera = TestGmCameraAccPedal(methodName='test_exact_profiles_and_stock_without_pedal_or_gear')
-  try:
-    volt.configure_native(release)
-    volt.test_volt_cc_exact_records_and_release_denial()
-    camera.configure_native(release)
-    assert camera.release
-    camera.test_exact_profiles_and_stock_without_pedal_or_gear()
-  finally:
-    volt.doCleanups()
-    camera.doCleanups()
-  assert libsafety_py.libsafety is default
-  assert libsafety_py.libpath == default_path

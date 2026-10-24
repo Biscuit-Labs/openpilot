@@ -403,19 +403,18 @@ def test_existing_paired_car_controls_are_local_authenticated_and_source_bound(a
                  cookie=cookie, content_type='application/json')[0] == 401
 
 
-@pytest.mark.parametrize('connection', ['wired', 'headunitpad', 'openheadunit'])
-def test_wired_connection_requires_park_but_not_a_paired_receiver(api, connection):
+def test_wired_connection_requires_park_but_not_a_paired_receiver(api):
   request, _, state, client = api
   code, _, headers = request('POST', '/api/auth/login', json.dumps({'password': 'password123'}),
                               content_type='application/json')
   assert code == 200
   cookie = headers['Set-Cookie'].split(';', 1)[0]
-  payload = json.dumps({'action': 'connection', 'connection': connection})
+  payload = json.dumps({'action': 'connection', 'connection': 'wired'})
   state['parked'] = False
   assert request('POST', '/api/android-auto/control', payload, cookie=cookie, content_type='application/json')[0] == 403
   state['parked'] = True
   code, result, _ = request('POST', '/api/android-auto/control', payload, cookie=cookie, content_type='application/json')
-  assert code == 200 and result['status']['connection'] == connection
+  assert code == 200 and result['status']['connection'] == 'wired'
   assert request('POST', '/api/android-auto/control', json.dumps({'action': 'start'}), cookie=cookie,
                  content_type='application/json')[0] == 200
   assert client.running

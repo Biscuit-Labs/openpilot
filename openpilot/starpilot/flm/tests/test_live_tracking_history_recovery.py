@@ -15,9 +15,8 @@ from openpilot.starpilot.flm.tests.test_event_controller_prefix import fixture
 def test_stalled_live_collection_still_decodes_original_native_history(current_native, source_available):
   replay = fixture('starpilot', two_windows=True).engine
   history = replay.emissions
-  assert tuple(history.decode_queue) == tuple(history.events)
+  history.decode_queue.extend(history.events)
   assert history.events and history.decoder is None
-  assert 0 < len(history.decode_queue) <= 64
   # Unscored bookkeeping sentinel only; no new physical/native evidence.
   last = replay.records[-1]
   replay.records.append(replace(last, control_ns=last.control_ns + 6_000_000_000))
@@ -43,7 +42,7 @@ def test_stalled_live_collection_still_decodes_original_native_history(current_n
 def test_stalled_legacy_bootstrap_keeps_original_history_policy():
   replay = fixture('starpilot', two_windows=True).engine
   history = replay.emissions
-  assert tuple(history.decode_queue) == tuple(history.events)
+  history.decode_queue.extend(history.events)
   actor: Any = LiveTrackingActor(source_tracking=False)
   collector = SimpleNamespace(adapter=SimpleNamespace(replay=replay), ready=[])
   before = tuple(history.decode_queue), tuple(replay.records)

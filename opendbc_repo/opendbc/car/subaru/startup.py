@@ -14,17 +14,17 @@ def checksum(address, data):
 
 def supported(cp):
   try:
-    return (qualified(cp) and cp.brand == 'subaru' and cp.carFingerprint in (CAR.SUBARU_LEGACY_2025, CAR.SUBARU_OUTBACK_2023) and
+    return (qualified(cp) and cp.brand == 'subaru' and cp.carFingerprint == CAR.SUBARU_LEGACY_2025 and
             not cp.notCar and not cp.passive and not cp.dashcamOnly and not cp.openpilotLongitudinalControl and
             cp.pcmCruise and len(cp.safetyConfigs) == 1 and
             cp.safetyConfigs[0].safetyModel == structs.CarParams.SafetyModel.subaru and
-            cp.safetyConfigs[0].safetyParam in (145, 209, 401, 465, 1169, 1425))
+            cp.safetyConfigs[0].safetyParam in (145, 401, 1169, 1425))
   except (AttributeError, IndexError, TypeError):
     return False
 
 
 def selected(cp):
-  return bool(supported(cp) and cp.flags & SubaruFlags.STOP_START_OFF and cp.safetyConfigs[0].safetyParam in (401, 465, 1425))
+  return bool(supported(cp) and cp.flags & SubaruFlags.STOP_START_OFF and cp.safetyConfigs[0].safetyParam in (401, 1425))
 
 
 def prepare(cp, enabled):
@@ -35,10 +35,7 @@ def prepare(cp, enabled):
 
 
 class StartupSources:
-  def __init__(self, cp=None):
-    self.buses = dict(BUSES)
-    if cp is not None and cp.carFingerprint == CAR.SUBARU_OUTBACK_2023:
-      self.buses[0x48] = 1
+  def __init__(self):
     self.blocked = False
     self.frames = {}
     self.sequential = {}
@@ -47,7 +44,7 @@ class StartupSources:
   def observe(self, packets, *, boot_ns, mono_ns):
     for stamp, frames in packets:
       for address, data, bus in frames:
-        if address not in ADDRESSES or bus != self.buses[address]:
+        if address not in ADDRESSES or bus != BUSES[address]:
           continue
         data = bytes(data)
         if (len(data) != 8 or stamp <= 0 or not 0 <= boot_ns - stamp <= 300_000_000 or
@@ -87,7 +84,6 @@ class StopStartRequest:
     self.configured_last = None
     self.start = None
     self.pulse_start = None
-    self.pulse_start_ns = 0
     self.last_send = None
     self.last_counter = None
     self.done = False
@@ -105,8 +101,7 @@ class StopStartRequest:
     else:
       self.configured_last = None
 
-  def update(self, command, state, now, *, now_nanos=None):
-    now_nanos = round(now * 1e9) if now_nanos is None else now_nanos
+  def update(self, command, state, now):
     if self.start is None:
       self.start = now
     if self.done:
@@ -141,8 +136,7 @@ class StopStartRequest:
       return None
     if self.pulse_start is None:
       self.pulse_start = now
-      self.pulse_start_ns = now_nanos
-    if now_nanos - self.pulse_start_ns >= 300_000_000:
+    if now - self.pulse_start >= .3:
       self.done = True
       return None
     if self.last_send is not None and now - self.last_send < .05:

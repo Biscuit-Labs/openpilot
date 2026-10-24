@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 from opendbc.can import CANParser
 from opendbc.car import Bus
-from opendbc.car.can_definitions import CanData
 from unittest.mock import patch
 
 import pytest
@@ -96,17 +95,13 @@ def ford_joined(identity, alpha, hands_free, monkeypatch, record_property):
 
     for key, value in (('FordLateralMode', b'1'), ('PauseAOLOnBrake', b'0.0'), ('CancelButtonControl', b'0'), ('MainCruiseButtonControl', b'0')):
       Path(saved.get_param_path(key)).write_bytes(value)
+    from pathlib import Path
+
     Path(saved.get_param_path("FordHandsFreeCluster")).write_bytes(b"1" if hands_free else b"0")
     fp = gen_empty_fingerprint()
-    topology = getattr(monkeypatch, 'ford_topology', 'automatic')
-    offset = 4 if topology == 'multi-panda' else 0
-    manual = topology == 'manual' or topology == 'manual-multi'
-    if topology == 'manual-multi':
-      offset = 4
-    if not manual:
-      fp[offset][0x5A] = 8
-    fp[offset].update({0x3A6: 8, 0x3A7: 8})
-    fp[offset + 2].update({0x3D6: 8, 0x186: 8})
+    fp[0][0x5A] = 8
+    fp[0].update({0x3A6: 8, 0x3A7: 8})
+    fp[2].update({0x3D6: 8, 0x186: 8})
     name, base = identity
     observed = (name, fp, '0' * 17, [], structs.CarParams.FingerprintSource.can, True)
     try:
@@ -117,15 +112,15 @@ def ford_joined(identity, alpha, hands_free, monkeypatch, record_property):
         host = card_module.Car()
       assert host.CP.alternativeExperience == 32 and host.aol_card_intent is not None
       assert str(host.CP.carFingerprint) == str(name)
-      expected_long = bool(alpha)
+      expected_long = bool(alpha and not release)
       assert host.CP.openpilotLongitudinalControl == expected_long
-      assert host.CP.safetyConfigs[-1].safetyParam == base | int(expected_long) | (256 if manual else 0)
+      assert host.CP.safetyConfigs[0].safetyParam == base | int(expected_long)
       record_property('ford_factory_identity', str(name))
       record_property('ford_saved_alpha', alpha)
       record_property('ford_release', release)
       record_property('ford_longitudinal', expected_long)
-      record_property('ford_safety_word', int(host.CP.safetyConfigs[-1].safetyParam))
-      native.reset(host.CP.safetyConfigs[-1].safetyParam)
+      record_property('ford_safety_word', int(host.CP.safetyConfigs[0].safetyParam))
+      native.reset(host.CP.safetyConfigs[0].safetyParam)
       native.word &= ~1
       # Real empty update registers lazily accessed parser messages before RX.
       # Card.controls_update owns CI initialization; no flag is assigned here.
@@ -157,14 +152,12 @@ def ford_joined(identity, alpha, hands_free, monkeypatch, record_property):
           extras += [('SteeringPinion_Data_Alt', 0, {'StePinRelInit_An_Sns': 0}), ('ParkAid_Data', 0, {'ExtSteeringAngleReq2': 0})]
         if host.CP.flags & FordFlags.LKA_STEERING:
           extras += [('LateralMotionControl', 2, {})]
-        extras += [('Side_Detect_L_Stat', 2 if host.CP.flags & FordFlags.CANFD else 0, {}),
-                   ('Side_Detect_R_Stat', 2 if host.CP.flags & FordFlags.CANFD else 0, {})]
+        extras += [('Side_Detect_L_Stat', 2, {}), ('Side_Detect_R_Stat', 2, {})]
         preframes += [native.packer.make_can_msg(message, bus, fields) for message, bus, fields in extras]
-        state = host.CI.update([(10_000_000_000 + native.tick * 10_000_000, [CanData(addr, data, bus + offset) for addr, data, bus in preframes])])
+        state = host.CI.update([(10_000_000_000 + native.tick * 10_000_000, preframes)])
         assert not native.safety.get_controls_allowed() and native.safety.aol_get_permission_mask() == 0
       assert state.canValid and not state.canTimeout
-      yield SimpleNamespace(host=host, native=native, safety=native.safety, initial_cp=host.CP.to_dict(),
-                            expected_long=expected_long, hands_free=hands_free, offset=offset)
+      yield SimpleNamespace(host=host, native=native, safety=native.safety, initial_cp=host.CP.to_dict(), expected_long=expected_long, hands_free=hands_free)
     finally:
       native.tearDown()
       if host is not None:
@@ -183,7 +176,6 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
   steps = start_tick = native.tick
   warmup_waits = qualified_samples = 0
   active_lat_frames = active_long_frames = 0
-  transition_trace = []
   long_parser = CANParser(DBC[host.CP.carFingerprint][Bus.pt], [('ACCDATA', 50)], 0)
 
   class ClockMappedSafety:
@@ -300,17 +292,14 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
             extras.append(('ParkAid_Data', 0, {'ExtSteeringAngleReq2': 0}))
         if host.CP.flags & FordFlags.LKA_STEERING and steps % 5 == 0:
           extras.append(('LateralMotionControl', 2, {}))
-        extras += [('Side_Detect_L_Stat', 2 if host.CP.flags & FordFlags.CANFD else 0, {}),
-                   ('Side_Detect_R_Stat', 2 if host.CP.flags & FordFlags.CANFD else 0, {})]
+        extras += [('Side_Detect_L_Stat', 2, {}), ('Side_Detect_R_Stat', 2, {})]
         frames += [native.packer.make_can_msg(name, bus, fields) for name, bus, fields in extras]
-        frames = [(addr, data, bus + joined.offset) for addr, data, bus in frames]
         batch = messaging.log_from_bytes(card_module.can_list_to_can_capnp(frames)).as_builder()
         batch.logMonoTime = now[0]
         queued[:] = [batch.to_bytes()]
-        config = host.CP.safetyConfigs[-1]
+        config = host.CP.safetyConfigs[0]
         slot = PandaSlot(
-          len(host.CP.safetyConfigs) - 1, 'authority-panda', config.safetyModel.raw, config.safetyParam, 32,
-          bool(safety.get_controls_allowed()), not bool(safety.safety_config_valid())
+          0, 'authority-panda', config.safetyModel.raw, config.safetyParam, 32, bool(safety.get_controls_allowed()), not bool(safety.safety_config_valid())
         )
         native_state = SafetyState(
           1,
@@ -326,20 +315,16 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           'authority-panda',
           str(prior_axis.aolAxisState.sessionId) if prior_axis is not None else host.aol_axis_session(),
           sourcePandaStatesMonoTime=now[0],
-          pandaInventory=(slot,) if len(host.CP.safetyConfigs) == 1 else (
-            PandaSlot(0, 'silent-panda-0', host.CP.safetyConfigs[0].safetyModel.raw, 0, 32, False, False), slot),
+          pandaInventory=(slot,),
         )
         wire = messaging.new_message('aolSafetyWire', 0, valid=True, logMonoTime=now[0])
         wire.aolSafetyWire = encode_safety(native_state)
-        panda = messaging.new_message('pandaStates', len(host.CP.safetyConfigs), valid=True, logMonoTime=now[0])
-        panda.pandaStates[-1].safetyModel = config.safetyModel
-        panda.pandaStates[-1].safetyParam = config.safetyParam
-        panda.pandaStates[-1].alternativeExperience = 32
-        panda.pandaStates[-1].controlsAllowed = slot.controlsAllowed
-        panda.pandaStates[-1].safetyRxChecksInvalid = slot.safetyRxChecksInvalid
-        if len(host.CP.safetyConfigs) == 2:
-          panda.pandaStates[0].safetyModel = host.CP.safetyConfigs[0].safetyModel
-          panda.pandaStates[0].alternativeExperience = 32
+        panda = messaging.new_message('pandaStates', 1, valid=True, logMonoTime=now[0])
+        panda.pandaStates[0].safetyModel = config.safetyModel
+        panda.pandaStates[0].safetyParam = config.safetyParam
+        panda.pandaStates[0].alternativeExperience = 32
+        panda.pandaStates[0].controlsAllowed = slot.controlsAllowed
+        panda.pandaStates[0].safetyRxChecksInvalid = slot.safetyRxChecksInvalid
         device = messaging.new_message('deviceState', valid=True, logMonoTime=now[0])
         device.deviceState.started, device.deviceState.startedMonoTime = True, 9_000_000_000
         events = [wire.as_reader(), panda.as_reader(), device.as_reader()]
@@ -379,8 +364,6 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           native_request_long=bool(native_request & 2),
           panda_controls_allowed=bool(safety.get_controls_allowed()),
           panda_fault=slot.safetyRxChecksInvalid,
-          panda_state_message=panda,
-          safety_message=wire,
         )
         assert state.to_dict() == parsed_before_producer, 'Authority harness changed actual parsed CarState'
         previous_sd.update(sd.pm.messages)
@@ -397,7 +380,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           for frame in published['sendcan'].sendcan:
             from opendbc.safety.tests.libsafety import libsafety_py
 
-            assert safety.safety_tx_hook(libsafety_py.make_CANPacket(frame.address, frame.src - joined.offset, frame.dat))
+            assert safety.safety_tx_hook(libsafety_py.make_CANPacket(frame.address, frame.src, frame.dat))
             data, address = frame.dat, frame.address
             if address in (0x3CA, 0x3D3, 0x3D6):
               active = ((data[4] >> 2) & 7) != 0 if address == 0x3D3 else ((data[0] >> 4) & 7) != 0 if address == 0x3D6 else (data[0] >> 5) in (2, 4)
@@ -405,7 +388,7 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
                 assert command.latActive and permission & 1
                 active_lat_frames += 1
             elif address == 0x186:
-              long_parser.update([(source_ns, [(address, bytes(data), frame.src - joined.offset)])])
+              long_parser.update([(source_ns, [(address, bytes(data), frame.src)])])
               active = bool(long_parser.vl['ACCDATA']['Cmbb_B_Enbl'])
               assert active == bool(command.longActive)
               active_long_frames += int(active)
@@ -434,11 +417,6 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
           assert not axis.longitudinalActive and not command.longActive
         elif command.longActive:
           assert permission & 2 and safety.get_controls_allowed()
-        transition_trace.append((steps, str(state.gearShifter), bool(state.brakePressed), bool(host.aol_card_intent.allowed_latch),
-                                 bool(command.latActive), bool(command.longActive), permission, native_request,
-                                 str(axis.faultReason), bool(host.aol_transport_feedback.failed),
-                                 str(host.aol_transport_feedback.pending_event),
-                                 tuple(str(event.name) for event in host.sm['onroadEvents'])))
         return state, axis, sd_state, command
 
       def joined_packet(frame):
@@ -451,38 +429,6 @@ def run_actual_producer(ford_joined, monkeypatch, *, scenario='reverse', reengag
       assert 0 <= warmup_waits < 120 and qualified_samples >= 100
       assert host.ci_initialized  # Read-only witness: real controls_update completed init.
       assert not host.aol_card_intent.allowed_latch
-      if scenario == 'configuration-parity':
-        for _ in range(40):
-          state, axis, sd_state, command = step(engaged=True)
-        assert command.latActive and host.aol_card_intent.allowed_latch
-        assert bool(command.longActive) == joined.expected_long
-        for _ in range(30):
-          state, axis, sd_state, command = step(engaged=True, fault='gas')
-        assert command.latActive and not command.longActive and host.aol_card_intent.allowed_latch
-        for _ in range(30):
-          state, axis, sd_state, command = step(engaged=True)
-        assert command.latActive and bool(command.longActive) == joined.expected_long
-        for _ in range(30):
-          state, axis, sd_state, command = step(brake=True)
-        assert host.aol_card_intent.allowed_latch and command.latActive and not command.longActive
-        for _ in range(30):
-          state, axis, sd_state, command = step(reverse=True)
-        assert host.aol_card_intent.allowed_latch and not command.latActive and not command.longActive, transition_trace[-40:]
-        for _ in range(40):
-          state, axis, sd_state, command = step()
-        assert command.latActive and not command.longActive
-        for _ in range(40):
-          state, axis, sd_state, command = step(fault='temporary-eps')
-        assert host.aol_card_intent.allowed_latch and not command.latActive, transition_trace[-40:]
-        for _ in range(40):
-          state, axis, sd_state, command = step()
-        assert command.latActive and not command.longActive
-        for _ in range(30):
-          state, axis, sd_state, command = step(main_off=True)
-        assert not host.aol_card_intent.allowed_latch and not command.latActive and not command.longActive
-        assert active_lat_frames > 0
-        assert bool(active_long_frames) == joined.expected_long
-        return
       assert scenario in ('route24', 'route24-mixed-eps', 'route2a', 'route2a-main', 'route2a-main-fault')
       if scenario in ('route24', 'route24-mixed-eps', 'route2a', 'route2a-main', 'route2a-main-fault'):
         mixed_eps = scenario in ('route24-mixed-eps', 'route2a', 'route2a-main', 'route2a-main-fault')

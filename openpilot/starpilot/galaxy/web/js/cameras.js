@@ -1,7 +1,6 @@
 import { MenuTile } from "./menu-tile.js"
 import { GxNotice } from "./notice.js"
 import { GalaxySelect } from "./galaxy-select.js"
-import { BluetoothNotice, bluetoothConnection } from "./bluetooth-notice.js"
 
 export class CameraSnapshotFeed {
   constructor({ publish, unauthorized, fetcher = (...args) => fetch(...args),
@@ -25,7 +24,6 @@ export class CameraSnapshotFeed {
   }
   async capture(camera) {
     this.stop()
-    if (bluetoothConnection()) return
     const request = new AbortController()
     this.request = request
     this.publish({ image: "", capturing: true, error: "" })
@@ -65,11 +63,10 @@ export class CameraSnapshotFeed {
 
 export const CamerasPage = {
   name: "CamerasPage",
-  components: { GxNotice, BluetoothNotice, GalaxySelect, MenuTile },
+  components: { GxNotice, GalaxySelect, MenuTile },
   props: { mode: { type: String, required: true }, go: { type: Function, required: true },
-    tools: { type: Array, required: true },
     unauthorized: { type: Function, required: true } },
-  data: () => ({ bluetooth: bluetoothConnection(), camera: "cabin", image: "", capturing: false, error: "" }),
+  data: () => ({ camera: "cabin", image: "", capturing: false, error: "" }),
   created() { this.snapshots = new CameraSnapshotFeed({ publish: (state) => Object.assign(this.$data, state), unauthorized: this.unauthorized }) },
   methods: {
     chooseCamera(event) { this.camera = event.target.value; this.snapshots.stop() },
@@ -84,13 +81,13 @@ export const CamerasPage = {
     <div class="gx-view gx-settings" aria-label="Cameras and Monitoring">
       <h2>Cameras &amp; Monitoring</h2>
       <div class="gx-grid">
-        <MenuTile v-for="tool in tools" :key="tool.path" :icon="tool.icon" :title="tool.name" :description="tool.description"
-          :disabled="tool.availability === 'local-only' && mode !== 'local'" @select="go(tool.path)" />
+        <MenuTile icon="bi-camera-video" title="Blind Spot Camera and Preview" description="Adjust the camera crop with a live cabin preview." :disabled="mode !== 'local'" @select="go('/cameras/pip')" />
+        <MenuTile icon="bi-shield" title="Sentry" description="View motion events, configure saved motion settings, and manage notifications." :disabled="mode !== 'local'" @select="go('/cameras/events')" />
+        <MenuTile icon="bi-eye" title="V-ASM" description="Preview the cabin camera, draw window regions, and adjust visual spot-monitoring choices." :disabled="mode !== 'local'" @select="go('/cameras/vasm')" />
       </div>
       <section class="gx-card gx-panel gx-stack"><div class="gx-section__header"><i class="bi bi-camera" aria-hidden="true"></i><span class="gx-section__title">Camera Snapshot</span></div>
         <p>Turn off the vehicle, choose a camera, then take a snapshot.</p>
-        <BluetoothNotice v-if="bluetooth" feature="Camera snapshots" />
-        <template v-else-if="mode === 'local'">
+        <template v-if="mode === 'local'">
           <label>Camera
             <GalaxySelect class="gx-field gx-field--full" aria-label="Camera" :value="camera" :disabled="capturing" @change="chooseCamera">
               <option value="cabin">Cabin</option><option value="wide">Wide road</option><option value="narrow">Road</option>
@@ -156,7 +153,6 @@ export class LiveCameraPreview {
     image.src = update.image
   }
   start() {
-    if (bluetoothConnection()) return
     this.stopped = false
     document.addEventListener("visibilitychange", this.visibility)
     this.refresh()

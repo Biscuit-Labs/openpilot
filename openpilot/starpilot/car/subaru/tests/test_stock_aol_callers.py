@@ -22,19 +22,20 @@ from openpilot.starpilot.car.subaru.tests.native_fixture import subaru_native_pa
 
 
 @pytest.mark.parametrize('candidate', [CAR.SUBARU_ASCENT_2023, CAR.SUBARU_LEGACY_2025, CAR.SUBARU_CROSSTREK_2025, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK])
-def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path, aol=True, manual=False):
+def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, subaru_native_pair, tmp_path):
+  aol = True
   fw = firmware_records(candidate, FW_VERSIONS, 'subaru')
   rows = []
-  with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=manual, aol=aol) as (card, params, matches):
+  with actual_factory(candidate, gen_empty_fingerprint(), fw, '0' * 17, manual=False, aol=aol) as (card, params, matches):
     cp = card.CP
     ci = card.CI
     safety = libsafety_py.libsafety
     assert cp.pcmCruise and not cp.openpilotLongitudinalControl and not cp.alphaLongitudinalAvailable
-    assert cp.alternativeExperience == (32 if aol else 0) and not cp.dashcamOnly
+    assert cp.alternativeExperience == 32 and not cp.dashcamOnly
     sd, controls = SelfdriveD(CP=cp), Controls()
     stream = CompleteCan(ci)
     safety.init_tests()
-    safety.set_alternative_experience(cp.alternativeExperience)
+    safety.set_alternative_experience(32)
     assert safety.set_safety_hooks(cp.safetyConfigs[0].safetyModel.raw, cp.safetyConfigs[0].safetyParam) == 0
     safety.set_aol_test_heartbeat(False)
     library, bridge = subaru_native_pair
@@ -46,7 +47,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
     receipt = None
     steering_name = 'ES_LKAS_ANGLE' if cp.steerControlType == structs.CarParams.SteerControlType.angle else 'ES_LKAS'
     steering_address = ci.CC.packer.dbc.name_to_msg[steering_name].address
-    steering_bus = 0 if candidate in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK, CAR.SUBARU_FORESTER_2022, CAR.SUBARU_OUTBACK_2023) else 1
+    steering_bus = 0 if candidate in (CAR.SUBARU_ASCENT_2023, CAR.SUBARU_FORESTER, CAR.SUBARU_OUTBACK) else 1
     decoder = CANParser(DBC[candidate][Bus.pt], [(steering_name, 0)], steering_bus)
     dash_decoder = CANParser(DBC[candidate][Bus.pt], [('ES_LKAS_State', 0)], 0)
     dash_emissions = 0
@@ -78,7 +79,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         panda = messaging.new_message('pandaStates', 1, valid=True, logMonoTime=now)
         panda.pandaStates[0].safetyModel = cp.safetyConfigs[0].safetyModel
         panda.pandaStates[0].safetyParam = cp.safetyConfigs[0].safetyParam
-        panda.pandaStates[0].alternativeExperience = cp.alternativeExperience
+        panda.pandaStates[0].alternativeExperience = 32
         panda.pandaStates[0].ignitionLine = True
         panda.pandaStates[0].controlsAllowed = bool(safety.get_controls_allowed())
         panda.pandaStates[0].safetyRxChecksInvalid = not bool(safety.safety_config_valid())
@@ -90,7 +91,7 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           peers.append(panda.as_reader())
         if 'carControl' in latest_controls:
           peers.append(latest_controls['carControl'])
-        peers.extend(driven_new[s] for s in ('onroadEvents', 'selfdriveState', 'aolAxisState') if s in driven_new and s in card.sm.data)
+        peers.extend(driven_new[s] for s in ('onroadEvents', 'selfdriveState', 'aolAxisState') if s in driven_new)
         if receipt is not None and tick % 10 == 1:
           peers.append(receipt.as_reader())
         card.sm.update_msgs((now + 1000) / 1e9, peers)
@@ -127,13 +128,13 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
         driven_new = selfdrive_step(sd, published, new_native, previous_controls, cp, safety, now, calibration='calibrated')
         driven.update(driven_new)
         order = None
-        if aol and tick % 10 == 0:
+        if tick % 10 == 0:
           receipt, order = pandad.step(driven, published, now)
         feed_perception_only(controls, now, tick, enabled=sd.enabled, active=sd.active)
         plan = messaging.new_message('longitudinalPlan', valid=True, logMonoTime=now)
         plan.longitudinalPlan.aTarget = 0.5
         control_peers = [published['carState'], published['carOutput'], plan.as_reader()]
-        control_peers.extend(driven_new[s] for s in ('selfdriveState', 'onroadEvents', 'aolAxisState') if s in driven_new and s in controls.sm.data)
+        control_peers.extend(driven_new[s] for s in ('selfdriveState', 'onroadEvents', 'aolAxisState') if s in driven_new)
         if receipt is not None and tick % 10 == 0:
           control_peers.append(receipt.as_reader())
         controls.sm.update_msgs((now + 1000) / 1e9, control_peers)
@@ -175,12 +176,12 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
                 active_emissions.append(tick)
             if 165 <= tick < 180 or 240 <= tick < 255 or not aol and (125 <= tick < 145 or 205 <= tick < 220 or 280 <= tick < 300):
               assert not request and output == 0, (tick, decoded_steering)
-        intent = decode_intent(published['aolIntentWire'].aolIntentWire) if aol else None
+        intent = decode_intent(published['aolIntentWire'].aolIntentWire)
         row = {
           'tick': tick,
-          'intent': bool(intent and intent.allowedLatch),
-          'armed': bool(intent and intent.lateralArmed),
-          'cardLatch': bool(card.aol_card_intent and card.aol_card_intent.allowed_latch),
+          'intent': intent.allowedLatch,
+          'armed': intent.lateralArmed,
+          'cardLatch': card.aol_card_intent.allowed_latch,
           'lat': command.latActive,
           'long': command.longActive,
           'enabled': sd.enabled,
@@ -193,26 +194,25 @@ def test_actual_full_engage_brake_reverse_temporary_recovery_mainoff(candidate, 
           'order': order,
           'tx': tx,
           'steering': decoded_steering,
-          'fault': str(driven['aolAxisState'].aolAxisState.faultReason) if aol else 'unsupported',
+          'fault': str(driven['aolAxisState'].aolAxisState.faultReason),
           'events': [str(e.name) for e in driven['onroadEvents'].onroadEvents],
         }
         rows.append(row)
         assert not command.longActive, row
         if 10 <= tick < 30:
-          assert not command.latActive and not bool(intent and intent.allowedLatch) and row['permission'] == 0, row
+          assert not command.latActive and not intent.allowedLatch and row['permission'] == 0, row
         if 65 <= tick < 90:
-          assert command.latActive and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol), row
+          assert command.latActive and intent.allowedLatch == aol and row['permission'] == 1, row
         if 125 <= tick < 145 or 205 <= tick < 220 or 280 <= tick < 300:
-          assert command.latActive == aol and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol) and not row['controls'], row
+          assert command.latActive == aol and intent.allowedLatch == aol and row['permission'] == int(aol) and not row['controls'], row
         if 165 <= tick < 180:
-          assert (not command.latActive and not bool(intent and intent.allowedLatch) and
-                bool(intent and intent.lateralArmed) == aol and row['cardLatch'] == aol and row['permission'] == 0), row
+          assert not command.latActive and not intent.allowedLatch and intent.lateralArmed == aol and row['cardLatch'] == aol and row['permission'] == 0, row
         if 240 <= tick < 255:
-          assert not command.latActive and bool(intent and intent.lateralArmed) == aol and row['cardLatch'] == aol and row['permission'] == 0, row
+          assert not command.latActive and intent.lateralArmed == aol and row['cardLatch'] == aol and row['permission'] == 0, row
         if 330 <= tick < 400:
-          assert not command.latActive and not bool(intent and intent.allowedLatch), row
+          assert not command.latActive and not intent.allowedLatch, row
         if tick >= 440:
-          assert command.latActive and bool(intent and intent.allowedLatch) == aol and row['permission'] == int(aol), row
+          assert command.latActive and intent.allowedLatch == aol and row['permission'] == 1, row
       assert len(active_emissions) >= 4, rows[65:90]
       assert dash_emissions >= 40
     finally:

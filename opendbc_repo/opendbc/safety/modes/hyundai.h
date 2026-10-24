@@ -638,9 +638,7 @@ static safety_config hyundai_init(uint16_t param) {
   };
 
   hyundai_common_init(param);
-  if ((param == 0x800EU) && (alternative_experience == 0)) {
-    hyundai_long_main_policy = HYUNDAI_MAIN_TRACK;
-  }
+  hyundai_long_main_policy = ((param == 0x800EU) && (alternative_experience == 0U)) ? HYUNDAI_MAIN_TRACK : HYUNDAI_MAIN_NONE;
   classic_non_scc_aol_configure(param, false);
   blended_aol_configure(param);
   hyundai_blended_alpha = false;

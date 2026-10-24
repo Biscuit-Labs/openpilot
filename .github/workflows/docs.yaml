@@ -29,10 +29,11 @@ jobs:
     steps:
     - uses: commaai/timeout@v1
     - uses: actions/checkout@v7
+    - run: ./tools/op.sh setup
 
     # Build
     - name: Build docs
-      run: python3 docs/serve.py --build
+      run: ./tools/op.sh docs --build
 
     # Push to docs.comma.ai
     - uses: actions/checkout@v7

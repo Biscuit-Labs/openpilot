@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from openpilot.starpilot.models.tests.native_fixture import native_fixture
 from openpilot.starpilot.models.catalog import ARTIFACT_ABI, BUNDLED_CURRENT, CATALOG_PATH, DEFAULT_SMALL
 from openpilot.starpilot.models.manager import (
   ModelError, ModelManager, atomic_json, catalog, preferences, randomize_next_start, resolve_runtime, validate_manifest,
@@ -18,30 +17,28 @@ from openpilot.starpilot.models.manager import (
 
 
 def run_download_owner(root, manifest, data, entered, release, result):
-  with native_fixture(Path(root), data) as native_document:
-    class BlockedPart(io.BytesIO):
-      def read(self, size=-1):
-        entered.set()
-        if not release.wait(5):
-          raise OSError('fixture stalled')
-        return super().read(size)
+  class BlockedPart(io.BytesIO):
+    def read(self, size=-1):
+      entered.set()
+      if not release.wait(5):
+        raise OSError('fixture stalled')
+      return super().read(size)
 
-    def opener(url, timeout):
-      if '/manifests/' in url:
-        document = native_document if 'native02e-v1' in url else manifest
-        return io.BytesIO(json.dumps(document).encode())
-      if url.endswith('chunk01of02'):
-        return io.BytesIO(data[:10])
-      return BlockedPart(data[10:])
+  def opener(url, timeout):
+    if '/manifests/' in url:
+      return io.BytesIO(json.dumps(manifest).encode())
+    if url.endswith('chunk01of02'):
+      return io.BytesIO(data[:10])
+    return BlockedPart(data[10:])
 
-    manager = ModelManager(root=Path(root), parked=lambda: True, gpu_present=lambda: False, opener=opener)
-    with patch('openpilot.starpilot.models.manager.shutil.disk_usage', return_value=SimpleNamespace(free=1024**3)):
-      try:
-        manager.action('download', {'model': 'gwm8223'})
-        manager.worker.join(6)
-        result.put(manager.snapshot())
-      finally:
-        manager.close()
+  manager = ModelManager(root=Path(root), parked=lambda: True, gpu_present=lambda: False, opener=opener)
+  with patch('openpilot.starpilot.models.manager.shutil.disk_usage', return_value=SimpleNamespace(free=1024**3)):
+    try:
+      manager.action('download', {'model': 'gwm8223'})
+      manager.worker.join(6)
+      result.put(manager.snapshot())
+    finally:
+      manager.close()
 
 
 class ModelManagerTest(unittest.TestCase):
@@ -66,7 +63,6 @@ class ModelManagerTest(unittest.TestCase):
       identity = patch('openpilot.starpilot.models.manager.' + attribute, value)
       identity.start()
       self.addCleanup(identity.stop)
-    self.native_manifest = self.enterContext(native_fixture(self.root, self.data))
     self.manifest = json.loads(CATALOG_PATH.read_text())
     self.row = next(x for x in self.manifest['models'] if x['id'] == 'gwm8223')
     self.row.update(artifact_format=ARTIFACT_ABI, artifact_sha256=hashlib.sha256(self.data).hexdigest(),
@@ -78,8 +74,7 @@ class ModelManagerTest(unittest.TestCase):
       self.assertTrue(url.startswith('https://huggingface.co/buckets/StarPilot-Driving/StarPilot-Resources/resolve/'))
       self.urls.append(url)
       if '/manifests/' in url:
-        document = self.native_manifest if 'native02e-v1' in url else self.manifest
-        return io.BytesIO(json.dumps(document).encode())
+        return io.BytesIO(json.dumps(self.manifest).encode())
       if url.endswith('chunk01of02'):
         return io.BytesIO(self.data[:10])
       if url.endswith('chunk02of02'):
@@ -141,42 +136,6 @@ class ModelManagerTest(unittest.TestCase):
       assert self.manager.selected_gpu_status() == (False, False)
     assert not (self.root / '.download-job.json').exists()
 
-  def test_downloaded_native_rdf_respects_frozen_big_runtime_family(self):
-    from openpilot.starpilot.models.runtime_selection import NATIVE_ABI, NATIVE_GENERATION
-
-    # Metadata fixture bytes are never unpickled or submitted to a device.
-    native_rdf = self.root / NATIVE_GENERATION / 'rdf43/rdf43_driving_tinygrad.pkl'
-    native_rdf.parent.mkdir(parents=True)
-    native_rdf.write_bytes(self.data)
-    legacy_big = next(row for row in self.manifest['models'] if row['id'] == 'cinquev3')
-    legacy_big.update(artifact_format=ARTIFACT_ABI, artifact_sha256=hashlib.sha256(self.data).hexdigest(),
-                      artifact_size=len(self.data), artifact_chunk_count=0)
-    atomic_json(self.root / 'catalog.json', self.manifest)
-    for native in (False, True):
-      with self.subTest(native_big=native):
-        document = json.loads(json.dumps(self.native_manifest))
-        if native:
-          document['models'].append({**legacy_big, 'artifact_format': NATIVE_ABI,
-                                     'qualification_sha256': document['models'][0]['qualification_sha256']})
-        atomic_json(self.root / 'native-fixture-catalog.json', document)
-        big_path = self.root / NATIVE_GENERATION / 'cinquev3/cinquev3_driving_tinygrad.pkl' if native else (
-          self.root / 'cinquev3/cinquev3_driving_tinygrad.pkl')
-        big_path.parent.mkdir(parents=True, exist_ok=True)
-        big_path.write_bytes(self.data)
-        atomic_json(self.root / 'preferences.json', {'small': 'rdf43', 'big': 'cinquev3'})
-        selection = resolve_runtime(True, root=self.root)
-        self.assertTrue(selection.allow_big)
-        self.assertEqual(selection.big_path, big_path)
-        if native:
-          self.assertEqual(selection.small_path, native_rdf)
-          self.assertNotIn('compat9d', selection.fallback_path.parts)
-        else:
-          self.assertEqual(selection.small_path, selection.fallback_path)
-          self.assertIn('compat9d', selection.small_path.parts)
-          self.assertNotEqual(selection.small_path, native_rdf)
-        self.assertEqual(selection.small_path.read_bytes(), self.data)
-        self.assertEqual(preferences(self.root)['big'], 'cinquev3')
-
   def test_chunk_download_verifies_and_selects_next_start(self):
     self.download()
     self.assertEqual(self.manager.progress, 'Downloaded!')
@@ -185,8 +144,7 @@ class ModelManagerTest(unittest.TestCase):
     selected = resolve_runtime(True, root=self.root)
     self.assertEqual(selected.small_id, 'gwm8223')
     self.assertEqual(selected.small_path.read_bytes(), self.data)
-    self.assertTrue(all('/v26/' in u or u.endswith(('/manifests/model_names_v26.json',
-                                                    '/manifests/model_names_native02e-v1.json')) for u in self.urls))
+    self.assertTrue(all('/v26/' in u or 'model_names_v26.json' in u for u in self.urls))
 
   def test_corruption_never_publishes_or_selects(self):
     self.bad = True
@@ -696,7 +654,7 @@ class ModelManagerTest(unittest.TestCase):
       validate_manifest({**good, "models": [known]})
 
   def test_remote_metadata_cache_refresh_and_root_isolation(self):
-    from openpilot.starpilot.models.catalog import model_entries
+    from openpilot.starpilot.models.catalog import BY_ID, model_entries
     row = dict(self.row, id="remote_cache", name="First name", version="v16")
     atomic_json(self.root / "catalog.json", {**self.manifest, "models": [row]})
     self.assertEqual(model_entries(self.root)[row["id"]].name, "First name")
@@ -706,7 +664,7 @@ class ModelManagerTest(unittest.TestCase):
     self.assertEqual(model_entries(self.root)[row["id"]].name, "Second name")
     with tempfile.TemporaryDirectory() as empty:
       self.assertNotIn(row["id"], model_entries(Path(empty)))
-    self.assertEqual(model_entries(self.root)[DEFAULT_SMALL].source_sha256, self.native_manifest["models"][0]["artifact_sha256"])
+    self.assertEqual(model_entries(self.root)[DEFAULT_SMALL].source_sha256, BY_ID[DEFAULT_SMALL].source_sha256)
 
   def test_catalog_page_refresh_is_async_bounded_and_parked_only(self):
     entered, release = threading.Event(), threading.Event()

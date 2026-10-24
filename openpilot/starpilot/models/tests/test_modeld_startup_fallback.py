@@ -39,17 +39,7 @@ def test_jetlink_gets_the_frames_delay_before_every_run():
   run = next(node.lineno for node in statements if isinstance(node, ast.Try) and
              any(isinstance(child, ast.Call) and ast.unparse(child.func) == "model.run" for child in ast.walk(node)))
   # Night Star port: the told delay is the Honda EPS calibration's schedule when it has one, else lagd's
-  assert (line("subaru_tau = subaru_smooth_seconds(v_ego, subaru_smoothing)") <
-          line("lat_delay = lateral_delay + LAT_SMOOTH_SECONDS + subaru_tau") <
-          line("model.lat_delay = lat_delay") < run)
-  assignments = {ast.unparse(node.targets[0]): node for node in statements if isinstance(node, ast.Assign)}
-  # Reuse the same joined runner across frames: each write must include the current delay and smoothing.
-  model = SimpleNamespace(lat_delay=-1.)
-  for delay, tau in ((.1, 0.), (.25, .4), (.05, 2.)):
-    env = {"lateral_delay": delay, "LAT_SMOOTH_SECONDS": .03, "subaru_tau": tau, "model": model}
-    code = ast.Module(body=[assignments["lat_delay"], assignments["model.lat_delay"]], type_ignores=[])
-    exec(compile(ast.fix_missing_locations(code), str(MODEL_SOURCE), "exec"), env)
-    assert model.lat_delay == pytest.approx(delay + .03 + tau)
+  assert line("lat_delay = lateral_delay + LAT_SMOOTH_SECONDS") < line("model.lat_delay = lat_delay") < run
 
 
 @pytest.mark.parametrize("runner_chestnut,stored_active", [(True, False), (True, True), (False, True), (False, False)])
@@ -115,7 +105,6 @@ def test_remote_inference_failure_does_not_change_chestnut_status():
 def execute(statements, env):
   env.setdefault("os", SimpleNamespace(getenv=lambda key: None))
   env.setdefault("recovery_small_only", False)
-  env.setdefault("MODEL_RUNTIME_PLAN", object())
   from openpilot.starpilot.models.recovery import STARTUP_FALLBACK_EXIT
   env.setdefault("STARTUP_FALLBACK_EXIT", STARTUP_FALLBACK_EXIT)
   exec(compile(ast.fix_missing_locations(ast.Module(body=statements, type_ignores=[])), str(MODEL_SOURCE), "exec"), env)
@@ -137,16 +126,13 @@ def test_observed_availability_and_big_eligibility(monkeypatch, present, cable, 
   import sys
 
   manager = ModuleType("openpilot.starpilot.models.manager")
-  manager.resolve_runtime = Mock(side_effect=lambda chestnut_available, plan:
+  manager.resolve_runtime = Mock(side_effect=lambda chestnut_available, randomize:
                                  SimpleNamespace(allow_big=allow_big and chestnut_available, big_path=big_path))
   manager.requested_runtime_id = Mock(return_value="selected")
   amd = ModuleType("tinygrad.runtime.ops_amd")
   amd.AMDDevice = type("FakeAMDDevice", (), {"wait_timeout_ms": 123})
   monkeypatch.setitem(sys.modules, manager.__name__, manager)
   monkeypatch.setitem(sys.modules, amd.__name__, amd)
-  am = ModuleType("tinygrad.runtime.support.am")
-  am.startup_trace = SimpleNamespace(ENABLED=False, REPORT=None)
-  monkeypatch.setitem(sys.modules, am.__name__, am)
   body = main_body()
   start = next(i for i, node in enumerate(body) if isinstance(node, ast.ImportFrom) and node.module == manager.__name__)
   end = next(i for i, node in enumerate(body) if ast.unparse(node) == "gc.disable()")
@@ -156,8 +142,8 @@ def test_observed_availability_and_big_eligibility(monkeypatch, present, cable, 
          "jetlink_adapter": SimpleNamespace(link_on=lambda: link)}
   execute(body[start:end], env)
   available = present or (cable and not link)
-  manager.resolve_runtime.assert_called_once_with(chestnut_available=available, plan=env["MODEL_RUNTIME_PLAN"])
-  manager.requested_runtime_id.assert_called_once_with(available, plan=env["MODEL_RUNTIME_PLAN"])
+  manager.resolve_runtime.assert_called_once_with(chestnut_available=available, randomize=True)
+  manager.requested_runtime_id.assert_called_once_with(available)
   env["chestnut_present"].assert_called_once_with()
   assert env["cable_connected"].call_count == (0 if present else 1)
   assert env["CHESTNUT"] is expected
@@ -213,9 +199,6 @@ def test_big_worker_waits_before_load_and_failure_requests_fresh_small_process(c
                               small_version=1, small_id="small", small_sha256="small-hash",
                               big_version=1, big_id="big", big_sha256="hash")
   from openpilot.starpilot.models.catalog import BY_ID, DEFAULT_SMALL, DEFAULT_SMALL_SHA256
-  selection.fallback_path = "bundled-small"
-  selection.fallback_version = BY_ID[DEFAULT_SMALL].version
-  selection.fallback_sha256 = DEFAULT_SMALL_SHA256
   env: dict = {"BY_ID": BY_ID, "DEFAULT_SMALL": DEFAULT_SMALL, "DEFAULT_SMALL_SHA256": DEFAULT_SMALL_SHA256,
          "time": SimpleNamespace(monotonic=lambda: 0), "cloudlog": Mock(), "selection": selection,
          "CHESTNUT": True, "vipc_client_main": SimpleNamespace(width=1928, height=1208), "wait_for_chestnut": wait,
@@ -339,8 +322,8 @@ def test_recovery_child_resolves_small_without_randomizer_or_amd(monkeypatch):
          "chestnut_compiled": Mock(side_effect=AssertionError("Big compiled probe forbidden")),
          "Params": lambda: params, "os": SimpleNamespace(getenv=lambda key: "1")}
   execute(body[start:end], env)
-  manager.resolve_runtime.assert_called_once_with(chestnut_available=False, plan=env["MODEL_RUNTIME_PLAN"])
-  manager.requested_runtime_id.assert_called_once_with(True, plan=env["MODEL_RUNTIME_PLAN"])
+  manager.resolve_runtime.assert_called_once_with(chestnut_available=False, randomize=False)
+  manager.requested_runtime_id.assert_called_once_with(True)
   assert env["CHESTNUT"] is False
   assert "AMDDevice" not in env
   assert params.put_bool.call_args_list == [(("ChestnutLoading", False),)]
@@ -369,9 +352,7 @@ def test_failed_selected_small_uses_only_verified_rdf_or_refuses_startup(monkeyp
   monkeypatch.setattr(manager, 'shipped_default', lambda: None if fallback_failure == 'missing' else shipped)
   loader = Mock(side_effect=[RuntimeError('selected failed'), RuntimeError('RDF failed') if fallback_failure == 'load' else (rdf, 'rdf-prepared')])
   stock = Mock(side_effect=AssertionError('stock model must not load'))
-  env: dict = {'selection': SimpleNamespace(small_path=Path('custom.pkl'), small_version='v15', small_id='gwm8223', small_sha256='custom',
-                     fallback_path=None if fallback_failure == 'missing' else shipped,
-                     fallback_version='v15', fallback_sha256=DEFAULT_SMALL_SHA256),
+  env: dict = {'selection': SimpleNamespace(small_path=Path('custom.pkl'), small_version='v15', small_id='gwm8223', small_sha256='custom'),
          'vipc_client_main': SimpleNamespace(width=1928, height=1208), 'load_verified_model': loader,
          'ModelState': stock, 'modeld_pkl_path': stock, 'cloudlog': Mock(), 'BY_ID': BY_ID,
          'DEFAULT_SMALL': DEFAULT_SMALL, 'DEFAULT_SMALL_SHA256': DEFAULT_SMALL_SHA256}

@@ -22,11 +22,7 @@ from urllib.request import urlopen
 
 from openpilot.starpilot.models.catalog import (
   ARTIFACT_ABI, BUNDLED_CURRENT, BY_ID, CATALOG_PATH, COMPILER_REVISION, DEFAULT_SMALL, DEFAULT_SMALL_SHA256,
-  DEFAULT_SMALL_SIZE, GENERATION, NATIVE_CATALOG_PATH, model_entries,
-)
-
-from openpilot.starpilot.models.runtime_selection import (
-  NATIVE_ABI, NATIVE_GENERATION, NATIVE_REVISION, RuntimePlan, freeze_plan, selection_family,
+  DEFAULT_SMALL_SIZE, GENERATION, model_entries,
 )
 
 RESOURCE_URL = "https://huggingface.co/buckets/StarPilot-Driving/StarPilot-Resources/resolve"
@@ -78,12 +74,9 @@ def state_lock(root: Path):
     yield
 
 
-def validate_manifest(data: object, *, native: bool = False) -> dict[str, dict]:
-  generation = NATIVE_GENERATION if native else GENERATION
-  revision = NATIVE_REVISION if native else COMPILER_REVISION
-  abi = NATIVE_ABI if native else ARTIFACT_ABI
-  if (not isinstance(data, dict) or data.get("generation") != generation or data.get("compiler_revision") != revision or
-      data.get("artifact_abi") != abi or not isinstance(data.get("models"), list)):
+def validate_manifest(data: object) -> dict[str, dict]:
+  if (not isinstance(data, dict) or data.get("generation") != GENERATION or data.get("compiler_revision") != COMPILER_REVISION or
+      data.get("artifact_abi") != ARTIFACT_ABI or not isinstance(data.get("models"), list)):
     raise ModelError("The model catalog targets a different runtime")
   rows = {}
   for entry in data["models"]:
@@ -114,7 +107,7 @@ def validate_manifest(data: object, *, native: bool = False) -> dict[str, dict]:
     amd = variants.get("amd")
     if amd is not None and (not isinstance(amd, dict) or entry.get("uses_external_gpu", False) or
                             entry.get("model_lab_eligible") is not True or amd.get("execution_device") != "AMD" or
-                            amd.get("compiler_revision") != revision):
+                            amd.get("compiler_revision") != COMPILER_REVISION):
       raise ModelError("Invalid laboratory artifact hardware or runtime")
     runtime_artifacts = entry.get("runtime_artifacts", [])
     if not isinstance(runtime_artifacts, list):
@@ -134,7 +127,7 @@ def validate_manifest(data: object, *, native: bool = False) -> dict[str, dict]:
       size, chunks = artifact.get("artifact_size"), artifact.get("artifact_chunk_count")
       if (not isinstance(artifact["artifact_sha256"], str) or not SHA.fullmatch(artifact["artifact_sha256"]) or
           type(size) is not int or not 0 < size <= MAX_ARTIFACT or type(chunks) is not int or not 0 <= chunks <= 99 or
-          artifact.get("artifact_format") != abi):
+          artifact.get("artifact_format") != ARTIFACT_ABI):
         raise ModelError("Invalid compiled artifact metadata")
     row = dict(entry)
     compatible = [artifact for artifact in runtime_artifacts if artifact["min_runner_revision"] <= MODEL_RUNNER_REVISION]
@@ -143,42 +136,8 @@ def validate_manifest(data: object, *, native: bool = False) -> dict[str, dict]:
       row.update({key: value for key, value in selected.items() if key != "min_runner_revision"})
     if known is None and "artifact_sha256" not in row:
       raise ModelError("New models require a compatible compiled artifact")
-    if native and (model_id != DEFAULT_SMALL and row.get("uses_external_gpu") is not True or
-                   "artifact_sha256" not in row or not isinstance(row.get("qualification_sha256"), str) or
-                   not SHA.fullmatch(row["qualification_sha256"]) or variants or runtime_artifacts):
-      raise ModelError("Native rows require qualified RDF or Chestnut artifacts")
-    row.pop("_artifact_path", None)
-    row.update(compiler_revision=revision, _runtime_family="native02e" if native else "legacy9d",
-               _generation=generation)
     rows[model_id] = row
   return rows
-
-
-def native_catalog(root: Path = ROOT) -> dict[str, dict]:
-  rows = {}
-  for path in (NATIVE_CATALOG_PATH, root / NATIVE_GENERATION / "catalog.json"):
-    try:
-      rows.update(validate_manifest(read_json(path), native=True))
-    except FileNotFoundError:
-      continue
-  return rows
-
-
-def native_stock(root: Path = ROOT) -> dict[str, dict]:
-  # Stock DM is release-pinned, never supplied by the downloadable model catalog.
-  document = read_json(NATIVE_CATALOG_PATH)
-  validate_manifest(document, native=True)
-  stock = document.get("stock")
-  required = {"dmonitoring_model_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl", "dm_warp_1344x760_tinygrad.pkl"}
-  if not isinstance(stock, dict) or set(stock) != required:
-    raise ModelError("Native monitoring release is not qualified")
-  for row in stock.values():
-    if (not isinstance(row, dict) or not isinstance(row.get("artifact_sha256"), str) or
-        not SHA.fullmatch(row["artifact_sha256"]) or type(row.get("artifact_size")) is not int or
-        not 0 < row["artifact_size"] <= MAX_ARTIFACT or not isinstance(row.get("qualification_sha256"), str) or
-        not SHA.fullmatch(row["qualification_sha256"])):
-      raise ModelError("Invalid native monitoring artifact identity")
-  return stock
 
 
 def catalog(root: Path = ROOT) -> dict[str, dict]:
@@ -187,51 +146,7 @@ def catalog(root: Path = ROOT) -> dict[str, dict]:
     base.update(validate_manifest(read_json(root / "catalog.json")))
   except (OSError, ValueError, TypeError):
     pass
-  # Qualified native entries replace only matching IDs; all other v26 payloads remain usable.
-  try:
-    base.update(native_catalog(root))
-  except (OSError, ValueError, TypeError):
-    pass
   return base
-
-
-def default_record(family: str, root: Path = ROOT) -> dict:
-  if family == "legacy9d":
-    return {"path": str(SHIPPED_MODELS / "compat9d" / f"{DEFAULT_SMALL}_driving_tinygrad.pkl"),
-            "artifact_sha256": DEFAULT_SMALL_SHA256, "artifact_size": DEFAULT_SMALL_SIZE,
-            "version": BY_ID[DEFAULT_SMALL].version, "runtime_family": family}
-  if family != "native02e":
-    raise ModelError("Unknown default runtime")
-  row = native_catalog(root).get(DEFAULT_SMALL)
-  if row is None:
-    raise ModelError("Native RDF default is not qualified")
-  native_stock(root)
-  return {"path": str(SHIPPED_MODELS / f"{DEFAULT_SMALL}_driving_tinygrad.pkl"),
-          "artifact_sha256": row["artifact_sha256"], "artifact_size": row["artifact_size"],
-          "version": row["version"], "runtime_family": family}
-
-
-def freeze_runtime(*, root: Path = ROOT, recovery_small_only: bool = False,
-                   chestnut_available: bool | None = None, randomize: bool = True) -> RuntimePlan:
-  # All called modules are stdlib-only until prepare() chooses the family.
-  if chestnut_available is None:
-    from openpilot.selfdrive.modeld.helpers import chestnut_present
-    from openpilot.common.hardware.usb import cable_connected
-    from openpilot.starpilot.models.jetlink_adapter import link_on
-    chestnut_available = chestnut_present() or (cable_connected() and not link_on())
-  if randomize and not recovery_small_only:
-    randomize_next_start(chestnut_available, root=root)
-  with state_lock(root):
-    prefs, entries = preferences(root), catalog(root)
-    family = selection_family(prefs, entries, recovery_small_only=recovery_small_only)
-    for mid, row in entries.items():
-      directory = root / NATIVE_GENERATION if row.get("_runtime_family") == "native02e" else root
-      row["_artifact_path"] = str(directory / mid / f"{mid}_driving_tinygrad.pkl")
-    fallback = default_record(family, root)
-    plan = freeze_plan(prefs, entries, fallback, recovery_small_only=recovery_small_only)
-    if shipped_default(plan) is None:
-      raise ModelError("Selected runtime RDF fallback is missing or corrupt")
-    return plan
 
 
 def preferences(root: Path = ROOT) -> dict:
@@ -257,16 +172,14 @@ def preferences(root: Path = ROOT) -> dict:
   return default
 
 
-def artifact_path(model_id: str, root: Path = ROOT, variant: str = "standard", *, family: str | None = None) -> Path:
+def artifact_path(model_id: str, root: Path = ROOT, variant: str = "standard") -> Path:
   entries = model_entries(root)
   if not isinstance(model_id, str) or model_id not in entries or model_id == BUNDLED_CURRENT:
     raise ModelError("Unknown downloadable model")
   if variant not in ("standard", "amd") or (variant == "amd" and entries[model_id].uses_external_gpu):
     raise ModelError("Unknown model artifact variant")
   suffix = "amd_" if variant == "amd" else ""
-  family = catalog(root).get(model_id, {}).get("_runtime_family") if family is None else family
-  directory = root / NATIVE_GENERATION if family == "native02e" else root
-  return directory / model_id / f"{model_id}_driving_{suffix}tinygrad.pkl"
+  return root / model_id / f"{model_id}_driving_{suffix}tinygrad.pkl"
 
 
 def artifact_entry(model_id: str, entries: dict[str, dict], variant: str = "standard") -> dict:
@@ -282,8 +195,7 @@ def verified_artifact(model_id: str, entries: dict[str, dict], root: Path = ROOT
   row = artifact_entry(model_id, entries, variant)
   if "artifact_sha256" not in row:
     return None
-  path = Path(row["_artifact_path"]) if variant == "standard" and "_artifact_path" in row else artifact_path(
-    model_id, root, variant, family=row.get("_runtime_family"))
+  path = artifact_path(model_id, root, variant)
   try:
     if path.is_symlink() or not path.is_file() or path.stat().st_size != row["artifact_size"]:
       return None
@@ -294,13 +206,13 @@ def verified_artifact(model_id: str, entries: dict[str, dict], root: Path = ROOT
     return None
 
 
-def shipped_default(plan: RuntimePlan | None = None) -> Path | None:
+def shipped_default() -> Path | None:
   from openpilot.common.file_chunker import materialize_file_chunked
 
   try:
-    row = json.loads(plan.default_json) if plan is not None else default_record("native02e")
-    path = materialize_file_chunked(Path(row["path"]), expected_sha256=row["artifact_sha256"])
-    return path if path.stat().st_size == row["artifact_size"] else None
+    path = materialize_file_chunked(SHIPPED_MODELS / f"{DEFAULT_SMALL}_driving_tinygrad.pkl",
+                                    expected_sha256=DEFAULT_SMALL_SHA256)
+    return path if path.stat().st_size == DEFAULT_SMALL_SIZE else None
   except (OSError, ValueError, TypeError, KeyError):
     return None
 
@@ -316,13 +228,10 @@ class RuntimeSelection:
   allow_big: bool = True
   small_sha256: str | None = None
   big_sha256: str | None = None
-  fallback_path: Path | None = None
-  fallback_version: str = "current"
-  fallback_sha256: str | None = None
 
 
-def requested_runtime_id(chestnut_available: bool, *, root: Path = ROOT, plan: RuntimePlan | None = None) -> str:
-  prefs = json.loads(plan.preferences_json) if plan is not None else preferences(root)
+def requested_runtime_id(chestnut_available: bool, *, root: Path = ROOT) -> str:
+  prefs = preferences(root)
   return prefs["big"] if chestnut_available and prefs["big"] else prefs["small"]
 
 
@@ -344,36 +253,26 @@ def randomize_next_start(chestnut_available: bool, *, root: Path = ROOT, chooser
     return prefs
 
 
-def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: bool = False,
-                    plan: RuntimePlan | None = None) -> RuntimeSelection:
-  if plan is None:
-    plan = freeze_runtime(root=root, chestnut_available=chestnut_available, randomize=randomize)
-  elif randomize:
-    raise ModelError("Randomize before freezing the model runtime")
-  entries = json.loads(plan.entries_json)
-  fallback = json.loads(plan.default_json)
-  small, big = plan.small_id, plan.big_id
-  if big and entries.get(big, {}).get("_runtime_family") != plan.family:
-    raise ModelError("Big artifact does not match the selected runtime")
-  if small != DEFAULT_SMALL and entries.get(small, {}).get("_runtime_family") != plan.family:
-    raise ModelError("Small artifact does not match the selected runtime")
-  small_path = verified_artifact(small, entries, root) if entries.get(small, {}).get("_runtime_family") == plan.family else None
+def resolve_runtime(chestnut_available: bool, *, root: Path = ROOT, randomize: bool = False) -> RuntimeSelection:
+  prefs = randomize_next_start(chestnut_available, root=root) if randomize else preferences(root)
+  entries = catalog(root)
+  small, big = prefs["small"], prefs["big"]
+  small_path = verified_artifact(small, entries, root)
   shipped = small == DEFAULT_SMALL and small_path is None
   if shipped:
-    small_path = shipped_default(plan)
+    small_path = shipped_default()
   if small_path is None:
     small = DEFAULT_SMALL
     shipped = True
-    small_path = shipped_default(plan)
+    small_path = shipped_default()
   if small_path is None:
     raise ModelError("Shipped RDFv4 is missing or corrupt; reinstall the validated model package")
   big_path = verified_artifact(big, entries, root) if big not in ("", BUNDLED_CURRENT) and chestnut_available else None
   allow_big = chestnut_available and big_path is not None
-  return RuntimeSelection(small, small_path, fallback["version"] if shipped else entries[small]["version"], big, big_path,
+  return RuntimeSelection(small, small_path, entries[small]["version"], big, big_path,
                           entries[big]["version"] if big in entries else "current", allow_big,
-                          (fallback["artifact_sha256"] if shipped else entries[small]["artifact_sha256"]) if small_path is not None else None,
-                          entries[big]["artifact_sha256"] if big_path is not None else None,
-                          shipped_default(plan), fallback["version"], fallback["artifact_sha256"])
+                          (DEFAULT_SMALL_SHA256 if shipped else entries[small]["artifact_sha256"]) if small_path is not None else None,
+                          entries[big]["artifact_sha256"] if big_path is not None else None)
 
 
 class ModelManager:
@@ -492,7 +391,7 @@ class ModelManager:
           parts.append(sidecar)
         identity = tuple((str(part), part.stat().st_ino, part.stat().st_size,
                           part.stat().st_mtime_ns, part.stat().st_ctime_ns) for part in parts)
-        return (0, 0, row["artifact_size"], 0, 0, row["artifact_sha256"], row["artifact_size"],
+        return (0, 0, DEFAULT_SMALL_SIZE, 0, 0, DEFAULT_SMALL_SHA256, DEFAULT_SMALL_SIZE,
                 any(part.is_symlink() for part in parts), identity)
       st = path.stat()
       return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns,
@@ -518,11 +417,7 @@ class ModelManager:
 
   def _snapshot_installed(self, mid: str, row: dict, variant: str = "standard") -> tuple[bool, bool]:
     if mid == DEFAULT_SMALL and variant == "standard" and self._signature(mid, row, variant) is None:
-      try:
-        default = default_record("native02e", self.root)
-      except (OSError, ValueError, TypeError, KeyError):
-        return False, False
-      row = {**row, "shipped": True, "artifact_sha256": default["artifact_sha256"], "artifact_size": default["artifact_size"]}
+      row = {**row, "shipped": True, "artifact_sha256": DEFAULT_SMALL_SHA256, "artifact_size": DEFAULT_SMALL_SIZE}
     artifact = artifact_entry(mid, {mid: row}, variant)
     if "artifact_sha256" not in artifact:
       return False, False
@@ -748,17 +643,14 @@ class ModelManager:
       raise ModelError("Unknown model action")
 
   def _refresh(self) -> None:
-    documents = []
-    for generation, native in ((GENERATION, False), (NATIVE_GENERATION, True)):
-      with self.opener(f"{RESOURCE_URL}/manifests/model_names_{generation}.json", timeout=30) as response:
-        raw = response.read(MAX_MANIFEST + 1)
-      if len(raw) > MAX_MANIFEST:
-        raise ModelError("Model catalog is too large")
-      data = json.loads(raw)
-      validate_manifest(data, native=native)
-      documents.append((self.root / NATIVE_GENERATION / "catalog.json" if native else self.root / "catalog.json", data))
-    for path, data in documents:
-      atomic_json(path, data)
+    url = f"{RESOURCE_URL}/manifests/model_names_{GENERATION}.json"
+    with self.opener(url, timeout=30) as response:
+      raw = response.read(MAX_MANIFEST + 1)
+    if len(raw) > MAX_MANIFEST:
+      raise ModelError("Model catalog is too large")
+    data = json.loads(raw)
+    validate_manifest(data)
+    atomic_json(self.root / "catalog.json", data)
 
   def _work(self, action: str, payload: dict, lock) -> None:
     failed = True
@@ -801,7 +693,7 @@ class ModelManager:
       digest, received = hashlib.sha256(), 0
       with os.fdopen(fd, "wb") as out:
         for piece in pieces:
-          with self.opener(f"{RESOURCE_URL}/models/{entry.get('_generation', GENERATION)}/{mid}/{piece}", timeout=30) as response:
+          with self.opener(f"{RESOURCE_URL}/models/{GENERATION}/{mid}/{piece}", timeout=30) as response:
             while data := response.read(1024 * 1024):
               self._check_cancelled()
               received += len(data)

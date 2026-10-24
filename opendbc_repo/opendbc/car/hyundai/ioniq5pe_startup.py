@@ -244,13 +244,7 @@ class PEPendingStartup:
       self._tester()
       self.check()
       self.thread = self.thread_factory(target=self._loop, name='pe-startup-tester', daemon=True)
-      try:
-        self.thread.start()
-      except BaseException:
-        self.stop_event.set()
-        if getattr(self.thread, 'ident', None) is None:
-          self.thread = None
-        raise
+      self.thread.start()
     except BaseException:
       self.owner.phase = Phase.ABORT
       self._restore()

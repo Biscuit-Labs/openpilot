@@ -6,9 +6,7 @@ from opendbc.car.hyundai.canfd_stock_aol import qualified_long
 
 
 def eligible(cp):
-  from opendbc.car.hyundai.values import CAR
-  # GV70 keeps its captured ADRV demand, lead and jerk controller.
-  return cp.carFingerprint != CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN and qualified_long(cp)
+  return qualified_long(cp)
 
 
 def options(available, control_state, lead):

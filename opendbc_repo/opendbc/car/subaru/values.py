@@ -72,7 +72,6 @@ class SubaruSafetyFlags(IntFlag):
   LONG = 2
   PREGLOBAL_REVERSED_DRIVER_TORQUE = 4
   LKAS_ANGLE = 16
-  D_PLATFORM = 64
   FIXED_ANGLE_LIMITS = 128
   ANGLE_MAIN_BUS = 32
   AVH_STARTUP = 1024
@@ -95,8 +94,6 @@ class SubaruFlags(IntFlag):
   PREGLOBAL = 16
   HYBRID = 32
   LKAS_ANGLE = 64
-  D_PLATFORM = 1024
-  SMOOTHING_BOUND = 8192
   AVH_STARTUP = 4096
   STOP_START_OFF = 2048
   ASCENT_LKAS_ALERT = 512
@@ -231,7 +228,7 @@ class CAR(Platforms):
   SUBARU_OUTBACK_2023 = SubaruGen2PlatformConfig(
     [SubaruCarDocs("Subaru Outback 2023", "All", car_parts=CarParts.common([CarHarness.subaru_d]))],
     SUBARU_OUTBACK.specs,
-    flags=SubaruFlags.LKAS_ANGLE | SubaruFlags.D_PLATFORM,
+    flags=SubaruFlags.LKAS_ANGLE,
   )
   SUBARU_ASCENT_2023 = SubaruGen2PlatformConfig(
     [SubaruCarDocs("Subaru Ascent 2023", "All", car_parts=CarParts.common([CarHarness.subaru_d]))],

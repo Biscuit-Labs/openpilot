@@ -209,13 +209,9 @@ def validate(root: Path) -> None:
     raise ValueError(f"camera warp set differs from current camera configs: {sorted(actual_warps)}")
   for name in (*MODELS, *WARPS):
     require_qcom_pickle(model_dir / name)
-  from tools.laptop_device_build.qcom_artifact_contract import native_records, verify_native_defaults
-  if native_records(root) is not None:
-    verify_native_defaults(root)
-  else:
-    shipped = materialize_file_chunked(model_dir / f"{DEFAULT_SMALL}_driving_tinygrad.pkl", DEFAULT_SMALL_SHA256)
-    if shipped.stat().st_size != DEFAULT_SMALL_SIZE:
-      raise ValueError("Shipped default model size differs from the published artifact")
+  shipped = materialize_file_chunked(model_dir / f"{DEFAULT_SMALL}_driving_tinygrad.pkl", DEFAULT_SMALL_SHA256)
+  if shipped.stat().st_size != DEFAULT_SMALL_SIZE:
+    raise ValueError("Shipped default model size differs from the published artifact")
 
 
 def main() -> None:

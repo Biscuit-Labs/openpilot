@@ -107,7 +107,6 @@ class PhysicalSources:
     self.messages = messages
     self.logMonoTime = dict.fromkeys(messages, now)
     self.recv_time = dict.fromkeys(messages, now / 1e9)
-    self.updated = dict.fromkeys(messages, False)
 
   def __getitem__(self, name):
     return self.messages[name]

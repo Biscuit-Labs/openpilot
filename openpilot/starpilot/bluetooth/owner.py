@@ -174,11 +174,6 @@ class BluetoothRejected(Exception):
     self.code = code
 
 
-class AdapterBusyElsewhere(BluetoothRejected):
-  def __init__(self, message: str):
-    super().__init__(message, code='busy')
-
-
 def normalized_address(value: str) -> str:
   if not isinstance(value, str) or not ADDRESS.fullmatch(value.upper()):
     raise ValueError('Invalid Bluetooth address')
@@ -582,7 +577,7 @@ class BluetoothOwner:
       fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
       stream.close()
-      raise AdapterBusyElsewhere('Bluetooth adapter is busy in another process') from None
+      raise BluetoothRejected('Bluetooth adapter is busy in another process', code='busy') from None
     self.admission_file = stream
 
   def _admission_busy(self) -> bool:
@@ -875,9 +870,7 @@ class BluetoothOwner:
           raise BluetoothRejected('Pairing changed')
         self.pairing.cancel()
         return self.snapshot(session=session)
-      if operation != 'stop_scan':
-        # An unclaimed window gives way to everything, including a new window, so reopening Pair phone never
-        # waits out the old one. A window a phone has already claimed still blocks (below).
+      if operation not in ('stop_scan', 'accept_pair'):
         self._end_idle_window()
       if self.pairing is not None and self.pairing.state == 'pairing' and operation != 'stop_scan':
         raise BluetoothRejected('Pairing is in progress', code='busy')

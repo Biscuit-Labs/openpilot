@@ -57,7 +57,7 @@ def sha256_file(path: Path) -> str:
   return digest.hexdigest()
 
 
-def compile_env(gpu: bool = False, *, native: bool = False) -> dict[str, str]:
+def compile_env(gpu: bool = False) -> dict[str, str]:
   env = dict(os.environ)
   env["PYTHONPATH"] = os.pathsep.join((str(REPO_ROOT), str(REPO_ROOT / "tinygrad_repo"), env.get("PYTHONPATH", "")))
   defaults = {"DEV": "QCOM", "IMAGE": "1", "FLOAT16": "1", "NOLOCALS": "1", "JIT_BATCH_SIZE": "0", "OPENPILOT_HACKS": "1"}
@@ -67,8 +67,6 @@ def compile_env(gpu: bool = False, *, native: bool = False) -> dict[str, str]:
     for key in ("IMAGE", "NOLOCALS", "OPENPILOT_HACKS"):
       env.pop(key, None)
     env.update(DEV="USB+AMD:LLVM", WARP_DEV="QCOM", GMMU="0", TC_OPT="2", TC_MIN_GLOBALS="32")
-  if native:
-    env["BEAM"] = "0"
   return env
 
 
@@ -94,17 +92,12 @@ def parse_args(argv=None):
   return args
 
 
-def bank_compiler_revision(*, native: bool = False) -> str:
+def bank_compiler_revision() -> str:
   # The global runtime can advance while the compiled bank keeps its own ABI.
   old_path = sys.path[:]
   try:
     sys.path.insert(0, str(REPO_ROOT))
     from openpilot.starpilot.models import catalog
-    if native:
-      from openpilot.starpilot.models import runtime_selection
-      if Path(runtime_selection.__file__).resolve() != (REPO_ROOT / "openpilot/starpilot/models/runtime_selection.py").resolve():
-        raise ValueError("Native compiler identity came from a different checkout")
-      return runtime_selection.NATIVE_REVISION
     from openpilot.starpilot.models.runtime_bridge import bootstrap, runtime
     for module, relative in ((catalog, "catalog.py"), (bootstrap, "runtime_bridge/bootstrap.py"),
                              (runtime, "runtime_bridge/runtime.py")):
@@ -133,13 +126,11 @@ def main(argv=None):
   output_dir = args.output_dir.resolve()
   output_dir.mkdir(parents=True, exist_ok=True)
   output = output_dir / f"{args.model}_driving_tinygrad.pkl"
-  native = args.gpu or args.model == "rdf43"
-  env = compile_env(args.gpu, native=native)
+  env = compile_env(args.gpu)
   with tempfile.TemporaryDirectory(prefix=f".{args.model}-compile-", dir=output_dir) as temporary:
     env["TMPDIR"] = temporary
     staged = Path(temporary) / output.name
-    compiler_module = "openpilot.starpilot.models.compile_native" if native else "openpilot.starpilot.models.compile"
-    command = [sys.executable, "-m", compiler_module, "--model-type", model_type,
+    command = [sys.executable, "-m", "openpilot.starpilot.models.compile", "--model-type", model_type,
                "--model-size", "512x256", "--camera-resolutions", "1928x1208", "1344x760",
                "--behavior-version", args.version, "--output", str(staged), "--out-of-band",
                "--image-history-pipeline", args.image_history_pipeline, *source_args]
@@ -148,26 +139,12 @@ def main(argv=None):
     subprocess.run(command, cwd=REPO_ROOT, env=env, check=True)
     if {path.name: sha256_file(path) for path in sources} != before:
       raise ValueError("ONNX source changed during compilation")
-    revision = bank_compiler_revision(native=native)
+    revision = bank_compiler_revision()
     receipt = {"model_id": args.model, "behavior_version": args.version, "model_type": model_type,
-               "artifact_abi": "tinygrad_single_v2_arena" if native else "tinygrad_single_v1_arena", "compiler_revision": revision,
+               "artifact_abi": "tinygrad_single_v1_arena", "compiler_revision": revision,
                "source_sha256": before, "artifact_sha256": sha256_file(staged), "artifact_size": staged.stat().st_size,
                "execution_device": env["DEV"], "warp_device": env.get("WARP_DEV", env["DEV"]),
                "image_history_pipeline": args.image_history_pipeline, "camera_resolutions": [[1928, 1208], [1344, 760]]}
-    if native:
-      receipt["qualification_status"] = "RAW_UNGUARDED_NOT_PUBLISHABLE"
-      launch, launch_receipt = staged.with_suffix(".launch.pkl"), staged.with_suffix(".launch.json")
-      companion = json.loads(launch_receipt.read_text())
-      if (companion.get("format") != "tinygrad_pre_hcq_v1" or companion.get("compiler_revision") != revision or
-          companion.get("artifact_abi") != receipt["artifact_abi"] or
-          companion.get("native_artifact_sha256") != receipt["artifact_sha256"] or
-          companion.get("launch_sha256") != sha256_file(launch)):
-        raise ValueError("Native compiler companion identity mismatch")
-      receipt["launch_sha256"] = companion["launch_sha256"]
-      # Offline export only; inference never loads the companion. Guard
-      # preparation and artifact/device qualification remain separate gates.
-      launch.replace(output.with_suffix(".launch.pkl"))
-      launch_receipt.replace(output.with_suffix(".launch.json"))
     staged.replace(output)
     receipt_path = output.with_suffix(".build.json")
     temporary_receipt = Path(temporary) / receipt_path.name

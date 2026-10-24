@@ -1,11 +1,9 @@
 """Reviewed local driving-model catalog. This module never loads model artifacts."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 import json
 from pathlib import Path
-
-from openpilot.starpilot.models.runtime_selection import NATIVE_ABI, NATIVE_REVISION
 
 
 BUNDLED_CURRENT = "bundled-current"
@@ -16,7 +14,6 @@ GENERATION = "v26"
 COMPILER_REVISION = "9d0446a4ba8a532c8b674fb6ad795af015cd9dcf"
 ARTIFACT_ABI = "tinygrad_single_v1_arena"
 CATALOG_PATH = Path(__file__).with_name("catalog-v26.json")
-NATIVE_CATALOG_PATH = Path(__file__).with_name("catalog-native02e.json")
 
 
 @dataclass(frozen=True)
@@ -36,10 +33,10 @@ BUNDLED = (
   ModelEntry(
     model_id=BUNDLED_CURRENT,
     name="Regret Driven Framework V4",
-    source_sha256="",
+    source_sha256=DEFAULT_SMALL_SHA256,
     source_path="openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl",
-    compiler_revision=NATIVE_REVISION,
-    artifact_abi=NATIVE_ABI,
+    compiler_revision="9d0446a4ba8a532c8b674fb6ad795af015cd9dcf",
+    artifact_abi=ARTIFACT_ABI,
     selectable=True,
     version="v15",
   ),
@@ -47,10 +44,9 @@ BUNDLED = (
 
 CATALOG = BUNDLED + tuple(ModelEntry(
   model_id=m["id"], name=m["name"],
-  source_sha256="",
+  source_sha256=DEFAULT_SMALL_SHA256 if m["id"] == DEFAULT_SMALL else "",
   source_path="openpilot/selfdrive/modeld/models/rdf43_driving_tinygrad.pkl" if m["id"] == DEFAULT_SMALL else "",
-  compiler_revision=NATIVE_REVISION if m["id"] == DEFAULT_SMALL else COMPILER_REVISION,
-  artifact_abi=NATIVE_ABI if m["id"] == DEFAULT_SMALL else ARTIFACT_ABI, selectable=True,
+  compiler_revision=COMPILER_REVISION, artifact_abi=ARTIFACT_ABI, selectable=True,
   version=m["version"], uses_external_gpu=bool(m.get("uses_external_gpu", False)),
 ) for m in json.loads(CATALOG_PATH.read_text())["models"])
 
@@ -70,11 +66,9 @@ def _cached_entries(root: Path, identities: tuple) -> tuple[ModelEntry, ...]:
   from openpilot.starpilot.models.manager import catalog
   entries = dict(BY_ID)
   for model_id, row in catalog(root).items():
-    entries[model_id] = ModelEntry(model_id, row["name"],
-                                   row.get("artifact_sha256", "") if model_id == DEFAULT_SMALL else "",
-                                   BY_ID[model_id].source_path if model_id in BY_ID else "",
-                                   row.get("compiler_revision", COMPILER_REVISION), row.get("artifact_format", ARTIFACT_ABI),
-                                   True, row["version"], row.get("uses_external_gpu", False))
+    entries[model_id] = (replace(BY_ID[model_id], name=row["name"]) if model_id in BY_ID else
+                         ModelEntry(model_id, row["name"], "", "", COMPILER_REVISION, ARTIFACT_ABI,
+                                    True, row["version"], row.get("uses_external_gpu", False)))
   return tuple(entries.values())
 
 
@@ -82,8 +76,7 @@ def model_entries(root: Path | None = None) -> dict[str, ModelEntry]:
   """Resolve validated cached metadata without mutating the bundled catalog."""
   from openpilot.starpilot.models.manager import ROOT
   root = ROOT if root is None else root
-  identities = (_document_identity(CATALOG_PATH), _document_identity(root / "catalog.json"),
-                _document_identity(NATIVE_CATALOG_PATH), _document_identity(root / "native02e-v1/catalog.json"))
+  identities = (_document_identity(CATALOG_PATH), _document_identity(root / "catalog.json"))
   return {entry.model_id: entry for entry in _cached_entries(root, identities)}
 
 

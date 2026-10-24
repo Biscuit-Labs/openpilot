@@ -29,20 +29,15 @@ def write_json(path, value):
       os.unlink(temporary)
 
 
-def setup_state(data=DATA):
-  """(state, message); the state is 'ready' only while a fresh status file says the bridge is ready."""
+def setup_status(data=DATA):
   try:
     value = json.loads((data / 'setup-status.json').read_text())
     # Monotonic timestamps: a file left from a previous boot reads as stale.
     if not 0 <= time.monotonic() - value['updated'] <= STATUS_STALE:
-      return 'pending', 'Bridge startup pending'
-    return str(value.get('state', 'pending')), value['message']
+      return 'Bridge startup pending'
+    return value['message']
   except (OSError, ValueError, KeyError, TypeError):
-    return 'pending', 'Bridge startup pending'
-
-
-def setup_status(data=DATA):
-  return setup_state(data)[1]
+    return 'Bridge startup pending'
 
 
 def retry_setup(data=DATA, *, restart=True):

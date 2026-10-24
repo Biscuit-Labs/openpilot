@@ -28,7 +28,7 @@ constexpr AolSafetyProfile TEST_PROFILES[] = {
   {TEST_MODE, test_param, false}, {TEST_ALT_MODE, test_alt_param, false},
 };
 const AolProfileRegistry TEST_REGISTRY{TEST_PROFILES, std::size(TEST_PROFILES)};
-constexpr AolSafetyProfile VEHICLE_PROFILES[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, VOLKSWAGEN_MEB_AOL_PROFILE, SUBARU_AOL_PROFILE};
+constexpr AolSafetyProfile VEHICLE_PROFILES[] = {HONDA_AOL_PROFILE, HONDA_STOCK_AOL_PROFILE, HONDA_NIDEC_AOL_PROFILE, HYUNDAI_AOL_PROFILE, HYUNDAI_CLASSIC_AOL_PROFILE, HYUNDAI_LEGACY_AOL_PROFILE, GM_AOL_PROFILE, FORD_AOL_PROFILE, MAZDA_AOL_PROFILE, CHRYSLER_AOL_PROFILE, TESLA_PREAP_AOL_PROFILE, TESLA_SCREEN_AOL_PROFILE, TOYOTA_AOL_PROFILE, NISSAN_AOL_PROFILE, VOLKSWAGEN_STOCK_AOL_PROFILE, VOLKSWAGEN_LONG_AOL_PROFILE, SUBARU_AOL_PROFILE};
 const AolProfileRegistry VEHICLE_REGISTRY{VEHICLE_PROFILES, std::size(VEHICLE_PROFILES)};
 
 aol_safety_health_t status(uint8_t request = 0U, uint8_t permission = 0U) {
@@ -94,28 +94,16 @@ int main() {
     subaru.safety_mode = 11U;
     subaru.safety_param = static_cast<uint16_t>(word);
     subaru.capability_flags = 1U;
-    const bool expected = (word == 16U) || (word == 0U) || (word == 1U) || (word == 17U) ||
-                          (word == 209U) || (word == 465U) || (word == 145U) || (word == 1169U) || (word == 1425U) || (word == 401U) || (word == 177U) || (word == 8U) || (word == 520U) || (word == 512U) || (word == 2225U);
+    const bool expected = (word == 0U) || (word == 1U) || (word == 17U) ||
+                          (word == 145U) || (word == 1169U) || (word == 1425U) || (word == 401U) || (word == 177U) || (word == 8U) || (word == 520U) || (word == 512U) || (word == 2225U);
     assert(aol_capable(subaru, 11U, VEHICLE_REGISTRY) == expected);
     subaru.capability_flags = 0U;
     assert(!aol_capable(subaru, 11U, VEHICLE_REGISTRY));
   }
 
   for (uint32_t word = 0U; word <= 65535U; ++word) {
-    const bool expected = word == 8U || word == 10U || word == 12U || word == 14U ||
-                          word == 24U || word == 26U || word == 28U || word == 30U;
-    auto meb = status();
-    meb.safety_mode = 34U;
-    meb.safety_param = static_cast<uint16_t>(word);
-    assert(volkswagen_meb_aol_param(static_cast<uint16_t>(word)) == expected);
-    assert(aol_capable(meb, 34U, VEHICLE_REGISTRY) == expected);
-    meb.capability_flags = 0U;
-    assert(!aol_capable(meb, 34U, VEHICLE_REGISTRY));
-  }
-
-  for (uint32_t word = 0U; word <= 65535U; ++word) {
-    const bool stock = (word == 8U) || (word == 24U) || (word == 40U);
-    const bool longitudinal = (word == 9U) || (word == 25U) || (word == 41U);
+    const bool stock = (word == 8U) || (word == 24U);
+    const bool longitudinal = (word == 9U) || (word == 25U);
     const bool expected = stock || longitudinal;
     auto vw = status();
     vw.safety_mode = 15U;
@@ -179,7 +167,7 @@ int main() {
   }
 
   for (uint32_t word = 0U; word <= 65535U; ++word) {
-    const bool expected = (word == 0xC042U) || (word == 0xC242U) || (word == 0x8042U) || (word == 0x8242U) || (word == 0xC049U) || (word == 0xC249U) || (word == 73U) || (word == 585U) || (word == 856U) || (word == 4169U) || (word == 4681U) || (word == 2121U) || (word == 0x9049U) || (word == 0x9249U) || (word == 0x2049U) || (word == 0x2249U) || (word == 0x424DU) || (word == 0x449U) || (word == 0x649U) || (word == 0x1449U) || (word == 0x1649U) || (word == 0x8049U) || (word == 0x8249U) || (word == 0x8449U) || (word == 0x8649U) || (word == 0x9158U) || (word == 0x9358U) || (word == 0x9149U) || (word == 0x9349U) || (word == 0x9164U) || (word == 0x9364U) || (word == 0xd149U) || (word == 0xd349U) || (word == 0xd04dU) || (word == 0xd24dU) || (word == 0x9449U) || (word == 0x9549U) || (word == 0x9558U) || (word == 0x9564U) || (word == 0x9649U) || (word == 0x9749U) || (word == 0x9758U) || (word == 0x9764U) || (word == 0xD44DU) || (word == 0xD549U) || (word == 0xD64DU) || (word == 0xD749U);
+    const bool expected = (word == 73U) || (word == 585U) || (word == 4169U) || (word == 4681U) || (word == 2121U) || (word == 0x9049U) || (word == 0x9249U) || (word == 0x2049U) || (word == 0x2249U) || (word == 0x424DU) || (word == 0x449U) || (word == 0x649U) || (word == 0x1449U) || (word == 0x1649U) || (word == 0x8049U) || (word == 0x8249U) || (word == 0x8449U) || (word == 0x8649U);
     auto toyota = status();
     toyota.safety_mode = 2U;
     toyota.safety_param = static_cast<uint16_t>(word);
@@ -251,7 +239,7 @@ int main() {
   constexpr uint16_t ford_words[] = {8U, 9U, 10U, 11U, 12U, 13U, 18U, 19U, 32U, 33U, 66U, 67U};
   for (uint32_t word = 0U; word <= 65535U; ++word) {
     bool expected = false;
-    for (const auto exact : ford_words) expected |= (word == exact) || (word == (exact | 256U));
+    for (const auto exact : ford_words) expected |= word == exact;
     auto ford = status();
     ford.safety_mode = 6U;
     ford.safety_param = static_cast<uint16_t>(word);

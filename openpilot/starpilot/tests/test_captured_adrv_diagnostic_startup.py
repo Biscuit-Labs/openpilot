@@ -112,9 +112,7 @@ class _DiagnosticQuery:
 
   def get_data(self, timeout):
     self.send([CanData(0x730, bytes((len(self.command),)) + self.command + bytes(7-len(self.command)), self.bus)])
-    # A suppressed-positive request has no reply entry; an empty payload
-    # inside a reply dictionary is a malformed response, not silence.
-    return {} if self.command == b'\x28\x83\x01' else {(0x730, None): b''}
+    return {(0x730, None): b''}
 
 
 CARS = (CAR.KIA_EV6, CAR.GENESIS_GV70_ELECTRIFIED_1ST_GEN)
@@ -221,13 +219,8 @@ def construct(car, *, dos_can=False, types=('dos', 'redPanda'), external=True, m
   class Query(_DiagnosticQuery):
     def get_data(self, timeout):
       value = super().get_data(timeout)
-      if self.command == b'\x28\x83\x01':
-        if mode == 'restored':
-          raise OSError('declared partial ECU-disable transport failure')
-        if mode == 'malformed':
-          return {(0x730, None): b''}
-        if mode == 'negative':
-          return {(0x730, None): b'\x7f\x28\x22'}
+      if self.command == b'\x28\x83\x01' and mode == 'restored':
+        raise OSError('declared partial ECU-disable transport failure')
       return value
   stock_checks = []
   real_sources = CapturedADRVStartup._sources
@@ -271,7 +264,7 @@ def _exercise_factory_transaction(car, case):
     return
   host, trace = construct(car, dos_can=case == 'dos_can', external=case != 'external_off',
                           types=('uno', 'redPanda') if case == 'not_dos' else ('dos', 'redPanda'),
-                          mode=case if case in ('restored', 'malformed', 'negative') else 'sent')
+                          mode='restored' if case == 'restored' else 'sent')
   try:
     owner = host.vehicle_startup.owner
     sends = [(i, row) for i, row in enumerate(trace) if row[0] == 'send']
@@ -286,15 +279,10 @@ def _exercise_factory_transaction(car, case):
       assert disables and all(row[1] == 0x730 and row[3] == 5 for _, row in disables)
       assert all(any(t[0] == 'diagnostic' for t in trace[:i]) for i, _ in disables)
       assert not restores
-      assert owner.disable_response == 'suppressed_reply_sent_unconfirmed'
     else:
       assert not host.CP.openpilotLongitudinalControl and host.CP.pcmCruise
-      restored = case in ('restored', 'malformed', 'negative')
-      assert owner.outcome is (Outcome.STOCK_RESTORED if restored else Outcome.STOCK_UNTOUCHED)
-      assert bool(disables) is restored and bool(restores) is restored
-      if case in ('malformed', 'negative'):
-        assert owner.disable_response == ('unexpected_or_malformed_reply' if case == 'malformed' else
-                                          'negative_communication_control')
+      assert owner.outcome is (Outcome.STOCK_RESTORED if case == 'restored' else Outcome.STOCK_UNTOUCHED)
+      assert bool(disables) is (case == 'restored') and bool(restores) is (case == 'restored')
       if restores:
         assert disables[0][0] < restores[0][0]
       parser = next(p for p in host.CI.can_parsers.values() if p.bus == 5)
@@ -324,8 +312,7 @@ def _exercise_factory_transaction(car, case):
 
 
 @pytest.mark.parametrize('car', CARS)
-@pytest.mark.parametrize('case', ('dos_no_can', 'dos_can', 'external_off', 'not_dos', 'restored', 'missing_stock',
-                                 'malformed', 'negative'))
+@pytest.mark.parametrize('case', ('dos_no_can', 'dos_can', 'external_off', 'not_dos', 'restored', 'missing_stock'))
 def test_actual_card_factory_transaction_and_stock_warmup(car, case):
   with tempfile.TemporaryDirectory(prefix='hkg-dos-startup-') as temporary, \
        patch.dict(os.environ, {'PARAMS_ROOT': temporary}), OpenpilotPrefix():

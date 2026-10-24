@@ -14,13 +14,11 @@ NOW = 1_000_000_000
 
 def publication(source, evidence=None, adapter=None, sources=None):
   sources = [source] if sources is None else sources
-  sm = mock.Mock(updated={'deviceMotion': False}, logMonoTime={'deviceMotion': 0})
+  sm = mock.Mock()
   ticks = iter(NOW + index * 250_000_000 for index in range(len(sources)))
   current_time = [NOW]
 
-  def update(timeout=None):
-    if timeout == 0:
-      return
+  def update():
     current_time[0] = next(ticks)
 
   sm.update.side_effect = update

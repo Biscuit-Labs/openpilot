@@ -150,8 +150,6 @@ class CarInterface(CarInterfaceBase):
     ret.openpilotLongitudinalControl = ((bool(ret.flags & ToyotaFlags.TSS2) and not (ret.flags & ToyotaFlags.RADAR_ACC)) or
                                         bool(ret.flags & ToyotaFlags.DISABLE_RADAR.value) or (radar_filter and alpha_long))
 
-    from opendbc.car.toyota import matrix_filter
-    manual_matrix_filter = any(matrix_filter.hardware_supported(candidate, fingerprint, car_fw, length=size) for size in (4, 8))
     if candidate in (CAR.TOYOTA_MATRIX_RETROFIT, CAR.TOYOTA_PRIUS_RETROFIT):
       # These manually selected retrofits currently own stock PCM longitudinal.
       # Observed takeover hardware needs its paired controller/native port.
@@ -169,7 +167,7 @@ class CarInterface(CarInterfaceBase):
       if smart_dsu:
         ret.flags |= int(ToyotaFlags.LONG_FILTER)
         ret.safetyConfigs[0].safetyParam |= int(ToyotaSafetyFlags.LONG_FILTER)
-      elif takeover and not manual_matrix_filter:
+      elif takeover:
         ret.dashcamOnly = True
       ret.openpilotLongitudinalControl = smart_dsu
       ret.alphaLongitudinalAvailable = False
@@ -178,8 +176,6 @@ class CarInterface(CarInterfaceBase):
       ret.flags |= int(ToyotaFlags.HYBRID | ToyotaFlags.LONG_FILTER)
       ret.safetyConfigs[0].safetyParam = 4169
       ret.openpilotLongitudinalControl = True
-    from opendbc.car.toyota import legacy_advert_filter
-    legacy_advert = legacy_advert_filter.hardware_supported(candidate, fingerprint, car_fw)
     from opendbc.car.toyota.rav4h_filter import hardware_supported, LONG_WORD
     rav4h_sdsu = hardware_supported(candidate, fingerprint, car_fw)
     if rav4h_sdsu:
@@ -191,34 +187,18 @@ class CarInterface(CarInterfaceBase):
       ret.alphaLongitudinalAvailable = False
       if candidate == CAR.TOYOTA_RAV4H:
         stop_and_go = True
-    elif candidate == CAR.TOYOTA_RAV4H and 0x2FF in fingerprint.get(0, {}) and not legacy_advert:
+    elif candidate == CAR.TOYOTA_RAV4H and 0x2FF in fingerprint.get(0, {}):
       ret.dashcamOnly = True
     from opendbc.car.toyota import eps8_sdsu
     eps8_filter = eps8_sdsu.hardware_supported(candidate, fingerprint, car_fw)
     if eps8_filter:
       eps8_sdsu.apply(ret, alpha_long)
-    from opendbc.car.toyota import legacy_sdsu
-    legacy_filter = legacy_sdsu.hardware_supported(candidate, fingerprint, car_fw)
-    if legacy_filter:
-      legacy_sdsu.apply(ret)
-    from opendbc.car.toyota import advert_filter
-    advertised_filter = advert_filter.hardware_supported(candidate, fingerprint, car_fw)
-    if advertised_filter:
-      from opendbc.car.toyota import camera_2aa_filter
-      advert_filter.apply(ret, camera_twoaa=camera_2aa_filter.hardware_supported(candidate, fingerprint, car_fw))
-      if legacy_advert and candidate == CAR.TOYOTA_RAV4H:
-        stop_and_go = True
     # Toyota EPS accepts lateral commands down to zero. Keep the existing
     # native/axis/fault gates; a stock cruise stop does not withdraw steering.
     ret.steerAtStandstill = ret.minSteerSpeed <= 0.
     ret.autoResumeSng = ret.openpilotLongitudinalControl and (
       (rav4h_sdsu and candidate in (CAR.TOYOTA_RAV4H, CAR.TOYOTA_HIGHLANDER, CAR.TOYOTA_SIENNA)) or
-      (eps8_filter and bool(ret.flags & ToyotaFlags.TSS2)) or
-      (legacy_filter and candidate == CAR.TOYOTA_PRIUS_V) or
-      (advertised_filter and bool(ret.flags & ToyotaFlags.TSS2)) or not ret.flags & ToyotaFlags.LONG_FILTER and not advertised_filter)
-
-    if legacy_advert:
-      ret.autoResumeSng = ret.openpilotLongitudinalControl and candidate in legacy_advert_filter.AUTO_RESUME_CARS
+      (eps8_filter and bool(ret.flags & ToyotaFlags.TSS2)) or not ret.flags & ToyotaFlags.LONG_FILTER)
 
     if radar_filter and not ret.flags & ToyotaFlags.TSS2:
       ret.autoResumeSng = False  # Preserve the pre-TSS2 stock stop timer.
@@ -230,20 +210,13 @@ class CarInterface(CarInterfaceBase):
     # to a negative value, so it won't matter.
     ret.minEnableSpeed = -1. if stop_and_go else MIN_ACC_SPEED
 
-    if ret.flags & ToyotaFlags.TSS2 or ret.flags & ToyotaFlags.LONG_FILTER and not (rav4h_sdsu or eps8_filter or legacy_filter):
+    if ret.flags & ToyotaFlags.TSS2 or ret.flags & ToyotaFlags.LONG_FILTER and not (rav4h_sdsu or eps8_filter):
       ret.flags |= ToyotaFlags.RAISED_ACCEL_LIMIT.value
 
       # Hybrids have much quicker longitudinal actuator response
       if ret.flags & ToyotaFlags.HYBRID.value:
         ret.longitudinalActuatorDelay = 0.05
 
-    # Classify the original rack after generic tuning so current numerical CP fields stay exact.
-    from opendbc.car.toyota import prius_sdsu
-    if prius_sdsu.hardware_supported(candidate, fingerprint, car_fw):
-      prius_sdsu.apply(ret)
-    from opendbc.car.toyota import prius_advert_filter
-    if prius_advert_filter.hardware_supported(candidate, fingerprint, car_fw):
-      prius_advert_filter.apply(ret)
     from opendbc.car.toyota import pedal
     if pedal.hardware_supported(candidate, fingerprint, car_fw):
       ret.flags |= int(ToyotaFlags.GAS_INTERCEPTOR)

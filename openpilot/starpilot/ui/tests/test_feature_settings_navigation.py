@@ -648,9 +648,7 @@ class FeatureNavigationTests(unittest.TestCase):
         adapter.open("slc")
         slc = pushed[-1]
         self.assertFalse(any(item.text in ('confirm lower limits', 'confirm higher limits') for item in slc.items))
-        adoption = card(slc, "automatic adoption")
-        self.assertFalse(params.get_bool('SLCConfirmation'))
-        adoption.click()
+        card(slc, "require confirmation").click()
         self.assertTrue(params.get_bool('SLCConfirmation'))
         self.assertFalse(any(item.text in ('confirm lower limits', 'confirm higher limits') for item in slc.items))
 

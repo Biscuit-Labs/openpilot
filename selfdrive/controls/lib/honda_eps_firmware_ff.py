@@ -168,6 +168,14 @@ class EpsFirmwareCalibration:
   def r5_ceiling(self, v_ego: float) -> float:
     return float(np.interp(self.key_ceiling(v_ego), self.r5_key_bp, self.r5_v))
 
+  def output_ceiling(self) -> float:
+    """The largest |output| the firmware still answers: past the end of the command row or the input clamp, more 0xE4
+    gives the same R5. A 4096-per-unit car whose row ends at key 1663 (CR-V A040 rows 0-1, A220 rows 0-3) tops out at
+    3840/4096 = 0.9375; a car sent its own clamp (the Clarity, the Civics) at 1.0. The speed envelope is left out: it
+    lowers the ceiling only at highway speed, on every car, and the validated cars were tuned with 1.0 there."""
+    key = min(self.key_clamp, self.r5_key_bp[-1])
+    return min(1.0, math.ceil(key * 4.0 * 32768.0 / 56756.0) / self.e4_per_output)
+
 
 # R6, the firmware's rate feedback, is computed from the image, not measured. The estimator (FUN_343FC) takes the
 # per-sample advance of the motor-side, PRE-table angle; NORM scales it into the tracker-1 target (1650, read from
@@ -427,12 +435,15 @@ class HondaEpsLateralCore:
     if steer_limited and not steering_pressed and self.since_press_s <= self.override_fade_up_s + self.dt:
       self.pid.i *= math.exp(-self.dt / OVERRIDE_FADE_I_BLEED_TAU)  # see OVERRIDE_FADE_I_BLEED_TAU
 
+    # Clamp at what the firmware still answers, so the integrator cannot wind into 0xE4 the map ignores
+    limit = self.ff.cal.output_ceiling()
+    self.pid.set_limits(limit, -limit)
     i_scale = speed_band(v_ego, self.i_scale)
     self.pid.update(error, speed=v_ego, feedforward=ff,
                     freeze_integrator=steer_limited or steering_pressed or v_ego < INTEGRATOR_MIN_SPEED,
                     integrator_gain_scale=i_scale,
                     reset_integrator=i_scale <= 0.0 or v_ego < INTEGRATOR_MIN_SPEED)
-    output = max(min(self.pid.p * speed_band(v_ego, self.p_scale) + self.pid.i + self.pid.d + ff, 1.0), -1.0)
+    output = max(min(self.pid.p * speed_band(v_ego, self.p_scale) + self.pid.i + self.pid.d + ff, limit), -limit)
 
     if self.output_lpf_enabled:
       self.output_lpf.update_alpha(speed_band(v_ego, self.output_lpf_tau))
@@ -440,5 +451,5 @@ class HondaEpsLateralCore:
     else:
       self.output_lpf.x = output
       self.output_lpf.initialized = True
-    self.output = max(min(output, 1.0), -1.0)
+    self.output = max(min(output, limit), -limit)
     return self.output

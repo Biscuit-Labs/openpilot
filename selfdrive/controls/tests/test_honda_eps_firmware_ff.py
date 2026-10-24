@@ -128,6 +128,29 @@ def _step_core(core, frames, pressed=False, limited=False):
     core.update(0.5, 0.0, 0.0, 9.0, 0.0, pressed, limited)
 
 
+@pytest.mark.parametrize("cal,ceiling", [(eps_cal.CLARITY_TRW_A020, 1.0), (eps_cal.CIVIC_TBA_C020, 1.0),
+                                         (eps_cal.ACURA_RDX_TJB_A220, 1.0),
+                                         (eps_cal.CRV_TLA_A040, 3841 / 4096), (eps_cal.CRV_TLA_A220, 3841 / 4096)])
+def test_output_tops_out_where_the_command_row_ends(cal, ceiling):
+  assert cal.output_ceiling() == pytest.approx(ceiling)
+  # the ceiling reaches the firmware's last answer (within one key of truncation), and 1.0 gets no more R5 than it
+  last = float(np.interp(min(cal.key_clamp, cal.r5_key_bp[-1]), cal.r5_key_bp, cal.r5_v))
+  assert abs(eps_ff.r5_from_output(cal.output_ceiling(), 10.0, cal)) == pytest.approx(last, rel=2e-3)
+  assert eps_ff.r5_from_output(1.0, 10.0, cal) == eps_ff.r5_from_output(cal.output_ceiling(), 10.0, cal)
+
+
+def test_the_core_does_not_wind_up_past_the_row_end():
+  cal = eps_cal.CRV_TLA_A040
+  core = eps_ff.HondaEpsLateralCore(KP_BP, KP_V, KP_BP, KI_V, DT_CTRL, ff=eps_ff.HondaEpsFirmwareFeedforward(DT_CTRL, cal))
+  for _ in range(3000):
+    out = core.update(5.0, 0.0, 0.0, 15.0, 0.0, False, False)  # a wheel stuck 5 deg short: the integrator runs
+  assert abs(out) == pytest.approx(cal.output_ceiling(), rel=1e-3)  # the output LPF still closing the last bit
+  assert core.pid.p + core.pid.i + core.pid.f <= cal.output_ceiling() + 1e-6  # it stopped at the ceiling, not at 1.0
+  for _ in range(10):
+    out = core.update(0.0, 0.0, 0.0, 15.0, 0.0, False, False)
+  assert abs(out) < cal.output_ceiling() - 0.1  # so it comes off the ceiling at once when the error goes
+
+
 def test_integrator_bleeds_through_the_override_fade():
   core = _wound_up_core(fade_up_s=0.5)
   _step_core(core, 50, pressed=True, limited=True)

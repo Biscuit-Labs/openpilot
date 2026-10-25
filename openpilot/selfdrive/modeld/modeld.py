@@ -418,7 +418,8 @@ def main(demo=False):
       # A timed-out loader can still mutate tinygrad's shared device state.
       # The manager must confirm this process has exited before starting Small.
       cloudlog.error("Chestnut startup failed; requesting isolated Small restart")
-      raise SystemExit(STARTUP_FALLBACK_EXIT)
+      # Avoid Python/native finalizers retaining this failed GPU context.
+      os._exit(STARTUP_FALLBACK_EXIT)
 
   if small_model is None:
     small_model, small_prepared, selected_small_failed = load_small()

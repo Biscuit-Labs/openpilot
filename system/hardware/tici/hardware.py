@@ -1,5 +1,6 @@
 import math
 import os
+import socket
 import subprocess
 import time
 import tempfile
@@ -80,6 +81,30 @@ def affine_irq(val, action):
   for i in irqs:
     sudo_write(str(val), f"/proc/irq/{i}/smp_affinity_list")
 
+def wpa_supplicant_cmd(cmd: str, timeout: float = 0.2) -> dict[str, str]:
+  # Ask wpa_supplicant directly over its control socket, without going through NetworkManager's D-Bus.
+  # Port of commaai/openpilot#38005.
+  with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+    sock.settimeout(timeout)
+    sock.bind(f"\0openpilot-wpa-{os.getpid()}-{time.monotonic_ns()}")
+    sock.connect("/run/wpa_supplicant/wlan0")
+    sock.send(cmd.encode())
+
+    while True:
+      out = sock.recv(8192).decode("utf-8", "replace")
+      if out.startswith("<"):  # unsolicited event, not our reply
+        continue
+      if out.startswith("FAIL"):
+        return {}
+      return dict(l.split("=", 1) for l in out.splitlines() if "=" in l)
+
+def get_default_route_iface():
+  # The kernel's default route with the lowest metric is the interface traffic actually leaves on.
+  # Port of commaai/openpilot#38005.
+  with open("/proc/net/route") as f:
+    routes = [(int(route[6]), route[0]) for line in f.readlines()[1:] if (route := line.split())[1] == "00000000" and int(route[3], 16) & 0x1]
+  return min(routes)[1] if routes else None
+
 @lru_cache
 def get_device_type():
   # lru_cache and cache can cause memory leaks when used in classes
@@ -146,29 +171,31 @@ class Tici(HardwareBase):
       f.write(f"{value}\n")
 
   def get_network_type(self):
+    # Wi-Fi and Ethernet come from the routing table: NetworkManager's D-Bus can miss the 0.1 s TIMEOUT
+    # while it is busy scanning or renewing DHCP, which used to report NetworkType.none for 10 s.
     try:
-      primary_connection = self.nm.Get(NM, 'PrimaryConnection', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
-      primary_connection = self.bus.get_object(NM, primary_connection)
-      primary_type = primary_connection.Get(NM_CON_ACT, 'Type', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
+      if (iface := get_default_route_iface()):
+        if iface.startswith('wlan'):
+          return NetworkType.wifi
+        if iface.startswith('eth'):
+          return NetworkType.ethernet
+    except Exception:
+      pass
 
-      if primary_type == '802-3-ethernet':
-        return NetworkType.ethernet
-      elif primary_type == '802-11-wireless':
-        return NetworkType.wifi
-      else:
-        active_connections = self.nm.Get(NM, 'ActiveConnections', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
-        for conn in active_connections:
-          c = self.bus.get_object(NM, conn)
-          tp = c.Get(NM_CON_ACT, 'Type', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
-          if tp == 'gsm':
-            modem = self.get_modem()
-            access_t = modem.Get(MM_MODEM, 'AccessTechnologies', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
-            if access_t >= MM_MODEM_ACCESS_TECHNOLOGY_LTE:
-              return NetworkType.cell4G
-            elif access_t >= MM_MODEM_ACCESS_TECHNOLOGY_UMTS:
-              return NetworkType.cell3G
-            else:
-              return NetworkType.cell2G
+    try:
+      active_connections = self.nm.Get(NM, 'ActiveConnections', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
+      for conn in active_connections:
+        c = self.bus.get_object(NM, conn)
+        tp = c.Get(NM_CON_ACT, 'Type', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
+        if tp == 'gsm':
+          modem = self.get_modem()
+          access_t = modem.Get(MM_MODEM, 'AccessTechnologies', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
+          if access_t >= MM_MODEM_ACCESS_TECHNOLOGY_LTE:
+            return NetworkType.cell4G
+          elif access_t >= MM_MODEM_ACCESS_TECHNOLOGY_UMTS:
+            return NetworkType.cell3G
+          else:
+            return NetworkType.cell2G
     except Exception:
       pass
 
@@ -178,10 +205,6 @@ class Tici(HardwareBase):
     objects = self.mm.GetManagedObjects(dbus_interface="org.freedesktop.DBus.ObjectManager", timeout=TIMEOUT)
     modem_path = list(objects.keys())[0]
     return self.bus.get_object(MM, modem_path)
-
-  def get_wlan(self):
-    wlan_path = self.nm.GetDeviceByIpIface('wlan0', dbus_interface=NM, timeout=TIMEOUT)
-    return self.bus.get_object(NM, wlan_path)
 
   def get_wwan(self):
     wwan_path = self.nm.GetDeviceByIpIface('wwan0', dbus_interface=NM, timeout=TIMEOUT)
@@ -266,13 +289,14 @@ class Tici(HardwareBase):
     try:
       if network_type == NetworkType.none:
         pass
+      elif network_type == NetworkType.ethernet:
+        network_strength = NetworkStrength.great
       elif network_type == NetworkType.wifi:
-        wlan = self.get_wlan()
-        active_ap_path = wlan.Get(NM_DEV_WL, 'ActiveAccessPoint', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)
-        if active_ap_path != "/":
-          active_ap = self.bus.get_object(NM, active_ap_path)
-          strength = int(active_ap.Get(NM_AP, 'Strength', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
-          network_strength = self.parse_strength(strength)
+        rssi = wpa_supplicant_cmd("SIGNAL_POLL").get("RSSI")
+        if rssi is not None:
+          dbm = int(rssi)
+          if -100 < dbm <= 0:
+            network_strength = self.parse_strength(120 + max(-100, min(-20, dbm)))
       else:  # Cellular
         modem = self.get_modem()
         strength = int(modem.Get(MM_MODEM, 'SignalQuality', dbus_interface=DBUS_PROPS, timeout=TIMEOUT)[0])

@@ -7667,6 +7667,17 @@ def setup(app):
       )
       model_status_debug["last_empty_catalog_log_time"] = now
 
+    # with the link on and no chestnut, modeld's big model is jetlink's, not
+    # ActiveBigModel: the Active Big picker names it instead of "always small"
+    jetlink_big_model = ""
+    try:
+      from openpilot.starpilot import jetlink_adapter
+      jetlink_status = jetlink_adapter.status()
+      if jetlink_status is not None and jetlink_status.enabled:
+        jetlink_big_model = jetlink_status.model or jetlink_status.default_model or "Jetlink default"
+    except Exception:
+      pass
+
     return jsonify({
       "modelToDownload": model_to_download,
       "modelLabModelToDownload": lab_model_to_download,
@@ -7680,6 +7691,7 @@ def setup(app):
       "currentModel": current_model,
       "activeSmallModel": active_small_model,
       "activeBigModel": active_big_model,
+      "jetlinkBigModel": jetlink_big_model,
       "summary": summary,
       "sortMode": sort_mode,
     }), 200

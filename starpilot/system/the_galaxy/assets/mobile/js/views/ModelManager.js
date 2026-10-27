@@ -35,6 +35,8 @@ export const ModelManager = {
       currentModel: "",
       activeSmallModel: "",
       activeBigModel: "",
+      // with Jetlink on, an empty Active Big runs Jetlink's pick, not Active Small
+      jetlinkBigModel: "",
       summary: { installed: 0, missing: 0, total: 0 },
       status: {
         modelToDownload: "",
@@ -122,6 +124,7 @@ export const ModelManager = {
         this.currentModel = text(p.currentModel, "")
         this.activeSmallModel = text(p.activeSmallModel, "")
         this.activeBigModel = text(p.activeBigModel, "")
+        this.jetlinkBigModel = text(p.jetlinkBigModel, "")
         const s = p.summary && typeof p.summary === "object" ? p.summary : {}
         this.summary = {
           installed: Number(s.installed) || 0,
@@ -291,7 +294,7 @@ export const ModelManager = {
             <div class="gx-row" style="border-top:none;">
               <span class="gx-row__label">Active Big</span>
               <GalaxySelect class="gx-field" style="flex:1;" :value="activeBigModel" :disabled="!!busy || selectionUncertain || status.isOnroad" @change="$event.target.value ? runAction('select-big', installedBigModels.find(m => m.value === $event.target.value)) : runAction('select-big')">
-                <option value="">None — always use Active Small</option>
+                <option value="">{{ jetlinkBigModel ? "None — Jetlink runs " + jetlinkBigModel : "None — always use Active Small" }}</option>
                 <option v-for="m in installedBigModels" :key="m.value" :value="m.value">{{ m.label || m.value }}</option>
               </GalaxySelect>
             </div>

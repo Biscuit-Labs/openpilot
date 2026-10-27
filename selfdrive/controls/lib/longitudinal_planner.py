@@ -307,6 +307,7 @@ EXP_EARLY_ONSET_MIN_NEED = 0.5     # m/s^2
 EXP_EARLY_ONSET_MAX = 1.5          # m/s^2
 EXP_EARLY_ONSET_E2E = -0.2         # m/s^2, the model must already be slowing
 EXP_EARLY_ONSET_JERK = 0.8         # m/s^3
+# Bosch-A radar only (self.bosch_a_radar): it compares the camera with a radar lead; vision-only ACC skips it.
 EXP_CAM_LEAD_BRAKE = True
 EXP_CAM_LEAD_BRAKE_PROB = 0.9
 EXP_CAM_LEAD_BRAKE_A = -0.5        # m/s^2
@@ -323,6 +324,7 @@ EXP_EARLY_RELEASE_JERK = 1.0       # m/s^3
 # backing toward us at -2.15 m/s; the close-lead cap went -0.76 -> -1.50 for one frame. The cap now reads vLead no lower
 # than -0.5 (a stopped lead's normal noise reaches -0.3). The lead itself is still published (D-041). Replay: min target
 # -1.62 -> -1.06, biggest 0.25 s drop 0.93 -> 0.28, closest gap 4.3 -> 3.2 m (r 0.907).
+# Bosch-A radar only (a radar range glitch); the close-lead cap's rate limits (D-073/D-127/D-128) run for vision too.
 CLOSE_LEAD_CAP_VLEAD_FLOOR = True
 CLOSE_LEAD_CAP_VLEAD_MIN = -0.5  # m/s
 
@@ -437,8 +439,9 @@ COAST_CEILING_SLEW = True
 COAST_CEILING_JERK = 2.5  # m/s^3
 # Smooth Brake Onset (D-078/D-081/D-083/D-084, BrakeOnsetLimit) was removed on 2026-10-05 at the owner's request in
 # favour of StockBrakeFeel below (D-086, STATUS 220); its replay evidence stays in STATUS 208-219.
-# Stock brake feel (D-086, proposed; closed-loop sim replay only, not driven), the StockBrakeFeel toggle, off by
-# default. Owner: "copy exactly how stock does it ... we are overemphasizing the safety issues and sacrificing the smooth
+# Stock brake feel (D-086, proposed; closed-loop sim replay only, not driven). Since 2026-10-19 it has no toggle: it
+# is on exactly when Bosch-A radar long is on (starpilot_variables stock_brake_feel).
+# Owner: "copy exactly how stock does it ... we are overemphasizing the safety issues and sacrificing the smooth
 # feel". It replaced Smooth Brake Onset's shaping (D-078/D-083/D-084, removed) with stock Honda ACC's own law, fitted from
 # ACC_CONTROL ACCEL_COMMAND on 12 stock-ACC routes (51k closing-lead frames at 10 Hz, stock_acc_reference.py corpus;
 # STATUS 220). Stock's depth follows time to contact and barely follows the kinematic need; its p25 command (the depth
@@ -513,6 +516,12 @@ STOCK_FEEL_LEAD_STOP_MAX_T = 20.0  # s
 STOCK_FEEL_EMERGENCY = True
 STOCK_FEEL_EMERGENCY_A_LEAD = -2.0  # m/s^2
 STOCK_FEEL_EMERGENCY_NEED = 2.0  # m/s^2
+# The aLeadK path only latches when the worst TTC is at most STOCK_FEEL_EMERGENCY_A_LEAD_MAX_TTC (STATUS 258).
+# 000003a3 17:28.35: aLeadK -2.09 on a lead at TTC 21.7 s latched the bypass, and it stayed on through the separate
+# 17:43-17:44 build 15 s later, which then ran unlimited to -3.03 with 26 m left (owner: build could be more gradual).
+# 2f5 10:01 latches via aLeadK -2.46 at TTC 6.98 s (replay R26) and is unchanged; lead_stop_need still covers a
+# hard-braking lead at any TTC.
+STOCK_FEEL_EMERGENCY_A_LEAD_MAX_TTC = 10.0  # s
 # Stop ease (owner 2026-10-07, 000002f2, proposed; static only). Every hard stop on 2f2 reached standstill still braking
 # -1.6..-1.7 (longcontrol's stopping state only ever deepens, so it held -2.0/-2.27 through the stop): the clunk. With
 # this on, under STOP_EASE_BP[-1] the brake may go no deeper than STOP_EASE_V at that speed, easing to about -0.5 at
@@ -624,7 +633,7 @@ def stock_feel_emergency(leads, v_ego: float, active: bool) -> bool:
     return True
   for lead in leads:
     if lead is not None and bool(getattr(lead, 'status', False)) and -float(lead.vRel) > STOCK_FEEL_MIN_CLOSING and \
-       float(lead.aLeadK) <= STOCK_FEEL_EMERGENCY_A_LEAD:
+       float(lead.aLeadK) <= STOCK_FEEL_EMERGENCY_A_LEAD and ttc <= STOCK_FEEL_EMERGENCY_A_LEAD_MAX_TTC:
       return True
   need = lead_stop_need(leads, v_ego)
   depth = float(np.interp(ttc, STOCK_FEEL_DEPTH_BP, STOCK_FEEL_DEPTH_V))
@@ -845,6 +854,14 @@ VISION_SLOW_LEAD_FULL_TTC = 2.0
 VISION_SLOW_LEAD_MAX_DECEL = 1.2
 VISION_SLOW_LEAD_MIN_DECEL = 0.18
 VISION_SLOW_LEAD_MIN_MODEL_PROB = 0.9
+# Physics bound (STATUS 253). Log evidence, 0000039d 8:22.3 (owner's bookmark: "weird jerk at a red light"): creeping
+# at 1.06 m/s, 7.4 m behind a stopped pickup, the cap stepped -0.35 -> -1.20 in one frame for 0.35 s, while the model
+# asked -0.35 and stopped at 6.6 m. Its 7 m stop_gap left available_gap at the 0.5 m floor, so required_decel
+# saturated. The cap may now ask no more than VISION_SLOW_LEAD_PHYSICS_MARGIN x the decel that stops ego
+# VISION_SLOW_LEAD_HARD_GAP short of the lead: 1.5 x 1.06^2 / (2 x 4.4) = 0.19 there, at the 0.18 floor. Approaches
+# at speed are unchanged: 10 m/s to a stopped lead at 40 m allows 2.0, above the 1.2 ceiling.
+VISION_SLOW_LEAD_HARD_GAP = 3.0
+VISION_SLOW_LEAD_PHYSICS_MARGIN = 1.5
 LEAD_APPROACH_TFOLLOW_TRIGGER_TIME = 4.5
 LEAD_APPROACH_TFOLLOW_FULL_TIME = 1.5
 LEAD_APPROACH_TFOLLOW_MAX_DELTA = 0.162
@@ -1198,6 +1215,7 @@ VEHICLE_FAR_FOLLOW_SLEW_MAX_LATERAL_OFFSET = 1.5
 # through 0000028b). It trusts dRel/vLead at range, where closing speed can read low: the Bosch-A rail interval
 # and range-derived closing speed are what keep that reading honest. Replay of route 00000268 (STATUS 110),
 # forced on vs off: all 9 brake episodes identical; every far approach had a braking lead or a TTC under 8 s.
+# Bosch-A radar only since 2026-10-19 (self.bosch_a_radar): a camera-only lead's far range is not that honest.
 FAR_LEAD_COAST_MIN_DISTANCE = 45.0
 FAR_LEAD_COAST_MIN_TTC = 8.0
 FAR_LEAD_COAST_MIN_GAP_MARGIN = 6.0
@@ -1248,6 +1266,28 @@ LOW_SPEED_WEAK_LEAD_ACCEL_CAP_STRONG_DEPART_MIN_GAP = 4.0
 LOW_SPEED_WEAK_LEAD_ACCEL_CAP_STRONG_DEPART_MIN_LEAD_SPEED = 1.2
 LOW_SPEED_WEAK_LEAD_ACCEL_CAP_STRONG_DEPART_MIN_LEAD_DELTA = 0.8
 LOW_SPEED_WEAK_LEAD_ACCEL_CAP_STRONG_DEPART_MIN_LEAD_ACCEL = 0.5
+# Weak-lead cap ease (built in for vision and radar ACC since 2026-10-19; was the WeakLeadCapEase toggle).
+# Closed-loop and open-loop replay evidence only, not driven:
+# 8 stop-and-go events of route 332, every planner fed the same radar re-parsed from CAN by this tree's parser.
+# The cap above engages and releases within one frame (0.05 s), and the most common trigger is a radar track just
+# born under the vision lead: its aLeadK starts near 0 while the model's lead is pulling away (+1.7 m/s^2), so the
+# cap clamps a departure and lets go 0.5-2 s later. Two changes, both only while the toggle is on:
+#  1. Slew. Engaging, the cap may cut the accel target by no more than WEAK_LEAD_CAP_EASE_JERK per second; after it
+#     drops out, the target may rise above max(previous, 0) by no more than that until it catches up. Only this
+#     positive cap is eased: it is applied as a min() after every braking cap, so it cannot lift one, and release
+#     limits positive accel only, never a brake release. Slew alone, open-loop command jerk median 0.63 -> 0.47
+#     m/s^3; 1.0 m/s^3 was smoother (0.45) but cut event 06's open-loop aEgo corr 0.95 -> 0.74, 2.0 cut it to 0.86.
+#  2. Newborn track. For the first NEWBORN_LEAD_FRAMES a radar track is a lead (same newborn rules as D-080), the
+#     cap reads the lead's accel as max(aLeadK, the model lead's a[0]) when the model lead prob is at least
+#     LOW_SPEED_WEAK_LEAD_ACCEL_CAP_MIN_MODEL_PROB. Accel only; dRel, vLead and radarState are untouched. When this is
+#     what lifts a cap the raw lead would have set, the rise takes the release ramp above: without it, event 06's
+#     launch from a stop stepped -0.24 -> +0.67 m/s^2 in one frame where the raw cap had held +0.14.
+# Both together: open-loop command jerk median 0.63 -> 0.44 m/s^3 (00: 0.91 -> 0.47, 02: 0.93 -> 0.76, 05: 0.97 ->
+# 0.85, 06: 0.49 -> 0.31), closed-loop commanded jerk 02: 0.80 -> 0.53, 06: 0.55 -> 0.52; min accel, gap and TTC
+# unchanged in every event; open-loop aEgo corr 00: 0.92 -> 0.88, 06: 0.95 -> 0.87. Toggle off is bit-identical.
+# Both make the cap less conservative: the slew lets accel exceed the cap for up to about 0.5 s while it engages,
+# and the newborn rule engages it less often. Braking caps and the MPC are untouched.
+WEAK_LEAD_CAP_EASE_JERK = 2.0  # m/s^3
 VISION_CLOSE_STOP_HOLD_MIN_BRAKE = 0.20
 VISION_CLOSE_STOP_HOLD_MAX_BRAKE = 0.36
 VISION_CLOSE_SETTLE_MAX_LEAD_DELTA = 2.6
@@ -1517,8 +1557,15 @@ class _BoundedSubMaster:
     return getattr(self._sm, name)
 
 
+def bosch_a_radar_on(CP):
+  """Bosch-A radar long (BoschARadar on). With it off the car runs vision-only ACC and every radar-only planner
+  rule below stands down; the shared and vision rules keep running."""
+  return getattr(CP, "brand", "") == "honda" and CP.carFingerprint in HONDA_BOSCH_A and \
+    not bool(getattr(CP, "radarUnavailable", False))
+
+
 def uses_off_axis_lead_bound(CP):
-  return getattr(CP, "brand", "") == "honda" and CP.carFingerprint in HONDA_BOSCH_A
+  return bosch_a_radar_on(CP)
 
 
 class OffAxisLeadHold:
@@ -1579,8 +1626,8 @@ class NewbornLeadHold:
     a_rel = 2.0 * float(np.polyfit(t, d, 2)[0])
     return a_rel + float(np.mean([a for _, _, a in h]))
 
-  def bound(self, lead, a_ego):
-    """aLeadK for `lead`, or None when it is left as is. Call once per lead per frame, after tick()."""
+  def observe(self, lead, a_ego):
+    """Record `lead` this frame; its history, or None for a missing or vision-only lead. Call after tick()."""
     if lead is None or not bool(getattr(lead, "status", False)) or not bool(getattr(lead, "radar", False)):
       return None
     tid = int(getattr(lead, "radarTrackId", -1))
@@ -1590,7 +1637,19 @@ class NewbornLeadHold:
       h = self.hist[tid] = [(self.frame, d_rel, float(a_ego))]
     elif h[-1][0] != self.frame:  # leadOne and leadTwo on one track: record it once
       h.append((self.frame, d_rel, float(a_ego)))
-    if self.frame - h[0][0] >= NEWBORN_LEAD_FRAMES:
+    return h
+
+  def is_newborn(self, lead):
+    """`lead` is a radar track observed this frame and a lead for under NEWBORN_LEAD_FRAMES."""
+    if lead is None or not bool(getattr(lead, "status", False)) or not bool(getattr(lead, "radar", False)):
+      return False
+    h = self.hist.get(int(getattr(lead, "radarTrackId", -1)))
+    return h is not None and h[-1][0] == self.frame and self.frame - h[0][0] < NEWBORN_LEAD_FRAMES
+
+  def bound(self, lead, a_ego):
+    """aLeadK for `lead`, or None when it is left as is. Call once per lead per frame, after tick()."""
+    h = self.observe(lead, a_ego)
+    if h is None or self.frame - h[0][0] >= NEWBORN_LEAD_FRAMES:
       return None
     a_lead = float(lead.aLeadK)
     a_range = self._range_decel(h)
@@ -1637,9 +1696,13 @@ class LongitudinalPlanner:
       self.onpath_planner = LongitudinalPlanner(CP, init_v, init_a, dt, onpath_shadow=True)
     self.onpath_bound_active = False
     self.bound_off_axis_radar_leads = uses_off_axis_lead_bound(CP)
+    self.bosch_a_radar = bosch_a_radar_on(CP)
     self.off_axis_lead_hold = OffAxisLeadHold()
     self.reassociation_hold = ReassociationHold()
     self.newborn_lead_hold = NewbornLeadHold()
+    self.weak_lead_cap_ease = False
+    self.weak_lead_cap_newborn = NewbornLeadHold()  # WeakLeadCapEase: its own history, independent of StockBrakeFeel
+    self.weak_lead_cap_releasing = False
     self.longitudinal_actuator_delay = max(DT_MDL, float(CP.longitudinalActuatorDelay))
     self.close_lead_brake_cap_value = 0.0
     self.lead_geometry_required_accel = 0.0
@@ -1881,7 +1944,7 @@ class LongitudinalPlanner:
           need = max(need, self.get_lead_geometry_required_accel(ld, v_ego))
       if need >= EXP_EARLY_ONSET_MIN_NEED:
         floor = -min(need, EXP_EARLY_ONSET_MAX)
-    if not (EXP_CAM_LEAD_BRAKE and v_ego > 1.0 and float(lead.dRel) <= EXP_CAM_LEAD_BRAKE_GAP_S * v_ego):
+    if not (EXP_CAM_LEAD_BRAKE and self.bosch_a_radar and v_ego > 1.0 and float(lead.dRel) <= EXP_CAM_LEAD_BRAKE_GAP_S * v_ego):
       self.exp_cam_a_hist.clear()
     else:
       leads = getattr(model_msg, "leadsV3", None) if model_msg is not None else None
@@ -1923,7 +1986,8 @@ class LongitudinalPlanner:
     reaction_t = max(self.longitudinal_actuator_delay, self.dt)
     # D-129 (CLOSE_LEAD_CAP_VLEAD_FLOOR): a lead reading as backing toward us faster than CLOSE_LEAD_CAP_VLEAD_MIN is a
     # range glitch, not a car reversing; the cap reads CLOSE_LEAD_CAP_VLEAD_MIN.
-    v_lead_cap = max(float(lead.vLead), CLOSE_LEAD_CAP_VLEAD_MIN) if CLOSE_LEAD_CAP_VLEAD_FLOOR else float(lead.vLead)
+    v_lead_cap = max(float(lead.vLead), CLOSE_LEAD_CAP_VLEAD_MIN) if (CLOSE_LEAD_CAP_VLEAD_FLOOR and self.bosch_a_radar) \
+      else float(lead.vLead)
     closing_speed = max(0.0, v_ego - v_lead_cap)
     projected_closing_speed = closing_speed + lead_brake * reaction_t
     if projected_closing_speed < 0.1 and lead_brake < 0.5:
@@ -2170,6 +2234,8 @@ class LongitudinalPlanner:
     decel_scale = 0.45 + 0.35 * time_factor + 0.20 * speed_factor
     approach_decel = min(VISION_SLOW_LEAD_MAX_DECEL, required_decel * decel_scale)
     approach_decel *= 0.65 + 0.35 * prob_factor
+    hard_gap = max(float(lead.dRel) - VISION_SLOW_LEAD_HARD_GAP, 0.5)
+    approach_decel = min(approach_decel, VISION_SLOW_LEAD_PHYSICS_MARGIN * float(v_ego) ** 2 / (2.0 * hard_gap))
     if approach_decel < VISION_SLOW_LEAD_MIN_DECEL:
       return None
 
@@ -2722,6 +2788,35 @@ class LongitudinalPlanner:
 
     return float(self.lead_depart_accel_hold_floor)
 
+  def low_speed_weak_lead_accel_cap_for(self, leads, v_ego):
+    caps = [cap for cap in (self.get_low_speed_weak_lead_accel_cap(lead, v_ego) for lead in leads) if cap is not None]
+    return min(caps) if caps else None
+
+  def weak_lead_cap_ease_leads(self, sm):
+    """WeakLeadCapEase: leadOne/leadTwo for the weak-lead cap. A newborn radar lead reads the lead accel as
+    max(aLeadK, model lead a[0]) when the model lead is confident; everything else is the original lead."""
+    hold = self.weak_lead_cap_newborn
+    hold.tick()
+    try:
+      a_ego = float(sm['carState'].aEgo)
+    except (KeyError, AttributeError):
+      a_ego = 0.0
+    for lead in (self.lead_one, self.lead_two):
+      hold.observe(lead, a_ego)
+    model_accel = None
+    try:
+      model_leads = sm['modelV2'].leadsV3
+      if len(model_leads) and len(model_leads[0].a) and float(model_leads[0].prob) >= LOW_SPEED_WEAK_LEAD_ACCEL_CAP_MIN_MODEL_PROB:
+        model_accel = float(model_leads[0].a[0])
+    except (KeyError, AttributeError, IndexError, TypeError):
+      model_accel = None
+    leads = []
+    for lead in (self.lead_one, self.lead_two):
+      if model_accel is not None and hold.is_newborn(lead) and model_accel > float(getattr(lead, "aLeadK", 0.0)):
+        lead = _BoundedLead(lead, model_accel)
+      leads.append(lead)
+    return leads
+
   def get_low_speed_weak_lead_accel_cap(self, lead, v_ego):
     if lead is None or not lead.status:
       return None
@@ -3247,6 +3342,7 @@ class LongitudinalPlanner:
       sm = bound_off_axis_leads(sm, self.off_axis_lead_hold)
     if bool(getattr(starpilot_toggles, "stock_brake_feel", False)):
       sm = bound_newborn_leads(sm, self.newborn_lead_hold)
+    self.weak_lead_cap_ease = bool(getattr(starpilot_toggles, "weak_lead_cap_ease", False))
     if self.is_preap:
       self._preap_param_frame += 1
       if self._preap_params is not None and (self._preap_param_frame % 20) == 0:
@@ -3887,13 +3983,16 @@ class LongitudinalPlanner:
         if rav4_early_lead_cap is not None:
           rav4_early_lead_caps.append(rav4_early_lead_cap)
         fast_closing = self.fast_closing_lead_passes_floor(lead, lead_source, v_ego, sm['modelV2'])
-        cap = self.get_close_lead_brake_cap(lead, v_ego, fast_closing_accel_min(vision_cap_accel_min) if fast_closing
+        # STATUS 256: the close-lead cap is lead physics, so it uses the measured vEgo (scene_v_ego), not the
+        # planner v_ego = max(vEgo, vEgoCluster). Honda's cluster speed steps and holds while braking: on
+        # 000003a0 23:29.7 it read 5.81 against vEgo 4.37, which took this cap from -1.35 to -3.50.
+        cap = self.get_close_lead_brake_cap(lead, scene_v_ego, fast_closing_accel_min(vision_cap_accel_min) if fast_closing
                                            else output_accel_min)
         if cap is not None and experimental_mlsim and not fast_closing:
           # D-073: the part of the Exp cap that comes from the lead's aLeadK may only go deeper than chill's
           # floor at EXP_CLOSE_LEAD_FLOOR_RATE; what the closing speed alone demands applies at once.
           exp_close_lead_cap = cap if exp_close_lead_cap is None else min(exp_close_lead_cap, cap)
-          closing_cap = self.get_close_lead_brake_cap(lead, v_ego, output_accel_min, count_lead_brake=False)
+          closing_cap = self.get_close_lead_brake_cap(lead, scene_v_ego, output_accel_min, count_lead_brake=False)
           # D-128: below chill's floor too, unless the lead brakes harder than CHILL_CLOSE_LEAD_MAX_BRAKE.
           hard_lead = -float(lead.aLeadK) > CHILL_CLOSE_LEAD_MAX_BRAKE
           exp_hard_lead |= hard_lead
@@ -3903,7 +4002,7 @@ class LongitudinalPlanner:
               -float(lead.aLeadK) <= CHILL_CLOSE_LEAD_MAX_BRAKE):
           # D-127: in chill the aLeadK share deepens at CHILL_CLOSE_LEAD_RATE; the closing-speed demand applies at once.
           chill_close_lead_cap = cap if chill_close_lead_cap is None else min(chill_close_lead_cap, cap)
-          closing_cap = self.get_close_lead_brake_cap(lead, v_ego, output_accel_min, count_lead_brake=False)
+          closing_cap = self.get_close_lead_brake_cap(lead, scene_v_ego, output_accel_min, count_lead_brake=False)
           cap = rate_limit_lead_brake_share(cap, chill_close_lead_floor, closing_cap)
         if cap is not None:
           close_lead_caps.append(cap)
@@ -4178,15 +4277,15 @@ class LongitudinalPlanner:
     )
 
     low_speed_weak_lead_accel_cap = None
+    weak_lead_cap_newborn_lifted = False
     if not output_should_stop:
-      low_speed_weak_lead_accel_caps = [
-        cap for cap in (
-          self.get_low_speed_weak_lead_accel_cap(self.lead_one, scene_v_ego),
-          self.get_low_speed_weak_lead_accel_cap(self.lead_two, scene_v_ego),
-        ) if cap is not None
-      ]
-      if low_speed_weak_lead_accel_caps:
-        low_speed_weak_lead_accel_cap = min(low_speed_weak_lead_accel_caps)
+      low_speed_weak_lead_accel_cap = self.low_speed_weak_lead_accel_cap_for((self.lead_one, self.lead_two), scene_v_ego)
+      if self.weak_lead_cap_ease:
+        raw_cap_applies = low_speed_weak_lead_accel_cap is not None
+        low_speed_weak_lead_accel_cap = self.low_speed_weak_lead_accel_cap_for(self.weak_lead_cap_ease_leads(sm), scene_v_ego)
+        weak_lead_cap_newborn_lifted = raw_cap_applies and low_speed_weak_lead_accel_cap is None
+    elif self.weak_lead_cap_ease:
+      self.weak_lead_cap_ease_leads(sm)  # keep the newborn history current
 
     close_stop_active = bool(output_should_stop or vision_low_speed_stop_active)
 
@@ -4341,9 +4440,24 @@ class LongitudinalPlanner:
     if lead_depart_accel_hold_active:
       output_a_target = max(output_a_target, lead_depart_accel_floor)
 
-    if low_speed_weak_lead_accel_cap is not None and not (lead_depart_accel_hold_active and lead_depart_accel_floor_reused):
+    weak_lead_cap_applies = (
+      low_speed_weak_lead_accel_cap is not None and
+      not (lead_depart_accel_hold_active and lead_depart_accel_floor_reused)
+    )
+    weak_lead_cap_step = WEAK_LEAD_CAP_EASE_JERK * self.dt
+    if weak_lead_cap_applies:
+      if self.weak_lead_cap_ease:
+        # Only relaxes this cap; the braking caps are already in output_a_target and min() keeps them.
+        low_speed_weak_lead_accel_cap = max(low_speed_weak_lead_accel_cap, prev_output_a_target - weak_lead_cap_step)
       self.a_desired = min(self.a_desired, low_speed_weak_lead_accel_cap)
       output_a_target = min(output_a_target, low_speed_weak_lead_accel_cap)
+      self.weak_lead_cap_releasing = self.weak_lead_cap_ease
+    elif self.weak_lead_cap_releasing or weak_lead_cap_newborn_lifted:
+      # Also when the newborn rule is what lifts the cap, so it can only ease a release, never step one.
+      release_limit = max(prev_output_a_target, 0.0) + weak_lead_cap_step  # positive side only: brake release is never slowed
+      self.weak_lead_cap_releasing = self.weak_lead_cap_ease and output_a_target > release_limit
+      if self.weak_lead_cap_releasing:
+        output_a_target = release_limit
 
     if (
       lead_control_active and
@@ -4403,7 +4517,7 @@ class LongitudinalPlanner:
     # Dom gates this on its inside-gap closing cap, which this planner does not have; a nearer
     # second lead or an active model brake floor holds it off instead.
     far_lead_coast_other = self.lead_two if comfort_lead is self.lead_one else self.lead_one
-    far_lead_coast_allowed = (
+    far_lead_coast_allowed = self.bosch_a_radar and (
       not experimental_mode and
       comfort_lead is not None and
       desired_gap is not None and

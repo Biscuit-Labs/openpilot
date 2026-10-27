@@ -23,6 +23,7 @@ from openpilot.selfdrive.controls.lib.longitudinal_planner import (
   LongitudinalPlanner, get_coast_accel, get_far_lead_coast_cap, get_vehicle_min_accel, should_publish_planner_fcw,
 )
 from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import (
+  LEAD_T_IDXS_MODEL,
   LongitudinalMpc,
   build_model_lead_trajectory,
   soften_far_radar_lead_accel,
@@ -5396,6 +5397,7 @@ def _exp_early_planner(lead_one, lead_two=None, v_ego=20.0):
   planner = LongitudinalPlanner(CarInterface.get_non_essential_params(CAR.HONDA_CIVIC), init_v=v_ego)
   planner.lead_one = lead_one
   planner.lead_two = lead_two if lead_two is not None else make_lead(status=False)
+  planner.bosch_a_radar = True  # EXP_CAM_LEAD_BRAKE is Bosch-A radar only
   return planner
 
 
@@ -5467,8 +5469,83 @@ def test_exp_cam_lead_brake_floor_gates(lead_kw, model):
 def test_close_lead_cap_floors_a_backward_lead_speed():
   # D-129, 329 5:25: one radar range glitch at creep read the lead backing at -2.15 m/s; the cap went -0.76 -> -1.50.
   planner = LongitudinalPlanner(CarInterface.get_non_essential_params(CAR.HONDA_CIVIC), init_v=1.6)
+  planner.bosch_a_radar = True  # the floor is Bosch-A radar only
   glitch = make_lead(status=True, d_rel=6.27, v_lead=-2.15, radar=True)
   floored = make_lead(status=True, d_rel=6.27, v_lead=longitudinal_planner_module.CLOSE_LEAD_CAP_VLEAD_MIN, radar=True)
   assert planner.get_close_lead_brake_cap(glitch, 1.6, -3.5) == pytest.approx(planner.get_close_lead_brake_cap(floored, 1.6, -3.5))
   noise = make_lead(status=True, d_rel=6.27, v_lead=-0.3, radar=True)  # stopped-lead noise is untouched
   assert planner.get_close_lead_brake_cap(noise, 1.6, -3.5) != pytest.approx(planner.get_close_lead_brake_cap(floored, 1.6, -3.5))
+
+
+def test_radar_only_rules_follow_bosch_a_radar():
+  # 2026-10-19: with BoschARadar off (radarUnavailable) the car runs vision-only ACC and the radar-only planner rules
+  # (EXP_CAM_LEAD_BRAKE, CLOSE_LEAD_CAP_VLEAD_FLOOR, far-lead coast cap, off-axis bound) stand down.
+  from opendbc.car.honda.values import HONDA_BOSCH_A
+  fp = sorted(HONDA_BOSCH_A)[0]
+  on = SimpleNamespace(brand="honda", carFingerprint=fp, radarUnavailable=False)
+  off = SimpleNamespace(brand="honda", carFingerprint=fp, radarUnavailable=True)
+  assert longitudinal_planner_module.bosch_a_radar_on(on)
+  assert not longitudinal_planner_module.bosch_a_radar_on(off)
+  assert not longitudinal_planner_module.uses_off_axis_lead_bound(off)
+  assert not longitudinal_planner_module.bosch_a_radar_on(CarInterface.get_non_essential_params(CAR.HONDA_CIVIC))
+
+  planner = LongitudinalPlanner(CarInterface.get_non_essential_params(CAR.HONDA_CIVIC), init_v=1.6)
+  assert not planner.bosch_a_radar
+  glitch = make_lead(status=True, d_rel=6.27, v_lead=-2.15, radar=True)
+  floored = make_lead(status=True, d_rel=6.27, v_lead=longitudinal_planner_module.CLOSE_LEAD_CAP_VLEAD_MIN, radar=True)
+  assert planner.get_close_lead_brake_cap(glitch, 1.6, -3.5) != pytest.approx(planner.get_close_lead_brake_cap(floored, 1.6, -3.5))
+
+
+def test_vision_slow_stopped_lead_cap_is_bounded_by_stopping_physics_in_a_queue():
+  # STATUS 253, 0000039d 8:22.3: 1.06 m/s, stopped pickup 7.4 m ahead; the cap used to step to -1.20.
+  planner = LongitudinalPlanner(CarInterface.get_non_essential_params(CAR.HONDA_CIVIC_BOSCH))
+  queue = make_lead(status=True, d_rel=7.4, v_lead=-0.18, a_lead=-0.6, model_prob=1.0)
+  cap = planner.get_vision_slow_stopped_lead_cap(queue, 1.06, -3.5, 1.45)
+  assert cap is None or cap > -0.3
+  approach = make_lead(status=True, d_rel=40.0, v_lead=0.0, model_prob=1.0)
+  assert planner.get_vision_slow_stopped_lead_cap(approach, 10.0, -3.5, 1.45) == pytest.approx(-1.2)
+
+
+def test_mpc_new_lead_starts_at_its_measured_speed_above_47_mph():
+  # STATUS 255, 00000380 3:50.3: a radar lead appearing at 107 m read 30.8 m/s in the MPC against vLead 20.1,
+  # because its filter had been fed the fake far lead (vEgo + 10).
+  mpc = LongitudinalMpc()
+  mpc.set_cur_state(26.0, 0.0)
+  mpc.set_weights(v_ego=26.0)
+  assert mpc.current_filter_time > 0.5
+  absent = make_lead(status=False, d_rel=0.0, v_lead=0.0, model_prob=0.0)
+  for _ in range(100):
+    mpc.process_lead(absent, lead_index=0)
+    mpc.process_lead(absent, lead_index=1)
+  lead = make_lead(status=True, d_rel=107.0, v_lead=20.1, model_prob=1.0, radar=True)
+  lead_xv = mpc.process_lead(lead, lead_index=0)
+  assert lead_xv[0, 1] == pytest.approx(20.1, abs=0.2)
+
+
+def test_mpc_lead_handed_back_from_model_path_starts_at_its_measured_speed():
+  # STATUS 255: an urgent close drops the model lead path; the filtered path must not start from the fake far lead.
+  mpc = LongitudinalMpc()
+  mpc.set_cur_state(20.0, 0.0)
+  absent = make_lead(status=False, d_rel=0.0, v_lead=0.0, model_prob=0.0)
+  model_lead = SimpleNamespace(prob=0.9, x=[60.0 + 18.0 * t for t in LEAD_T_IDXS_MODEL], v=[18.0] * len(LEAD_T_IDXS_MODEL))
+  steady = make_lead(status=True, d_rel=60.0, v_lead=18.0, model_prob=1.0)
+  for _ in range(100):
+    mpc.process_lead(steady, lead_index=0, model_lead=model_lead)
+    mpc.process_lead(absent, lead_index=1)
+  lead = make_lead(status=True, d_rel=20.0, v_lead=8.0, model_prob=1.0)  # urgent: model path drops out
+  lead_xv = mpc.process_lead(lead, lead_index=0, model_lead=model_lead)
+  assert lead_xv[0, 1] == pytest.approx(8.0, abs=0.2)
+
+
+def test_close_lead_cap_uses_measured_speed_not_the_cluster_speed():
+  # STATUS 256, 000003a0 23:29.7: braking at vEgo 4.37 while Honda's cluster speed still read 5.81; vision lead
+  # 8.3 m ahead at 1.25 m/s. The cap read the cluster speed and went to -3.50; at the measured speed it is about -1.35.
+  v_ego, v_cluster = 4.37, 5.81
+  planner = LongitudinalPlanner(CarInterface.get_non_essential_params(CAR.HONDA_CIVIC_BOSCH), init_v=v_ego)
+  lead = make_lead(status=True, d_rel=8.3, v_lead=1.25, a_lead=0.3, model_prob=1.0)
+  sm = make_sm(v_ego, -1.0, -3.5, experimental_mode=True, tracking_lead=True, lead_one=lead, lead_two=lead)
+  sm["carState"].vEgoCluster = v_cluster
+  planner.update(sm, make_toggles())
+  measured = planner.get_close_lead_brake_cap(lead, v_ego, -3.5)
+  assert measured is not None and measured > -2.0
+  assert planner.close_lead_brake_cap_value == pytest.approx(measured, abs=0.05)

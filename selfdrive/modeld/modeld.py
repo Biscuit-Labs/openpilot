@@ -80,7 +80,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan_t
 from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import lateral_delay_schedule, scheduled_lateral_delay
 from openpilot.selfdrive.modeld.camera_offset import CameraOffset, DEFAULT_CAMERA_HEIGHT
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
-from openpilot.selfdrive.modeld.lateral_source import delay_input, lateral_source, takes_action_t
+from openpilot.selfdrive.modeld.lateral_source import fill_lateral_source, takes_action_t
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.compile_modeld import (
@@ -2208,9 +2208,7 @@ def main(demo=False):
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
       steering_output = lateral_model_output if model_lab_active and longitudinal_model_output is not None else model_output
-      starpilot_modelv2_send.starpilotModelV2.lateralSource = lateral_source(
-        steering_output, model.mlsim, model.is_v9, model.is_v14, model.is_v15, model.is_v16)
-      starpilot_modelv2_send.starpilotModelV2.delayInput = delay_input(model)
+      fill_lateral_source(starpilot_modelv2_send.starpilotModelV2, model, steering_output)
 
       # comma #39091: while lateral is not active, smooth from the curvature the car is actually driving, not the model's
       # last (unused) output, so engaging does not start from a stale curvature

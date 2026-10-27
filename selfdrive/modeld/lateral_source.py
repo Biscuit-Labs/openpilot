@@ -37,3 +37,9 @@ def delay_input(model) -> str:
   if "lateral_control_params" in model.numpy_inputs:
     return "lateralControlParams"
   return "none"
+
+
+def fill_lateral_source(message, model, model_output: dict) -> None:
+  """Write the fields controlsd consumes on the actual published StarPilotModelDataV2."""
+  message.lateralSource = lateral_source(model_output, model.mlsim, model.is_v9, model.is_v14, model.is_v15, model.is_v16)
+  message.delayInput = delay_input(model)

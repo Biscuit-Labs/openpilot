@@ -881,17 +881,16 @@ class StarPilotVariables:
     toggle.stoppingDecelRate = self.get_value("StoppingDecelRate", cast=float, condition=advanced_longitudinal_tuning, default=toggle.stoppingDecelRate, min=0.001, max=1)
     toggle.vEgoStarting = self.get_value("VEgoStarting", cast=float, condition=advanced_longitudinal_tuning, default=toggle.vEgoStarting, min=0.01, max=1)
     toggle.vEgoStopping = self.get_value("VEgoStopping", cast=float, condition=advanced_longitudinal_tuning, default=toggle.vEgoStopping, min=0.01, max=1)
-    # Resume brake ramp after a gas override (longcontrol RESUME_BRAKE_RAMP_*). Off unless the parent and this are on.
-    toggle.resume_brake_ramp = self.get_value("ResumeBrakeRamp", condition=advanced_longitudinal_tuning)
+    # Built in since 2026-10-19 (no Galaxy toggle; the ResumeBrakeRamp, StockBrakeFeel and WeakLeadCapEase params are
+    # no longer read). Resume brake ramp after a gas override (longcontrol RESUME_BRAKE_RAMP_*) and the weak-lead cap
+    # ease (longitudinal_planner WEAK_LEAD_CAP_EASE_*) run for vision and radar ACC alike; the ease's newborn-lead part
+    # only ever acts on radar leads.
+    toggle.resume_brake_ramp = True
+    toggle.weak_lead_cap_ease = True
     # Stock brake feel (longitudinal_planner STOCK_FEEL_*, D-086): stock Honda ACC's fitted depth and onset rate by TTC,
-    # plus the D-080 newborn-lead bound and STOP_EASE. Replaced the Smooth Brake Onset toggle. Its coasts are gone (D-112).
-    # Bosch-A radar only (D-115): with the radar off (vision-only ACC) the planner runs alone, whatever the param says.
-    # A params library built before the key existed raises on the read; that means off, never a failed toggle load.
-    bosch_a_radar = toggle.car_make == "honda" and has_radar and CP.carFingerprint in HONDA_BOSCH_A
-    try:
-      toggle.stock_brake_feel = self.get_value("StockBrakeFeel", condition=advanced_longitudinal_tuning and bosch_a_radar)
-    except Exception:
-      toggle.stock_brake_feel = False
+    # plus the D-080 newborn-lead bound and STOP_EASE. Its coasts are gone (D-112). On exactly when Bosch-A radar long
+    # is on (D-115); with the radar off (vision-only ACC) the planner runs alone.
+    toggle.stock_brake_feel = toggle.car_make == "honda" and has_radar and CP.carFingerprint in HONDA_BOSCH_A
 
     toggle.alert_volume_controller = self.get_value("AlertVolumeControl")
     toggle.below_steer_speed_volume = self.get_value("BelowSteerSpeedVolume", cast=float, condition=toggle.alert_volume_controller)
@@ -1249,6 +1248,8 @@ class StarPilotVariables:
     toggle.nav_desires_allowed = self.get_value("NavDesiresAllowed")
     toggle.nav_lane_positioning_allowed = self.get_value("NavLanePositioningAllowed")
     toggle.nav_exit_auto_keep = self.get_value("NavExitAutoKeep", condition=toggle.nav_desires_allowed)
+    toggle.lane_change_counter_torque_cancel = self.get_value("LaneChangeCounterTorqueCancel")
+    toggle.lane_change_edge_guard = self.get_value("LaneChangeEdgeGuard")
     toggle.nav_exit_lane_change = bool(toggle.nav_desires_allowed and toggle.nav_lane_positioning_allowed)
     toggle.use_turn_desires = self.get_value("TurnDesires", condition=lateral_tuning)
 

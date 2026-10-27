@@ -119,6 +119,16 @@
         "settings_tier": "advanced"
       },
       {
+        "key": "HondaEpsResumeRamp",
+        "label": "Ease Steering In When It Resumes",
+        "description": "Modified-EPS Honda steering controller only. When steering torque comes back below 20 mph (lateral turning on, or pulling away from a stop with Always On Lateral), the target starts at the wheel's current angle and blends to the model's over about a second, instead of snapping the wheel toward the model. Mostly helps pulling away with the wheel turned.",
+        "picker_description": "Steering eases in from where the wheel is when it resumes.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "parent_key": "AdvancedLateralTune",
+        "settings_tier": "advanced"
+      },
+      {
         "key": "ForceTorqueController",
         "label": "Force Torque Controller",
         "description": "Use torque-based steering control instead of angle-based control for smoother lane keeping, especially in curves.",
@@ -169,6 +179,26 @@
         "ui_type": "toggle",
         "parent_key": "LaneChanges",
         "settings_tier": "simple"
+      },
+      {
+        "key": "LaneChangeCounterTorqueCancel",
+        "label": "Cancel Lane Change by Steering Back",
+        "description": "Cancel an early lane change by steering against it for a quarter second. Available only during the first 1.5 seconds and before moving 0.8 m toward the lane line. Experimental and off by default; not road-validated.",
+        "picker_description": "Steering against a started lane change cancels it.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "parent_key": "LaneChanges",
+        "settings_tier": "advanced"
+      },
+      {
+        "key": "LaneChangeEdgeGuard",
+        "label": "Lane Change Road Edge Guard",
+        "description": "Hold a lane change while the model sees a road edge where the target lane should be. Experimental and off by default; not road-validated.",
+        "picker_description": "No lane change toward a road edge.",
+        "data_type": "bool",
+        "ui_type": "toggle",
+        "parent_key": "LaneChanges",
+        "settings_tier": "advanced"
       },
       {
         "key": "NudgelessLaneChangeOnlyWhenEngaged",
@@ -486,6 +516,16 @@
         "max": 0.5,
         "step": 0.1,
         "precision": 1,
+        "parent_key": "VASMEnabled",
+        "settings_tier": "advanced"
+      },
+      {
+        "key": "VASMRadarAssist",
+        "label": "Radar Assist",
+        "description": "Check the side you signal toward, a side a passing or merge prompt points to, or a side where radar sees a car within 50 ft, every 0.3 s instead of every 2 s. After you pass a car that radar was tracking beside you, keep that side marked occupied for 1-6 s depending on how much faster you passed it, through short camera drop-outs, and, for a semi or other long vehicle, until its front is about two car lengths behind you (at most 20 s). Only ever marks a side occupied, never clear. Experimental and off by default; not road-validated.",
+        "picker_description": "Faster V-ASM checks when it matters, and holds the blind spot after you pass a car.",
+        "data_type": "bool",
+        "ui_type": "toggle",
         "parent_key": "VASMEnabled",
         "settings_tier": "advanced"
       },
@@ -878,29 +918,6 @@
         "picker_description": "Uses stronger acceleration profiles for heavy vehicles.",
         "data_type": "bool",
         "ui_type": "toggle",
-        "parent_key": "AdvancedLongitudinalTune",
-        "settings_tier": "advanced"
-      },
-      {
-        "key": "ResumeBrakeRamp",
-        "label": "Resume Brake Ramp",
-        "description": "After a gas override, build braking up gradually (at most 1.5 m/s^3 for 1.5 s) instead of stepping straight to the planner target. Skipped when stopping, at -2.0 m/s^2 or harder, or with a lead closer than 30 m. Releasing brake is never limited.",
-        "picker_description": "Builds braking up gradually after you let off the gas.",
-        "data_type": "bool",
-        "ui_type": "toggle",
-        "parent_key": "AdvancedLongitudinalTune",
-        "settings_tier": "advanced"
-      },
-      {
-        "key": "StockBrakeFeel",
-        "label": "Stock Brake Feel",
-        "description": "Honda Bosch-A Radar only; with that radar off this does nothing and the normal planner drives alone. Matches stock Honda Bosch-A ACC when closing on a slower car: light brake taps that build slowly and go no deeper than stock would at the same time to contact. Normal braking under 2 s to contact, when stopping, and at a red light. Also eases a held stopping brake while still rolling, and ignores a brief false braking reading on a newly seen car.",
-        "picker_description": "Brakes like stock Bosch-A ACC, with light taps (Bosch-A radar only).",
-        "data_type": "bool",
-        "ui_type": "toggle",
-        "visible_when_all_true": [
-          "BoschARadar"
-        ],
         "parent_key": "AdvancedLongitudinalTune",
         "settings_tier": "advanced"
       },

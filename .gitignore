@@ -154,3 +154,6 @@ Pipfile
 
 # Repository-local model compiler scratch artifacts.
 .model-rebuild/
+
+# Local V-ASM route extracts, crops, training outputs and reports.
+/scratch/vasm/

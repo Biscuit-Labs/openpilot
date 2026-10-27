@@ -82,6 +82,8 @@ class Joined:
   last_warp_output = property(lambda self: None if self.big else self.small.last_warp_output)
   model_id = property(lambda self: self.small.model_id)
   policy_generation = property(lambda self: self.small.policy_generation)
+  # The large model always consumes action_t, even when the small bundle has no slot for it.
+  requires_action_t = property(lambda self: self.big)
 
   def run(self, bufs, transforms, inputs, prepare_only=False, after_output_sync=None, *, blinker_on=False):
     m = self.small.model

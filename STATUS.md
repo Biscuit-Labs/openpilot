@@ -39,6 +39,13 @@ here. Where the two touch — the CR-V lateral profile, the steering-ratio curve
 **Open topics to revisit** (parked by decision, not closed):
 - **Range offset: D-076 ACCEPTED 2026-10-07, fixed per car, no toggle.** Firmware ROM default −346/128 = −2.703 m (Civic, static A160 ROM correction in `217688cc8`) and −341/128 = −2.664 m (CR-V), replacing −3.0. The `BoschARangeOffsetFallback` toggle and the CAN 0x669 addend are removed. Static only; the true range origin is unmeasured, and the laser range check settles it.
 - **Newborn radar points: D-075, built in ON since 2026-10-03 (the `BoschANewbornLeads` toggle is removed).** Replay and static only, limited road evidence from Peter's drives with the toggle on. Publishes young closing radar points earlier and lets one lead only once its own range closes.
+- **Young-track camera hold (`YOUNG_TRACK_VISION_HOLD`, radard.py), built in ON since 2026-10-17 (Peter, imported STATUS 277).** Below 3 m/s, a Bosch-A track
+  under 0.4 s old does not take the lead from a confident (prob ≥ 0.9), non-braking, non-closing camera lead that it reads
+  more than 1.5 m/s slower, unless its own range is closing. Fixes the 00000361 24:33 launch sag (young-track U11 lag).
+  Replay only (Job, routes 327/328/329/361 full, 2f7 full, 2ae segs 16–18): closed-loop gap_min and cmd_min equal ON vs OFF
+  in every changed window, TTC equal except 361 21:02 (7.77 vs 7.83 s, disengaged); open loop ON never brakes more; 361
+  24:33 planner sag 1.67 → 1.07. 15 changed ticks, all vEgo < 2.2. Sim launch fidelity weak at 24:28 (aEgo corr 0.68).
+  Not driven. Risk to watch: at a launch it trusts the camera's vLead for up to 0.4 s; not covered: 328 33:20 (track 1.6 s old).
 - **U11 scale 1/72: D-074 ACCEPTED (owner, 2026-10-02), built in; the 1/64 switch back was removed 2026-10-03.**
   Static and replay only, not driven. Rails ±12.0 m/s; every closing speed published is 64/72 of the old 1/64 reading (−11.1 %), the D-041 danger
   direction. `ONPATH_ADOPT_RAIL_VREL_MPS` = rail + 1.0 = −11.0 (approved). Open: a separate fit of the scale itself,
@@ -92,10 +99,10 @@ declared so opendbc enforces them.
   was solved from a **single tape point with the offset assumed** and read ~9% short —
   −9 m at 60 m against vision.
 - **Range offset is a per-unit calibration value, not a constant.** The firmware term is
-  `−n/128`, with `n` assembled from a config word plus a runtime addend; `335` (−2.617 m) is
-  only the fallback when the config word reads zero. `−3.0` is retained because it sits
-  inside the plausible calibration range. Read it from the radar's own configuration rather
-  than re-fitting it.
+  `−n/128`, with `n` assembled from an NvM config word plus a runtime addend; `335` (−2.617 m) is
+  only the fallback when the config word reads zero. The ROM table gives `346` for the Civic (cfg 5530,
+  −2.703 m) and `341` for the CR-V (cfg 5448); these replaced `−3.0` under D-076. Static only:
+  Peter's own unit (A150) may carry a different value, and no tape check has been done.
 - **Azimuth = `(raw_angle − 1024)/2048` rad**, closed independently by the `f3` angular-edge
   pair. Supersedes the older empirical 0.032 deg/count fit.
 - **Sweep cadence = 14.35 Hz** (median of `0x280` inter-arrival across Peter's routes; p5
@@ -105,7 +112,7 @@ declared so opendbc enforces them.
 ### The U11 / u10 velocity channel — the expensive part
 
 `[CONFIRMED, replay + route evidence]` The auxiliary frame carries an 11-bit offset-binary
-velocity field (**U11**, `1/64` m/s per count, centre 864) and a 10-bit companion
+velocity field (**U11**, `1/72` m/s per count since D-074, logged at `1/64` before 2026-10-02, centre 864) and a 10-bit companion
 uncertainty (**u10**). Two hard-won rules govern it, and both were learned by breaking them:
 
 1. **A saturation rail is a bound, not a missing measurement, and it must still be
@@ -11779,3 +11786,145 @@ closed-loop vehicle response or road behavior. No route replay or device install
 Historical overview paragraphs above still mention superseded 1/64 velocity, -3 m
 range offset and telemetry-only range rate; the current source and later numbered
 entries record 1/72, per-car offsets and D-053's bounded range-rate use.
+
+## 273. Radar-only long fixes now follow the Bosch A Radar toggle; three Galaxy toggles removed (2026-10-19). Static and unit evidence only, not driven.
+
+Owner, before a vision-only (BoschARadar off) drive: "separate all of the radar-only long fixes ... when I turn on
+Bosch a radar, it should already be on", and remove the Resume Brake Ramp, Ease Weak-Lead Accel Cap and Stock Brake
+Feel toggles from Galaxy. Where each piece now sits:
+
+- **Bosch-A radar only** (`bosch_a_radar_on(CP)` / `self.bosch_a_radar` in `longitudinal_planner.py`: Honda, Bosch-A
+  fingerprint, `not CP.radarUnavailable`): Stock Brake Feel (D-086, with STOP_EASE and the D-080 newborn bound;
+  `toggle.stock_brake_feel` is now the Bosch-A radar condition itself), EXP_CAM_LEAD_BRAKE (D-125),
+  CLOSE_LEAD_CAP_VLEAD_FLOOR (D-125), the far-lead coast cap (STATUS 110), and the off-axis / onpath bound
+  (`uses_off_axis_lead_bound`, so the onpath shadow planner is not built on a vision drive). Everything in radard
+  that reads `lead.radar` or track state was already inert with no radar points.
+- **Both planners, built in**: Resume Brake Ramp (longcontrol; the owner drove it on) and Weak-Lead Cap Ease (its
+  newborn-lead part only ever acts on radar leads). The owner asked to keep the close-lead cap rate limits
+  (D-073/D-123/D-124) for vision; they and EXP_EARLY_ONSET, the brake-release/coast slews, EXP_MODE_EXIT_BLEND,
+  MPC_QP_CAP_RESOLVE and the actuator behaviour (D-093/095/097) are unchanged for both.
+- The `ResumeBrakeRamp`, `StockBrakeFeel` and `WeakLeadCapEase` param keys stay in `params_keys.h` (no params
+  library rebuild) but nothing reads them. The device UI rows went with the Galaxy entries.
+
+Behaviour change on a radar drive: Stock Brake Feel is now on whenever Bosch A Radar is on (the owner's device had
+it at 0). On a vision drive the far-lead coast cap, EXP_CAM_LEAD_BRAKE and the vLead floor no longer run.
+
+## 274. Vision slow stopped-lead cap bounded by stopping physics (2026-10-19). Static and unit tests; replay pending.
+
+The owner bookmarked "one weird jerk at a red light" on 0000039d (vision-only, experimental, 51a50191b). Job's log
+and open-loop replay (aT corr 0.997) put it at 8:22.3. Creeping at 1.06 m/s, 7.4 m behind a stopped pickup,
+`get_vision_slow_stopped_lead_cap` stepped from -0.35 to -1.20 in one frame and held for 0.35 s. aEgo reached -1.49
+while the model asked -0.35, and the model stopped at 6.6 m. Its 7 m stop_gap left available_gap at the 0.5 m floor, so
+required_decel saturated. There is a twin at 22:55 (stopped SUV behind a school bus).
+
+The cap now asks for no more than 1.5 x v^2 / (2 (dRel - 3 m)), with VISION_SLOW_LEAD_HARD_GAP and
+VISION_SLOW_LEAD_PHYSICS_MARGIN. At the bookmark that is 0.19, at the 0.18 floor. Approaches at speed still reach the
+1.2 ceiling (10 m/s to a stopped lead at 40 m allows 2.0). The MPC, e2e and the other caps are untouched. On the
+owner's standing OK to remove guards that hurt braking without adding smoothness. Open: Job's closed-loop replay of
+39d segments 6-8 and 22.
+
+**274 replay (Job R14, 39d, closed and open loop, logged toggles, 85aa94bb4 vs 51a50191b).**
+- Fidelity: aEgo corr median 0.82 / 0.83, vEgo RMSE median 0.21. The worst window is the 8:22 event itself (0.67 / 0.83).
+- Open loop: at 8:22.3 the output goes -1.20 -> -0.35, which is the model's ask. At 22:54 it goes -1.20 -> -0.40.
+- Output onset equals e2e onset at both events, and the output is never shallower than e2e (0.00 s).
+- The bound changed the output on 2.75 s of the route, all at 1.3-4.9 m/s behind stopped queues.
+- Closed loop: min gap is 0.1-0.8 m closer than base in every changed window; the smallest is 2.2 m (base 2.5).
+- Gap at the stop is 3.6-4.4 m (base 3.8-4.6). Nothing cap-driven ends under 2 m.
+- The replay harness creeps through logged standstills (negative gaps in both arms), so that part is not evidence.
+
+## 275. MPC lead filter re-seeded when a lead enters it (2026-10-19). Static, unit tests and replay (361/363).
+
+Branch mpc-lead-onset-seed, not on the car.
+
+**What changed.** When leadOne or leadTwo enters the filtered path in long_mpc.process_lead, the shared lead_v_filter/lead_a_filter now starts at the measured values. "Enters" means the lead just appeared, or the model lead path just dropped it (an urgent close, or prob <= 0.35).
+- It only does this when the stale value is faster than vLead, the late-braking direction.
+- A stale value slower than vLead is left alone. Seeding in both directions broke 36 planner tests (fresh filters start at 0).
+- The per-lead split from 85f4aade0 is not included. It changed 7 tests, and source STATUS 254 found no leak away from onset.
+
+**Static evidence.** Two new tests are red on the base code and green with the fix:
+- 380 3:50.3 shape: base reads 35.0 against vLead 20.1.
+- Urgent hand-back from the model path: base reads 28.6 against vLead 8.0.
+
+680 planner tests pass.
+
+**Next.** Job replays 361 and 363 (Peter: highway segments) against base, measuring onset |dv| and fidelity.
+
+**275 replay (Job R15, closed loop, logged toggles, b0.075 plant, 4dd2649a9 vs 1ee280a39).**
+- Fidelity is the same in both arms. 363: aEgo corr median 0.97, vEgo RMSE median 0.13. 361: corr 0.95, vEgo RMSE median 0.13, but it drifts up to 175 m in position, so its gap/TTC figures are not evidence.
+- Every onset frame where the MPC lead speed was more than 1 m/s off is gone:
+  - 363 (20 onsets above 47 mph): 6 -> 0. Max 3.37 -> 3.20; the 3.20 is a pre-existing non-onset vision frame where the MPC reads the lead slower.
+  - 361 (17 onsets above 47 mph): 5 -> 0. Max 6.25 -> 1.25.
+  - The remaining non-onset frames are identical in both arms.
+- Output: identical on 361. On 363, five windows differ by more than 0.05, and none moves min out by more than 0.07.
+- Largest change, 363 11:07.6 (lead onset at 83 m): min out -1.81 -> -1.74. This comes after closed-loop divergence that began at 10:44.
+- Min gap 4.1 m, min TTC 2.59 s and gas-to-brake cycles (5 on 363, 21 on 361) are the same in both arms.
+- No window moved by more than 0.3, so no frames were pulled.
+- Verdict: the fix corrects the MPC's internal lead speed with no measurable change to how the car drives on these routes. Shipped default on (it has no toggle).
+
+## 276. Close-lead brake cap uses the measured speed, not the cluster speed (2026-10-20). Static, unit test and replay (R19). Shipped.
+
+Branch close-cap-measured-vego, shipped to iq-nav-on-pr10, pr10-smooth and ns-bosch-radar-testing on 2026-10-20 (Peter: ship as-is, no TTC floor).
+
+**What happened.** Peter's hard brake on 000003a0 at 23:29.8 (Job R16/R17, log and open-loop replay) came from the close-lead brake cap.
+- It reached -3.50 at 1409.69, and aEgo peaked at -4.08.
+- The cap was fed the planner v_ego, get_planner_v_ego = max(vEgo, vEgoCluster). That max is upstream StarPilot's 4ef2bca38 "1mph undershoot", there for cruise tracking.
+- Honda's cluster speed (ROUGH_CAR_SPEED_2) steps and holds while braking. At 1409.5-1409.8 it read 5.81 while vEgo fell from 5.41 to 4.37. At 3:23.9 it read 12.07 against 9.43.
+- With vEgo alone, the static cap is -1.35 at 1409.69 instead of -3.50, and -2.12 at 203.88 instead of -3.58.
+- The static formula with the max() reproduces every logged closeLeadBrakeCap.
+- A vision range read short in sun glare added to it. Raw Bosch A radar, decoded offline, read 10.1-10.5 m against vision's 8.3-8.8 m.
+
+**Change.** The three get_close_lead_brake_cap calls now take scene_v_ego (carState.vEgo). Most lead-scene logic already used scene_v_ego.
+- The geometry, fast-closing, slow-stopped and low-speed caps are unchanged.
+- The cruise speed path and the MPC are unchanged.
+- New test, red on base (-3.50) and green with the change (-1.26). 681 planner tests pass.
+
+**R17 sensitivity arms, not shipped.**
+- S1: dRel used by the cap held to a kinematically consistent drop.
+- S2: a faster release slew. S2d: S2 without the dwell.
+- None of them changed the -3.50 peak, and S2/S3/S2d shortened the min gap in closed loop.
+- The release dwell (BRAKE_RELEASE_DWELL_TICKS 2) and slew (BRAKE_RELEASE_JERK 2.5) held -3.50 for about 0.1 s after the cap eased. They are left alone.
+
+**Replay harness caveat.** alpha_closed_loop_replay sets vEgoCluster to the sim speed, so closed loop cannot show this effect unless the logged cluster offset is fed back in.
+
+**276 replay (Job R19; base 9e722afbd vs fix d025c48b2; 3a0, 39c, 39d, 361, 363, 380; logged toggles; b0.075).**
+Setup:
+- Closed loop is run on event windows only; vEgoCluster = sim v + the logged cluster offset.
+- The full-route closed loop drifted and was discarded.
+- Fidelity of the base windows: corr 0.977-0.999, vEgo RMSE 0.09-0.27.
+
+The offset, from the logs:
+- When out < -1, vEgoCluster - vEgo is over 0.3 in 94% of frames (p50 0.82, p90 1.41, max 3.30). It is about a 0.7 s lag, not a scale error.
+- The cap was binding for 45 s across the six routes, 37.5 s of that with an offset over 0.3.
+
+Closed loop, Peter's brake (3a0 23:02-23:38), base -> fix:
+
+| | base | fix |
+|---|---|---|
+| min out | -3.50 | -2.74 |
+| aEgo peak | -4.21 | -3.58 |
+| min gap | 7.6 m | 6.9 m |
+| min TTC | 2.3 s | 2.3 s |
+
+Other windows:
+- Peaks are 0.1-0.6 shallower. Min gap is 0.3-0.8 m smaller in most windows, and never below 3.3 m where the fix changed anything.
+- Two windows lost TTC: 39d 10:00 (3.7 -> 3.4) and 361 22:04 (3.7 -> 3.3).
+- 380 3:38 brakes slightly harder.
+- Gas-to-brake cycles are unchanged on every route.
+- Open loop flags the fix as softer at TTC < 3 s only at 3a0 23:29 (10 frames, min TTC 2.38, gap 8.4 m).
+- Stills show a real in-lane lead in every changed window.
+
+Job suggests a TTC floor (no relaxation below 3 s / 10 m). That would keep the inflated brake at exactly Peter's event, so it is not taken. Peter chose to ship as-is (2026-10-20).
+
+Side finding: brake_release_limited_target returns the target unlimited once prev >= 0. After a brake ends, output can jump to the exp blend target at about 12 m/s^3 (3a0 23:31: 0.03 -> 0.62). This is a candidate gas-lurch source, open.
+
+## 277. Peter integration through `6db22115e8` (D-137–D-142, 2026-10-26).
+
+[CONFIRMED, static merge review and local unit tests] Source: `trung791997/openpilot:ns-bosch-radar-testing`
+`6db22115e821faa9e67aaba2d2338a78097e30b1`, base `217688cc88`. Incoming STATUS 250/253/255/256 are 273–276 above
+(D-numbers inside them are the source's own; see D-142). The young-track camera hold is listed under open topics.
+Peter's steering resume ramp is ported to `latcontrol_honda_eps` as `HondaEpsResumeRamp` (default off); his lane-change
+counter-torque cancel and road edge guard (D-137/D-138) and V-ASM radar assist (D-139/D-140) arrive default off; the
+V-ASM dark-side gate (D-141) and the built-in longitudinal changes in 273 are on. See D-142 for what that changes on a
+device that had Stock Brake Feel off.
+
+Not driven, no route replay in this integration; the replay evidence in 273–276 is the source's.

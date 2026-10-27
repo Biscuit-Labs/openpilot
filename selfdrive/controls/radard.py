@@ -632,6 +632,30 @@ NEWBORN_KF_STALE_SEED_S = 0.5
 # Built in on for Bosch-A (owner, 2026-10-03; was the BoschANewbornLeads toggle): main() calls set_bosch_a_newborn_leads().
 NEWBORN_LEAD_NEEDS_CLOSING = True
 
+# Young-track vision hold at a crawl (REPLAY ONLY, no DECISIONS entry yet). Route 00000361 24:33.2 (launch behind a
+# lead pulling away): track 43 was born at 6.2 m and measured from its second sweep, but its U11 read about -0.3 m/s
+# for its first four sweeps (u10 61-124, under the 511 limit) while its own range opened 6.17 -> 6.36 m and the camera
+# (prob 1.0) had the lead at 2.2-2.8 m/s. vel_sane passes any disagreement under 10 m/s, so it became leadOne at age
+# 0.13 s with vLead 0.15; the planner target fell +1.21 -> -0.21 and aEgo +2.1 -> +0.5 until U11 caught up at age
+# 0.34 s (u10 44), and Peter pressed the gas at 24:34.3. Across 327/328/329/361 re-parsed with this parser (Job,
+# 2026-10-17) there are 11 events where a radar lead under 2 s old disagrees with the camera by > 1.5 m/s at vEgo < 5.
+# Truth (vEgo + the track's own range slope 0.5-1.0 s later) exists for 8. Of the five with radar slower than the
+# camera, the camera was closer in all three where the track was at most 0.34 s old (361 24:33 and 21:05, 329 5:46,
+# each with its range opening over its first 4 sweeps), and radar was closer in both where it was 0.74 s or older
+# (328 3:02 at 1.63 s; 361 51:30 at 0.74 s, its range closing). Not covered: 328 33:20 (age 1.61 s, camera closer,
+# u10 250) and the radar-faster events, which this never touches. So at a crawl, a Bosch-A track no older than
+# YOUNG_HOLD_MAX_AGE_S whose speed is more than YOUNG_HOLD_MIN_SLOWER below a confident, not-closing, not-braking
+# camera lead, and whose own range is not closing, is not the vision match and not a low-speed takeover; the lead
+# stays the camera's until the track is older or agrees. Nothing is deleted or altered: the point is published and
+# tracked, and the KF runs. Exposure is bounded: at most YOUNG_HOLD_MAX_AGE_S at under YOUNG_HOLD_MAX_VEGO (<= 1.2 m
+# of travel) behind a lead the camera says is moving away. Replay evidence only; not road-validated.
+YOUNG_TRACK_VISION_HOLD = True
+YOUNG_HOLD_MAX_VEGO = 3.0          # m/s; 24:33 and 21:05 were at 0.6-0.7
+YOUNG_HOLD_MAX_AGE_S = 0.4         # s; the camera was right through age 0.34, radar from 0.74
+YOUNG_HOLD_MIN_SLOWER = 1.5        # m/s; camera lead speed above the radar's by more than this
+YOUNG_HOLD_MIN_PROB = 0.9
+YOUNG_HOLD_RANGE_CLOSING = -0.3    # m/s; a range slope at or below this over >= 3 sweeps means closing: no hold
+
 # ONPATH_RADAR_ADOPT: a radar-only track that sits on the driving path for a second is published as
 # radarState.leadOnpath, beside an unchanged leadOne, so the planner can brake for it before the camera sees it. Above
 # V_EGO_STATIONARY, get_lead only consults radar when the model lead's probability clears lead_detection_probability,
@@ -763,6 +787,17 @@ FAR_RAIL_RANGE_WINDOW_S = 1.5
 # no D-107 veto) while its range converged 66 -> 54 m onto the camera's 52 m; read as a -11 m/s fit, that removed
 # the -3.6 bound and braked -1.67 (shipped -1.45 later). Replay evidence only; not road-validated.
 FAR_RAIL_COASTED_OWN_RANGE_VETO = True
+# Route 00000380 3:17.6-3:19.9 (Peter's bookmark, replay-reproduced -1.40, car -1.27): far track 47 at 93-105 m coasted
+# at the -12.0 rail for 2.2 s, as leadOne and leadTwo, while the camera car at the same range read 23.5-24.2 m/s (vEgo
+# ~22, strict match 12-19 of 20). Its birth ranges really fell at ~10 m/s (fit rms 0.1), so the frozen vRelRangeDerived
+# (-7.8) armed the veto and the fresh fit (slope -9.1 easing to -2.5) never rose past the camera floor (-1.0..-1.7) to
+# lift it: the full rail stood. But the rail is a clamp (D-090) and the track's own fresh ranges said -9 .. -2.5. When
+# the veto keeps the rail on a coasted lead whose own fresh ranges fit, the lead now publishes that fit's flat-range
+# floor (slope - YOUNG_TRACK_FLAT_MARGIN, minus the noise term) instead -- the D-101 wide-match floor, from the radar
+# alone; the camera only decides that a bound is considered at all. Whatever closes at or beyond the rail by its own
+# range (a stopped car, 266 484 at -15..-19, 311 2490.0) has a floor at or below the rail and keeps it. Never above
+# the camera floor (the fit slope is at or below it when the veto holds). Replay pending; static tests only.
+FAR_RAIL_VETO_OWN_RANGE_FLOOR = True
 
 # D-089 (STATUS 225; replay only, not driven): a Bosch-A point re-admitted by the range-scaled far-range re-anchor
 # (RadarPoint.recovered, see BOSCH_A_REANCHOR_RECOVER_SIGMA_FRAC) may be a lead, adjacent or onpath candidate only after
@@ -893,6 +928,31 @@ def young_track_vision_contradicts(lead, vis, v_ego: float) -> bool:
           float(vis.a[0]) >= YOUNG_TRACK_VISION_MIN_ACCEL)
 
 
+def young_track_vision_hold(track, lead, v_ego: float) -> bool:
+  """YOUNG_TRACK_VISION_HOLD: True while a young Bosch-A track at a crawl reads clearly slower than a confident camera
+  lead that is neither closing nor braking, and the track's own range does not show it closing."""
+  if not YOUNG_TRACK_VISION_HOLD or track is None or not float(v_ego) < YOUNG_HOLD_MAX_VEGO:
+    return False
+  if not (track.t_last - track.t_first <= YOUNG_HOLD_MAX_AGE_S):
+    return False
+  if float(getattr(lead, 'prob', 0.0)) < YOUNG_HOLD_MIN_PROB or not len(lead.v):
+    return False
+  vision_v = float(lead.v[0])
+  if vision_v - float(v_ego) < -YOUNG_TRACK_VISION_MAX_CLOSING:
+    return False
+  vision_a = getattr(lead, 'a', None)
+  if vision_a is not None and len(vision_a) and float(vision_a[0]) < YOUNG_TRACK_VISION_MIN_ACCEL:
+    return False
+  if not vision_v - (float(v_ego) + float(track.vRel)) > YOUNG_HOLD_MIN_SLOWER:
+    return False
+  if len(track.young_range_hist) >= 3:
+    a = np.array(track.young_range_hist, dtype=np.float64)
+    ts = a[:, 0] - a[-1, 0]
+    if ts[-1] - ts[0] > 0 and float(np.polyfit(ts, a[:, 1], 1)[0]) <= YOUNG_HOLD_RANGE_CLOSING:
+      return False
+  return True
+
+
 def young_range_genuinely_closing(track, v_ego: float) -> bool:
   """NEWBORN_RANGE_CLOSING_EXEMPT: True when this young track's own fresh-sweep range history since birth fits a clean
   line that closes clearly but no faster than a stopped object allows, and, once measured, its U11 vRel agrees with that
@@ -1007,8 +1067,12 @@ def far_rail_vrel_floor(lead, hist, v_ego: float, range_hist=None) -> float | No
     if not (FAR_RAIL_COASTED_OWN_RANGE_VETO and range_hist is not None and not getattr(lead, "measuredRadar", True)):
       return None
     fit = own_range_fit(range_hist)
-    if fit is None or fit[0] <= floor:
+    if fit is None:
       return None
+    if fit[0] <= floor:
+      # FAR_RAIL_VETO_OWN_RANGE_FLOOR: the own range closes, but not as the rail claims; bound by it alone
+      own = min(fit[1], floor)
+      return own if FAR_RAIL_VETO_OWN_RANGE_FLOOR and own > lead.vRel else None
   return floor
 
 
@@ -1844,6 +1908,8 @@ def track_matches_vision(track: Track, lead: capnp._DynamicStructReader, v_ego: 
   if honda_bosch_a and NEWBORN_LEAD_NEEDS_CLOSING and track.cnt == 0 and not track.measured and \
      not young_range_genuinely_closing(track, v_ego):
     return False  # NEWBORN_LEAD_NEEDS_CLOSING: a never-measured newborn is no lead until its range proves closing
+  if honda_bosch_a and young_track_vision_hold(track, lead, v_ego):
+    return False  # YOUNG_TRACK_VISION_HOLD: the camera keeps the lead while a young track's U11 settles
   if not vel_sane and honda_bosch_a and young_range_genuinely_closing(track, v_ego):
     vel_sane = True  # NEWBORN_RANGE_CLOSING_EXEMPT: the track's own range proves the closing the camera disputes
   lat_sane = abs(track.yRel + lead.y[0]) < max(y_floor, y_std_scale * max(float(lead.yStd[0]), 0.2))

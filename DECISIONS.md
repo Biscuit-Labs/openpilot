@@ -3343,3 +3343,23 @@ ledger is kept and renumbered: incoming D-108/110/118/121/122 are D-137 through 
   across a hand-off (regression test in `test_honda_eps_model_source.py`).
 
 No route replay, live radar, or road validation in this integration.
+
+## D-143 — eps_tools validates every image the same way; flash.py never skips checksums (2026-10-27)
+
+**Decided 2026-10-27; explicit owner request, static/unit-test evidence only.** Imported from
+RiskyBiscuit-arc/eps-tools `6ea931b61b82189f6aee6f94b72394c0fe32026a` (PR #1).
+
+- `check_rwd.py` gives every image the same checks, whatever the vehicle. Nothing is gated on a known key or on
+  hard-coded lengths. The checks are: container and file checksum; the headers the flasher reads (ECU address,
+  matching software-ID and seed-secret counts, 6-byte secrets); and both firmware checksums, located from the
+  block length (word sum at `length - 0x80`, negative sum at `length - 2`). This replaces the local 0x74000 RDX
+  TJB entry (92428ab4). That entry used the same offsets, so TJB images stay covered.
+- `flash.py` is the new-user path. It refuses malformed or checksum-failed images before it stops openpilot,
+  and it never passes `--skip-checksum`. Manual `eps-update.py --skip-checksum` remains the advanced-user path.
+  Rejected: letting the guided flasher offer `--skip-checksum`.
+- `eps-update.py` runs the header checks even with `--skip-checksum`. It has no silent mock fallback (`--mock`
+  opts in), and it refuses an ECU max block length of 2 bytes or less, which would hang the transfer after erase.
+- The decryption is still the single CR-V/Civic substitution table. An image with a different cipher fails its
+  checksums and is refused, so that case fails safe.
+
+The fork's `eps_tools/rwd/README.md` and its firmware files are kept as they are. No hardware was used.

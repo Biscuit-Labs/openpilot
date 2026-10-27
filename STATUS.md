@@ -11949,3 +11949,11 @@ image), in a scratch checkout of `1975d9a86f` with these changes applied. The bu
 reports 881 keys, including the 2026-10-26 additions. **Not verified on AGNOS 19.6.20**, the version
 `launch_env.sh` flashes. `comma-deps-eigen` was published alongside `comma-deps-capnproto`, which 19.6
 already uses, and the eigen include falls back cleanly if the package is missing.
+
+## 279. eps_tools imported from eps-tools `6ea931b` (D-143, 2026-10-27). Static and unit tests; not run on hardware.
+
+[CONFIRMED, static] The `eps_tools/` snapshot now matches RiskyBiscuit-arc/eps-tools `6ea931b61b`, except for the
+fork-local `rwd/README.md` and firmware. All 23 hardware-free tests pass. `check_rwd.py` fully validates both
+committed images (`39990-TLA-A040-stock.rwd`, `39990-TLA,A040-20261016b-PTM.rwd`) and all 12 TLA/Clarity images
+in the Honda firmware repo. The RDX TJB 0x74000 layout is covered by the general rule. No TJB image was
+re-checked in this session. **Not verified on a Panda or an EPS.**

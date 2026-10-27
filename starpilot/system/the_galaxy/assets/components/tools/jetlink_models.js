@@ -40,9 +40,21 @@ const current = () => (jl.rev, data);
 const models = () => (current() && current().models) || [];
 const locked = () => jl.busy || !!(current() && current().isOnroad);
 
-function stateChip(state) {
-  if (state === "ready") return html`<span class="mm-chip mm-chip-egpu">Built on host</span>`;
-  return html`<span class="mm-chip">${state === "downloaded" ? "Downloaded" : "Not downloaded"}</span>`;
+// The pick's state alone reads "Not downloaded" until the file lands, which
+// looks like nothing is happening while jetlinkd fetches it, and is all a pick
+// shows with the link off, when nothing fetches it at all.
+function pending(d) {
+  if (!d || d.mode === "off") return "Waiting: Jetlink is off";
+  if (!d.present) return "Waiting for the host";
+  const p = d.progress;
+  if (p && p.stage && p.stage !== "ready") return p.msg ? `${p.stage}: ${p.msg}` : p.stage;
+  return "Queued";
+}
+
+function stateChip(m) {
+  if (m.state === "ready") return html`<span class="mm-chip mm-chip-egpu">Built on host</span>`;
+  if (m.selected) return html`<span class="mm-chip mm-chip-warning">${pending(current())}</span>`;
+  return html`<span class="mm-chip">${m.state === "downloaded" ? "Downloaded" : "Not downloaded"}</span>`;
 }
 
 // arrow keeps a reused template's plain values and re-runs only its function
@@ -76,7 +88,7 @@ function modelRow(title, ref) {
         <div class="mm-row-title"><span>${title}</span></div>
         <div class="mm-row-meta">
           ${ref ? html`<span class="mm-chip">${ref.slice(0, 10)}</span>` : ""}
-          ${() => ref ? stateChip(row(ref).state) : ""}
+          ${() => ref ? stateChip(row(ref)) : ""}
           ${() => isSelected(ref) ? html`<span class="mm-chip mm-chip-active">Selected</span>` : ""}
         </div>
       </div>

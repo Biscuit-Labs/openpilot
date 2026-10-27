@@ -57,7 +57,8 @@ try {
       assert.deepEqual(writes, [{ref: B}]);
       // a response that changes what is running and downloaded shows without a reload
       await panel.getByText('Running: ResAction Preview (October 05, 2026)').waitFor();
-      await panel.getByText(mobile ? /^2fb4ac4a00 · Downloaded$/ : /^Downloaded$/).waitFor();
+      // the pick shows the run that builds it, not a bare "Downloaded" that looks stuck
+      await panel.getByText(mobile ? /^2fb4ac4a00 · download: 40%$/ : /^download: 40%$/).waitFor();
       await panel.getByRole('button', {name: 'Use Default'}).click();
       await tab.waitForFunction(() => true);
       await panel.getByRole('button', {name: 'Select'}).nth(1).waitFor();

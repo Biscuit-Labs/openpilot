@@ -1,6 +1,8 @@
-zoompilot/jetlink 491cf1ef8d6786ed51cf995e18fc8721389066c6 (v0.8.7 plus USB power fix), API 3.
-Vendored subset: jetlink/, scripts/comma/, LICENSE, pyproject.toml, README.md, tests/, catalog/.
+zoompilot/jetlink bf4dc940e98f5d3ed9b7163adb021439010d634f (v0.8.9 plus adapter-warp fixes), API 3.
+Vendored subset: jetlink/, scripts/comma/, LICENSE, pyproject.toml, README.md, tests/, catalog/,
+CHANGELOG.md, scripts/changelog.py, scripts/upstream/check_{imports,paths}.py and docs/porting.md
+(upstream documentation, release and adapter-conformance test dependencies).
 Local route-backed HOLDS_ALLOWED=40 retained from Trung's existing port (route 00000313;
 see model_state.py), rather than reverting silently to upstream's 20.
 Whitespace-only EOF cleanup in comma/owner.py, onnx_meta.py and four upstream test files.
-Native modeld QCOM warps replace the former four-input StarPilot bridge (D-133).
+Native modeld QCOM warps retained (D-133); optional upstream adapter warp/reset hooks are unused.

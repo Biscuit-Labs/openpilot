@@ -605,7 +605,7 @@
       {
         "key": "HondaEpsController",
         "label": "Honda EPS Controller",
-        "description": "Steer a PTM-flashed Civic, Insight or CR-V with the controller that inverts the EPS firmware's own control law. The Clarity always uses it. Takes effect the next time you start the car.",
+        "description": "Use the firmware-inversion controller for supported PTM-flashed Civics, Insights, CR-Vs and RDXs. Civic, Insight and CR-V A040 calibrations require the corrected revision-b PTM. CR-V A220 retains this fork's original 8f175250 firmware calibration. The Clarity always uses it. Takes effect on the next drive.",
         "data_type": "bool",
         "ui_type": "toggle",
         "parent_key": "NrdrPidController",

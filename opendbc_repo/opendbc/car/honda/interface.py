@@ -7,7 +7,7 @@ from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.values import CarControllerParams, HondaFlags, CAR, HONDA_BOSCH, HONDA_BOSCH_A, HONDA_BOSCH_CANFD, \
                                                  HONDA_NIDEC_ALT_SCM_MESSAGES, HONDA_BOSCH_RADARLESS, HondaSafetyFlags
-from opendbc.car.honda.steer_ratio import get_honda_vgr_profile, HONDA_VGR_PROFILE_FLAGS, normalize_honda_eps_fw
+from opendbc.car.honda.steer_ratio import get_honda_vgr_profile, HONDA_VGR_PROFILE_FLAGS
 from opendbc.car.honda.carcontroller import CarController
 from opendbc.car.honda.carstate import CarState
 from opendbc.car.honda.radar_interface import RadarInterface
@@ -112,12 +112,9 @@ class CarInterface(CarInterfaceBase):
       ret.longitudinalTuning.kiV = [1.2, 0.8, 0.5]
 
     eps_modified = False
-    is_c120_modified_eps = False
     for fw in car_fw:
       if fw.ecu == "eps" and b"," in fw.fwVersion:
         eps_modified = True
-        if normalize_honda_eps_fw(fw.fwVersion) == "39990-TBA-C120":
-          is_c120_modified_eps = True
 
     if eps_modified:
       ret.flags |= HondaFlags.EPS_MODIFIED.value
@@ -159,7 +156,11 @@ class CarInterface(CarInterfaceBase):
         ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[1.1], [0.33]]
 
     elif candidate in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL):
-      ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 4096], [0, 4096]]  # TODO: determine if there is a dead zone at the top end
+      # The Civic Bosch EPS (TBA-C020, TBA-C120, TGG-A120) clamps its command input at key 1663 = E4 3840, stock firmware
+      # and PTM builds alike (the PTM builds keep the stock decode): above 3840 the request did nothing. The diesel's EPS
+      # image has not been read, so it keeps 4096.
+      steer_max = 3840 if candidate == CAR.HONDA_CIVIC_BOSCH else 4096
+      ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, steer_max], [0, steer_max]]
       if eps_modified:
         # NRDR modified-EPS Bosch tune: four-point handoff at 25 mph, with C020's native
         # command range and rack model retained.
@@ -168,12 +169,6 @@ class CarInterface(CarInterfaceBase):
         ret.lateralTuning.pid.kf = 3.6e-6
         ret.steerAtStandstill, ret.autoResumeSng = True, True
         ret.minEnableSpeed, ret.minSteerSpeed = -1.0, -1.0
-        if is_c120_modified_eps:
-          # NRDR 39990-TBA-C120 linear-max: the modded table ramps linearly to the 3840
-          # firmware cap, so the piecewise breakpoints collapse to a single ramp. C020 is
-          # left on the 4096 range above -- its native command range and rack model are
-          # retained -- this only applies to the C120 image specifically.
-          ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 3840], [0, 3840]]
       else:
         ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
       if candidate == CAR.HONDA_CIVIC_BOSCH:
@@ -303,7 +298,8 @@ class CarInterface(CarInterfaceBase):
       # 2019-21 and 2022+ cars end up on the same rack image and share this branch. Its target map X axis runs
       # E4 0..4096 (command key a = E4/4 up to 1024), and Route A puts the 30000 top there, level with the
       # Clarity's 29982 at its 3840 cap -- so at 4096 the normalized output asks for the same target as the
-      # Clarity and its gains carry over 1:1. No EPS firmware calibration yet, so it stays on LatControlPID.
+      # Clarity and its gains carry over 1:1. LatControlHondaEps steers it with HondaEpsController on
+      # (honda_eps_calibrations ACURA_RDX_TJB_A220); otherwise LatControlPID on this tune.
       ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 4096], [0, 4096]]
       # Shares the modified-EPS Clarity tune: four-point handoff at 25 mph.
       ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kpV = [[0., 25. * CV.MPH_TO_MS - 1e-3, 25. * CV.MPH_TO_MS, 50. * CV.MPH_TO_MS], [0.018, 0.024, 0.048, 0.060]]
@@ -363,7 +359,9 @@ class CarInterface(CarInterfaceBase):
         ret.steerAtStandstill, ret.autoResumeSng = True, True
         ret.minEnableSpeed, ret.minSteerSpeed = -1.0, -1.0
       else:
-        ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 4096], [0, 4096]]  # TODO: determine if there is a dead zone at the top end
+        # The TXM-A040 EPS clamps its command input at key 1663 = E4 3840 in stock firmware too: above it the request
+        # did nothing.
+        ret.lateralParams.torqueBP, ret.lateralParams.torqueV = [[0, 3840], [0, 3840]]
         ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.6], [0.18]]
 
     elif candidate == CAR.HONDA_NBOX_2G:

@@ -1,6 +1,6 @@
 # Status
 
-**As of: 2026-10-16**
+**As of: 2026-10-26**
 
 Update the date above whenever this file changes. If it is stale, trust `git log` over this
 file.
@@ -11,7 +11,7 @@ Repo: StarPilot / openpilot fork `openpilot-radar`. Working branch
 2026-09-30 and survives as tag `archive/claude/radar-testing-state-88vt2t`.) Branches deleted in that
 cleanup are cited below as their `archive/<name>` tags. For the current tip, trust `git log`, not this line.
 
-**Latest work (2026-10-16), start here:** Trung sync through
+**Latest work (2026-10-26), start here:** VFN radar-testing/RDX and JetLink v0.8.9 integration (item 272); Peter sync follows. Prior sync (2026-10-16): Trung sync through
 `217688cc8`, VFN `8715c7de4`, and JetLink API 3 (items 269–271). Prior local work: item 261 (A220 PTM controller calibration and
 firmware VGR support, static/unit tests only). Then item 259 (bind the JetLink icon to live per-frame
 big-model telemetry). Then item 258 (comma 3X JetLink onroad status icon).
@@ -11744,3 +11744,38 @@ text and records evidence):
 fork has no open PRs; no separate PR merge, external repo write or duplicate PR was needed.
 No route replay, live radar/fusion timing, QCOM hardware validation, live JetLink
 handoff, closed-loop vehicle test, device installation or road validation occurred.
+
+
+## 272. VFN radar-testing/RDX and JetLink v0.8.9 integration (D-135/D-136, 2026-10-26).
+
+[CONFIRMED, static integration and local unit/build checks] Source pins:
+JamesL787/openpilot `4897442f842c76c19610f571edbd6edd228d376e` on
+`ns-bosch-radar-testing`; zoompilot/jetlink
+`bf4dc940e98f5d3ed9b7163adb021439010d634f`. Baseline:
+`61ca14e0c08480d067d5ecb137d66f99a2ae4d67`. This entry is included in the merge commit
+that implements these changes; final validation will bind the resulting SHA explicitly.
+
+RDX 3G/MMR firmware/controller/rack/rate/yaw/delay support is imported. The retained
+A220 artifact keeps its exact prior mapping and geometry. Model-source telemetry uses
+this fork's schema ordinals, preserving its live JetLink icon fields. The previous
+native model/tinygrad artifacts remain unchanged. JetLink is updated in its one
+canonical vendor; its AGNOS USB boot helper now runs before manager.
+
+Validation on Apple-silicon macOS in .venv-codex:
+- Prescribed `scons -j8 msgq_repo/ cereal/ opendbc_repo/ common/ selfdrive/`: passed.
+  The initial link found the restored device common/libcommon.a; targeted scons clean
+  and rebuild resolved it. The cleanup helper cannot run in macOS's Bash 3 (mapfile).
+- Complete Honda suite plus EPS/RDX/spec-plant/model-source/A220/gain-schedule tests:
+  **1000 passed**.
+- JetLink selected upstream suites: **1030 passed, 4 skipped, 188 subtests passed**.
+  Skips cover unavailable shellcheck and a vendor without its own .git checkout.
+- Local native adapter/join/launch checks: **12 passed**. Suppressing Warp.start in an
+  isolated test interpreter fails the actual CPU frame assertion (negative control).
+- JetLink runtime/script lint and Bash syntax passed. Vendor hash census: 111 of 118
+  source files exact; six EOF-only cleanups and the retained hold allowance differ.
+
+These checks do not exercise live radar/fusion timing, QCOM, physical USB handoff,
+closed-loop vehicle response or road behavior. No route replay or device installation.
+Historical overview paragraphs above still mention superseded 1/64 velocity, -3 m
+range offset and telemetry-only range rate; the current source and later numbered
+entries record 1/72, per-car offsets and D-053's bounded range-rate use.

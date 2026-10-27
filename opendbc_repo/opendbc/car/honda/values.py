@@ -94,6 +94,7 @@ class HondaFlags(IntFlag):
   VGR_CRV_TLA_A040 = 262144
   VGR_CIVIC_TBA_C120 = 1048576
   VGR_CRV_TLA_A220 = 524288
+  VGR_RDX_TJB_A220 = 2097152  # measured on the road: the TJB image has no angle table (see steer_ratio.py)
 
 
 # Car button codes

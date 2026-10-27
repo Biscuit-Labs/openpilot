@@ -69,6 +69,30 @@ CIVIC_TEG_A010_RACK = RackMapTable(
   slip_factor=-0.00067,
 )
 
+# Civic hatch (TGG-A120), through the C020's A table that image carries: the same method on its VSA yaw (0x94 bus 1,
+# 0.2429 deg/s per count + 0.134 clockwise from 65k straight-to-straight GPS pairs, tools/lateral/fit_yaw_scale.py)
+# over the owner's routes 83ccc6a9a4e14d0b/0000000b-00000010 (2026-10-12/13, 1,700 s moving at >= 3 deg). Held out
+# route by route it predicts the measured curvature within 0.98-1.03 (one slow mid-angle cell 1.034). The spec map it
+# replaces asked 2 % too little wheel in town and 8-10 % too little at 25-32 m/s (centre 14.88 vs 15.09, slip factor
+# -0.00063 vs -0.00079), and on the road curve the car ran instead it delivered 0.92-0.94 of the curvature from 9 m/s.
+CIVIC_TGG_A120_RACK = RackMapTable(
+  ratio_bp=(4.9, 14.1, 28.3, 57.2, 83.4, 123.4, 176.5, 220.5, 299.3, 383.4),
+  ratio_v=(15.09, 15.09, 15.10, 15.10, 14.88, 14.85, 14.72, 14.59, 14.33, 13.94),
+  slip_factor=-0.00079,
+)
+
+# Acura RDX 3G (TJB-A220 PTM), through its road-measured linear map (steer_ratio HONDA_VGR_RDX_TJB_A220: the rack is
+# variable and the image has no table). Fitted the same way on its VSA yaw (0x94 bus 1, 0.2511 deg/s per count - 0.20
+# clockwise, opendbc honda/yaw_rate.py) over routes 412ed2539bfc2c42/000000b8, c6, c7, cc and d2 (1,245 s moving at
+# >= 3 deg), 5-169 deg; past that the tan shape of its R0 (16.41, honda_eps_spec_plant.r0_of_table) carries it to
+# 400 deg, matched to the last fitted knot. Held out route by route it predicts the measured curvature within 0.97-1.03
+# (one slow small-angle cell 0.94).
+RDX_TJB_A220_RACK = RackMapTable(
+  ratio_bp=(5.0, 15.0, 29.1, 51.8, 83.4, 117.6, 169.0, 200.0, 300.0, 400.0),
+  ratio_v=(18.54, 17.00, 16.58, 16.53, 16.23, 16.01, 15.79, 15.69, 15.25, 14.61),
+  slip_factor=-0.00101,
+)
+
 
 class HondaEpsRackMap:
   """Physical wheel angle (deg, left-positive) <-> curvature (1/m, openpilot's right-positive) for one RackMapTable."""
@@ -81,12 +105,25 @@ class HondaEpsRackMap:
     self.path_grid = linear / np.interp(self.angle_grid, table.ratio_bp, table.ratio_v)  # = L * k at zero roll/slip
     assert np.all(np.diff(self.path_grid) > 0), "rack map must be monotonic to invert"
 
+  # Past Table A's last knot the firmware holds its last divisor (linear = physical * Y_end / Y0) and the ratio holds
+  # its value there, so the path keeps growing in proportion to the angle: the Insight's table ends at 430.5 deg, short
+  # of its 457 deg lock, and without this the controller could not ask for the last 27 deg. nrdr's port does the same.
+  def _angle(self, path: float) -> float:
+    if path > self.path_grid[-1]:
+      return float(self.angle_grid[-1] * path / self.path_grid[-1])
+    return float(np.interp(path, self.path_grid, self.angle_grid))
+
+  def _path(self, angle_deg: float) -> float:
+    if angle_deg > self.angle_grid[-1]:
+      return float(self.path_grid[-1] * angle_deg / self.angle_grid[-1])
+    return float(np.interp(angle_deg, self.angle_grid, self.path_grid))
+
   def angle_from_curvature(self, curvature: float, v_ego: float, roll: float) -> float:
     k = -curvature
     path = self.wheelbase * (k * (1.0 - self.slip_factor * v_ego ** 2) - GRAVITY * self.slip_factor * roll)
-    return math.copysign(float(np.interp(abs(path), self.path_grid, self.angle_grid)), path)
+    return math.copysign(self._angle(abs(path)), path)
 
   def curvature_from_angle(self, angle_deg: float, v_ego: float, roll: float) -> float:
-    path = math.copysign(float(np.interp(abs(angle_deg), self.angle_grid, self.path_grid)), angle_deg)
+    path = math.copysign(self._path(abs(angle_deg)), angle_deg)
     k = (path / self.wheelbase + GRAVITY * self.slip_factor * roll) / (1.0 - self.slip_factor * v_ego ** 2)
     return -k

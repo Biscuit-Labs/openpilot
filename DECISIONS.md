@@ -3103,3 +3103,43 @@ warp is incompatible with the API-3/d3f09c9b native modeld warps. Reapplying tho
 would overwrite later work or add an incompatible artifact. Preserve the detailed PR
 head SHAs and disposition in docs/upstream_sync_review.md. No PR was merged or closed
 on James's repository, and no duplicate PR was created on the owner's fork.
+
+
+## D-135 — Sync VFN's requested radar-testing branch, including RDX, with the retained A220 exception (2026-10-26)
+
+[CONFIRMED, static integration and unit tests] Merge JamesL787/openpilot
+`ns-bosch-radar-testing` at `4897442f842c76c19610f571edbd6edd228d376e`.
+This is the owner's selected source, superseding the previous choice of `vfn` for this sync.
+Import the RDX 3G/MMR TJB-A220 calibration, firmware VGR/rate map, yaw model,
+command/model delay schedules, command cap and RDX firmware checksum layout.
+Other incoming EPS calibrations use the upstream revision-b firmware requirements,
+per-image R6 law and rack maps. Their source evidence remains bound to VFN's commits
+and routes; no new measurement or replay is claimed here.
+
+D-133's A220 artifact exception remains canonical: RWD
+`8f175250519130b0a8505291ef328b82f9caf543cfb76c62c3bc23e954e727a7` keeps its
+command/P tables, envelope, constant R6 and previous road-curve/optional firmware-VGR
+geometry. Applying the corrected A220 curve or a spec-predicted rack map solely because
+its firmware ID matches is rejected. Keep A220=524288 and C120=1048576; assign the new
+RDX VGR flag 2097152 to avoid the source's collision with the local C120 flag.
+
+Import model-source command-delay selection and short-fault ride-through. Append
+lateralSource/ delayInput at local StarPilotModelDataV2 ordinals 4/5; keep existing
+1/2/3 desire/navDesire/bigModelActive fields. Importing VFN's conflicting old JetLink
+schema, API-2 vendor copy, old warp artifacts or older model runtime is rejected.
+The native API-3 model/tinygrad stack and local PID/override features remain canonical.
+Keep the existing single checksum validator; add RDX layout there, not a duplicate.
+No device binary rebuild, firmware flash, hardware timing or road result is claimed.
+
+## D-136 — Update the canonical JetLink vendor to v0.8.9 plus warp fixes (2026-10-26)
+
+[CONFIRMED, static integration and unit tests] Import zoompilot/jetlink
+`bf4dc940e98f5d3ed9b7163adb021439010d634f`, retaining API 3, native modeld warps and
+the route-00000313-backed HOLDS_ALLOWED=40 exception. The vendor provenance lists
+all byte differences. Import nonfinite-output fallback, owner cleanup, runtime status,
+compile-pool suppression, coherent-warp fixes and USB power handling. AGNOS launch
+calls the package's boot helper before manager using the saved JetlinkLink setting.
+Keeping only the old scripts/comma helper is rejected: it is now a forwarding shim.
+No second vendor or old-format warp remains reachable. Existing adapter callbacks
+satisfy the API's optional additions without changing their native history reset.
+No physical USB/phone/Jetson handoff, QCOM execution or vehicle validation was run.

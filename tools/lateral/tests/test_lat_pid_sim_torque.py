@@ -177,7 +177,7 @@ def test_rate_damping_opposes_the_wheel_rate_below_30_mph_only():
 @pytest.mark.parametrize("vgr", [False, True])
 def test_clarity_eps_kind_builds_the_car_controller_and_joins_the_feedforward(vgr):
   from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps
-  from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import CIVIC_TBA_C020
+  from openpilot.selfdrive.controls.lib.honda_eps_calibrations import CIVIC_TBA_C020
   d = _route(0.02, vgr=vgr)   # a turn past FF_CRAWL_ANGLE_BP, so the crawl gate is fully open
   d["params"]["NrdrLatUseFirmwareVgr"] = "1" if vgr else "0"
   ctl = sim.Controller(d["cp_bytes"], d["params"], kind="clarity_eps")

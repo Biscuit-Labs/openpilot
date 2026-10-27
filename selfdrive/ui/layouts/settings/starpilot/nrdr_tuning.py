@@ -233,9 +233,7 @@ class NRDRTuningLayout(_SettingsPage):
 
     controller_rows = [
       toggle("HondaEpsController", "Honda EPS Controller",
-             "Use the firmware-inversion controller for supported PTM-flashed Civics, Insights and CR-Vs. "
-             "The Clarity always uses it. Off selects NRDR PID on the other supported cars. "
-             "Takes effect on the next drive."),
+             "Use the firmware-inversion controller for supported PTM-flashed Civics, Insights, CR-Vs and RDXs. Civic, Insight and CR-V A040 calibrations require the corrected revision-b PTM. CR-V A220 retains this fork's original 8f175250 firmware calibration. The Clarity always uses it. Takes effect on the next drive."),
       toggle("NrdrLatVfnOverride", "VFN Steering Override",
              "Driver override from vfn-yaw-trim, written for James's EPS Firmware Feedforward controller: every "
              "press goes through the same 0.28 s filter that controller uses, with no debounce, release hold or "

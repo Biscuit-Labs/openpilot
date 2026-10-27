@@ -122,6 +122,9 @@ function launch {
 
   # hardware specific init
   if [ -f /AGNOS ]; then
+    # JetLink runs from the comma's own power port. Cut USB-C input current
+    # before manager starts the owner, including when a laptop is already plugged in.
+    sudo -n bash "$DIR/jetlink_repo/jetlink/comma/jetlink-root.sh" boot /data/params/d/JetlinkLink &
     agnos_init
   fi
   sp_launch_timing "hardware_init_done"

@@ -149,6 +149,23 @@ struct StarPilotModelDataV2 @0x80ae746ee2596b11 {
   desire @1 :UInt8;     # log.Desire value fed to the driving model for the next frame
   navDesire @2 :UInt8;  # log.Desire the navigation route asked for (none unless it can act)
   bigModelActive @3 :Bool;  # this published frame came from JetLink's big model
+  # Append after this fork's existing fields; VFN's older JetLink schema has different ordinals.
+  lateralSource @4 :LateralSource;
+  delayInput @5 :DelayInput;
+
+  enum LateralSource {
+    unknown @0;
+    plan @1;
+    actionHead @2;
+    curvatureHead @3;
+  }
+
+  enum DelayInput {
+    unknown @0;
+    none @1;
+    actionT @2;
+    lateralControlParams @3;
+  }
 
   enum TurnDirection {
     none @0;

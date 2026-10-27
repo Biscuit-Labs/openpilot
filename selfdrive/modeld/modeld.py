@@ -23,6 +23,7 @@ os.environ['DEV'] = 'QCOM' if TICI else 'LLVM'
 # realtime, sized PARALLEL = cpu count. 8 spawn workers held ~270 MB on a
 # 3.6 GB mici and pushed it past selfdrived's 90% lowMemory soft-disable; the
 # small model is a prebuilt pickle, so only the link's few runtime kernels use it
+# JetLink additionally disables its runtime compile pool in init_device().
 os.environ.setdefault('PARALLEL', '2')
 
 
@@ -79,6 +80,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan_t
 from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import lateral_delay_schedule, scheduled_lateral_delay
 from openpilot.selfdrive.modeld.camera_offset import CameraOffset, DEFAULT_CAMERA_HEIGHT
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
+from openpilot.selfdrive.modeld.lateral_source import delay_input, lateral_source, takes_action_t
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_pose_msg, PublishState, get_curvature_from_output
 from openpilot.selfdrive.modeld.constants import ModelConstants, Plan
 from openpilot.selfdrive.modeld.compile_modeld import (
@@ -1664,7 +1666,7 @@ def _runner_frame_args(model: ModelState, buf_main, buf_extra,
     model.desire_key: vec_desire,
     "traffic_convention": traffic_convention,
   }
-  if "action_t" in model.numpy_inputs or (model.off_policy_enabled and "action_t" in model.off_policy_numpy_inputs):
+  if takes_action_t(model):
     inputs["action_t"] = np.array([lat_action_t, long_action_t], dtype=np.float32)
   if "prev_action" in model.numpy_inputs or (model.off_policy_enabled and "prev_action" in model.off_policy_numpy_inputs):
     inputs["prev_action"] = np.array([
@@ -2205,6 +2207,10 @@ def main(demo=False):
       starpilot_modelv2_send = messaging.new_message('starpilotModelV2')
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
+      steering_output = lateral_model_output if model_lab_active and longitudinal_model_output is not None else model_output
+      starpilot_modelv2_send.starpilotModelV2.lateralSource = lateral_source(
+        steering_output, model.mlsim, model.is_v9, model.is_v14, model.is_v15, model.is_v16)
+      starpilot_modelv2_send.starpilotModelV2.delayInput = delay_input(model)
 
       # comma #39091: while lateral is not active, smooth from the curvature the car is actually driving, not the model's
       # last (unused) output, so engaging does not start from a stale curvature

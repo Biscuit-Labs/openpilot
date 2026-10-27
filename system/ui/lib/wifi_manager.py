@@ -57,8 +57,6 @@ SIGNAL_QUEUE_SIZE = 10
 SCAN_PERIOD_SECONDS = 5
 # Each scan takes the single radio off-channel, so scan less often while connected to keep the link up
 CONNECTED_SCAN_PERIOD_SECONDS = 20
-# NM_SETTING_WIRELESS_POWERSAVE_DISABLE. Wi-Fi power save adds 10-20 ms of latency and drops frames on weaker links
-WIFI_POWERSAVE_DISABLE = 2
 DESKTOP_FAKE_IP = "192.168.1.42"
 TRUE_VALUES = {"1", "true", "yes", "on"}
 
@@ -689,23 +687,7 @@ class WifiManager:
         ssid = settings['802-11-wireless']['ssid'][1].decode("utf-8", "replace")
         if ssid != "":
           conns[ssid] = conn_path
-        self._disable_powersave(conn_path, settings)
     self._connections = conns
-
-  def _disable_powersave(self, conn_path: str, settings: dict):
-    # Migrate saved client profiles to powersave off. Takes effect the next time the profile activates.
-    wireless = settings['802-11-wireless']
-    if wireless.get('mode', ('s', 'infrastructure'))[1] == 'ap' or wireless.get('powersave', ('u', 0))[1] == WIFI_POWERSAVE_DISABLE:
-      return
-
-    wireless['powersave'] = ('u', WIFI_POWERSAVE_DISABLE)
-    conn_addr = DBusAddress(conn_path, bus_name=NM, interface=NM_CONNECTION_IFACE)
-    try:
-      reply = self._router_main.send_and_get_reply(new_method_call(conn_addr, 'Update', 'a{sa{sv}}', (settings,)))
-      if reply.header.message_type == MessageType.error:
-        cloudlog.warning(f'Failed to disable powersave for {conn_path}: {reply}')
-    except Exception:
-      cloudlog.exception(f'Failed to disable powersave for {conn_path}')
 
   def _new_connection(self, conn_path: str):
     settings = self._get_connection_settings(conn_path)
@@ -852,7 +834,6 @@ class WifiManager:
           'ssid': ('ay', ssid.encode("utf-8")),
           'hidden': ('b', hidden),
           'mode': ('s', 'infrastructure'),
-          'powersave': ('u', WIFI_POWERSAVE_DISABLE),
         },
         'ipv4': {
           'method': ('s', 'auto'),

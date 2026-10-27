@@ -216,6 +216,12 @@ class HardwareBase(ABC):
   def configure_modem(self):
     pass
 
+  def get_wifi_link_id(self):
+    return None
+
+  def disable_wifi_powersave(self) -> bool:
+    return False
+
   def check_modem_config(self):
     pass
 

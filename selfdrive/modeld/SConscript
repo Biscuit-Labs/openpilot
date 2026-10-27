@@ -62,6 +62,16 @@ if build_dm_artifacts and not skip_dm_tinygrad_pkl:
 else:
   print("Using prebuilt unified driving and driver-monitoring artifacts")
 
+# Pin compiles to the big core 7 when it is online. Idle/offroad AGNOS can hotplug
+# cores 4-7 off, and taskset then fails with EINVAL, failing the whole build.
+def big_core_taskset():
+  try:
+    with open('/sys/devices/system/cpu/cpu7/online') as f:
+      online = f.read().strip() == '1'
+  except OSError:
+    online = False
+  return 'taskset -c 7 ' if online else ''
+
 # The bundled small model is a Comma-style precompiled QCOM policy. Its camera
 # preprocessing is a separate QCOM warp compiled against body-only NV12 input.
 if arch == "larch64":
@@ -69,7 +79,7 @@ if arch == "larch64":
 
   camera_configs = [(camera.width, camera.height) for camera in (_ar_ox_fisheye, _os_fisheye)]
   compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
-  taskset = 'taskset -c 7 '
+  taskset = big_core_taskset()
   qcom_flags = 'DEBUG=1 DEV=QCOM IMAGE=1 FLOAT16=1 NOLOCALS=1 JIT_BATCH_SIZE=0 OPENPILOT_HACKS=1'  # comma master's QCOM recipe
   qcom_lock = File('models/.qcom-small-warp.lock').abspath
   model_w, model_h = MEDMODEL_INPUT_SIZE
@@ -100,7 +110,7 @@ if usbgpu_present():
 
   camera_configs = [(camera.width, camera.height) for camera in (_ar_ox_fisheye, _os_fisheye)]
   compiler = Dir('#tinygrad_repo/examples/openpilot').abspath
-  taskset = 'taskset -c 7 ' if arch == 'larch64' else ''
+  taskset = big_core_taskset() if arch == 'larch64' else ''
   chestnut_flags = 'DEBUG=1 DEV=USB+AMD:LLVM GMMU=0'  # upstream recipe: compile_warp/compile_onnx set their own TC context
   chestnut_lock = File('models/.chestnut.lock').abspath
 

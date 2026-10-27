@@ -11928,3 +11928,24 @@ V-ASM dark-side gate (D-141) and the built-in longitudinal changes in 273 are on
 device that had Stock Brake Feel off.
 
 Not driven, no route replay in this integration; the replay evidence in 273–276 is the source's.
+
+## 278. A fresh install builds on the device again (2026-10-26). On-device build, not driven.
+
+[CONFIRMED, on-device build] With the `prebuilt` marker gone (D-133), a fresh install compiles the
+whole tree on the comma, and that build had never been run there. It failed in three places, and
+each is now fixed:
+
+- `common/transformations/coordinates.cc`: `'eigen3/Eigen/Dense' file not found`. AGNOS has no
+  system eigen; the managed venv ships it as `comma-deps-eigen`. `SConstruct` now adds
+  `eigen.INCLUDE_DIR` the same way it handles capnproto/ffmpeg, and skips it if the package is absent.
+- `selfdrive/modeld/SConscript`: the QCOM warp compile ran under `taskset -c 7`, which fails with EINVAL
+  while cores 4-7 are hotplugged off on an idle device. It now pins to core 7 only when that core is online.
+- acados `lat_mpc.py`/`long_mpc.py` codegen: the venv has no `future-fstrings`, so the vendored
+  `acados_template` files' `# -*- coding: future_fstrings -*-` header was a SyntaxError. Python 3.12
+  needs no shim, so the header was removed.
+
+Result: `scons -j4` completed on the owner's comma 3X (AGNOS 19.8.1, the StarPilot installer's
+image), in a scratch checkout of `1975d9a86f` with these changes applied. The built `params_pyx.so`
+reports 881 keys, including the 2026-10-26 additions. **Not verified on AGNOS 19.6.20**, the version
+`launch_env.sh` flashes. `comma-deps-eigen` was published alongside `comma-deps-capnproto`, which 19.6
+already uses, and the eigen include falls back cleanly if the package is missing.

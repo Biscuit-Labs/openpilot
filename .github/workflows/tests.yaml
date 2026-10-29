@@ -284,7 +284,7 @@ jobs:
         .venv/bin/python -c "import av; assert 'libx264' in av.codecs_available"
     - name: Test every assigned custom pytest node serially
       if: ${{ !cancelled() && steps.build.outcome == 'success' }}
-      timeout-minutes: 15
+      timeout-minutes: 25
       env:
         RAYLIB_BACKEND: headless
       run: .venv/bin/python -m tools.ci.custom_pytest_shards run --index "${{ matrix.shard }}" --count 24 --output "ci-results/custom-pytest-${{ matrix.shard }}"

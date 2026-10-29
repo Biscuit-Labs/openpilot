@@ -5,7 +5,6 @@ on:
     branches:
       - master
       - Domathon
-      - SecretGoodStarPilot
       # Night Star branches: every push gets CI, not only PRs
       - night-star7
       - night-star7-clean

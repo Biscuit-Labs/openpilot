@@ -13,6 +13,7 @@ on:
       - Honda-PTM-Stable
       - Honda-PTM-Stage
       - Honda-PTM-Testing
+      - Honda-PTM-Clean
   pull_request:
   workflow_dispatch:
   workflow_call:

@@ -11,7 +11,7 @@ from openpilot.starpilot.models.status import ModelHealth, ModelStatus, ModelVar
 from openpilot.starpilot.ui.feature_settings_state import feature_row_top, FeatureInput
 from openpilot.starpilot.ui.models_compact import ModelsCompact, _ModelsPage, _display_text
 from openpilot.starpilot.ui.models_state import (model_page, model_action_allowed, model_catalog_rows, model_profile_choices, model_profile_request,
-                                                home_model_label, model_download_choices)
+                                                home_model_label, model_catalog_html, model_download_choices)
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.settings_state import Destination
 from openpilot.starpilot.ui.shell import ShellMode, ShellView
@@ -248,6 +248,27 @@ class TestModelManager(unittest.TestCase):
     session.model_manager_snapshot.return_value = data
     self._open(session, "models:refresh_manifest")
     self.assertEqual(session.notice, "Unavailable: manifest unreachable")
+
+  def test_large_catalog_row_lists_models_and_command_rows_name_their_verb(self):
+    fetchable = {"value": "fetch", "label": "Fetch <b>&", "installed": False, "requiresGpu": False, "downloadAvailable": True}
+    data = self.data | {"models": [self.small, self.missing, fetchable, fetchable | {"value": "f2", "label": "F2", "checking": True}]}
+    html = model_catalog_html(data)
+    self.assertEqual(html.count("<h3>"), 2)
+    self.assertIn("<h3>Installed (1)</h3>", html)
+    self.assertIn("<h3>Not installed (3)</h3>", html)
+    self.assertIn("<p>Fetch b (Small) - not downloaded</p>", html)
+    self.assertIn("<p>F2 (Small) - checking</p>", html)
+    self.assertIn("(Big) - needs a GPU</p>", html)
+    rows = model_page(ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None), data).rows
+    self.assertEqual((rows[0].page, rows[0].available, rows[0].action_label), ("models:catalog", True, "View"))
+    self.assertEqual([row.action_label for row in rows[3:6]], ["", "Download", "Refresh"])
+    session = self._session(data)
+    with mock.patch("openpilot.system.ui.lib.application.gui_app.push_widget") as push, \
+         mock.patch("openpilot.system.ui.widgets.html_render.HtmlModal") as modal:
+      self._open(session, "models:catalog")
+    push.assert_called_once_with(modal.return_value)
+    self.assertEqual(modal.call_args.kwargs["text"], html)
+    session.model_manager_action.assert_not_called()
 
   def test_compact_catalog_keeps_installation_and_exclusion_visible_first(self):
     session = mock.Mock()

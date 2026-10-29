@@ -109,6 +109,12 @@ class HardwareBase(ABC):
   def get_sim_lpa(self) -> LPABase:
     raise NotImplementedError("SIM LPA not available")
 
+  def get_wifi_link_id(self):
+    return None
+
+  def disable_wifi_powersave(self) -> bool:
+    return False
+
   def get_network_strength(self, network_type):
     return NetworkStrength.unknown
 

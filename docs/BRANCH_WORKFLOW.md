@@ -47,3 +47,43 @@ Upstream changes come in like any other change. Merge `night-star7` into a branc
 ## Device builds
 
 `night-star7` ships a `prebuilt` marker and committed binaries, so the comma does not compile on install. A Python-only change needs no rebuild. A change to native code needs the binaries rebuilt and committed in the same pull request.
+
+## Rules and guardrails
+
+GitHub enforces most of this workflow, so a mistake fails a check instead of reaching a car.
+
+**Rulesets** (`.github/rulesets/`, imported by a repo admin under Settings → Rules → Rulesets → Import):
+
+- `honda-ptm-branches.json` covers Stable, Stage and Clean:
+  - no deleting the branch and no force-push;
+  - changes arrive only by pull request, with merge commits only (no squash, no rebase, so upstream merges keep their history);
+  - one approval from someone other than the last person to push, and new pushes dismiss earlier approvals;
+  - every review thread resolved;
+  - the required checks pass. Stage, Stable and Clean do not require the branch to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Push CI on each long-lived branch tests the merged result.
+- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required (passing checks and branch guard are enough) and a pull request must be up to date with Testing before it merges, so its checks ran against the latest Testing. A second person reviews when Testing is promoted to Stage.
+- `branch-names.json` refuses to create branches under `claude/`, `codex/`, `copilot/`, `cursor/` or `gemini/`.
+
+**branch guard** (`.github/workflows/branch_guard.yaml`, `tools/ci/branch_guard.py`) is a required check. Rulesets cannot say where a pull request comes from, so this check does:
+
+| Into | Only from |
+| --- | --- |
+| `Honda-PTM-Stable` | `Honda-PTM-Stage` in this repo |
+| `Honda-PTM-Stage` | `Honda-PTM-Testing` in this repo |
+| `Honda-PTM-Testing` | a feature or fix branch: not Stage, Stable or Clean, and no tool prefix |
+| `Honda-PTM-Clean` | anything that leaves Clean equal to Stable plus exactly the clean changes (`tools/night_star_port/check_clean_branch.py`) |
+
+The guard also runs on every push to Clean.
+
+**Required checks** (the same list in both branch rulesets) are the CI jobs that pass today. `process replay` and `complete custom pytest catalog` join the list once issue #13 is closed; until then a reviewer reads their results by hand.
+
+### Before you ask for review
+
+- Refresh the device build receipt in the same pull request: `python3 openpilot/common/prebuilt_manifest.py .`. If native code changed, rebuild the binaries in Docker first. Source integrity fails without it.
+- Say in the description what the change does on the car and how it was checked: static, replay or road.
+
+### Reviewing
+
+- Read the diff, not only the checks.
+- A new process replay reference (`refs/starpilot/manifest.json`) needs a written contract, and the reviewer has to agree with that contract.
+- Some changes make a check less strict, such as driver monitoring, panda safety or steering limits. The author must name that in the description. The reviewer has to confirm it is intended before approving.
+- No approving your own promotion: the person who opens a Testing → Stage or Stage → Stable pull request does not approve it.

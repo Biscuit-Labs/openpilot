@@ -59,8 +59,8 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
   - changes arrive only by pull request, with merge commits only (no squash, no rebase, so upstream merges keep their history);
   - one approval from someone other than the last person to push, and new pushes dismiss earlier approvals;
   - every review thread resolved;
-  - the required checks pass. The branch does not have to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Push CI on each long-lived branch tests the merged result.
-- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required: passing checks and branch guard are enough. A second person reviews when Testing is promoted to Stage.
+  - the required checks pass. Stage, Stable and Clean do not require the branch to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Push CI on each long-lived branch tests the merged result.
+- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required (passing checks and branch guard are enough) and a pull request must be up to date with Testing before it merges, so its checks ran against the latest Testing. A second person reviews when Testing is promoted to Stage.
 - `branch-names.json` refuses to create branches under `claude/`, `codex/`, `copilot/`, `cursor/` or `gemini/`.
 
 **branch guard** (`.github/workflows/branch_guard.yaml`, `tools/ci/branch_guard.py`) is a required check. Rulesets cannot say where a pull request comes from, so this check does:

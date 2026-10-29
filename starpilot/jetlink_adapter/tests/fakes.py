@@ -114,7 +114,7 @@ class FakeProgress:
   def __init__(self):
     self.reports = []
 
-  def report(self, stage, frac, msg="", drops=0):
+  def report(self, stage, frac, msg="", drops=0, code=None, args=None):
     self.reports.append((stage, msg))
 
   def clear(self):

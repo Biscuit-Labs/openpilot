@@ -12,9 +12,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from jetlink.openpilot.warp import WARP_INPUT_NAMES, prepare_reset
+from jetlink.openpilot.warp import prepare_reset
 from openpilot.starpilot import jetlink_adapter
 from openpilot.starpilot.jetlink_adapter import runner
+from openpilot.starpilot.jetlink_adapter.warp import WARP_INPUT_NAMES
 
 REPO = Path(__file__).resolve().parents[3]
 
@@ -102,7 +103,10 @@ WARP_SCRIPT = textwrap.dedent('''
 
   from openpilot.starpilot import jetlink_adapter
   jetlink_adapter.vendor_on_path()
-  from jetlink.openpilot.warp import WARP_INPUT_NAMES, Warp, Warps, call_warp, compile_warp, init_device
+  from jetlink.openpilot.interface import FrameWarp, conformance
+  from jetlink.openpilot.warp import init_device
+  from openpilot.starpilot.jetlink_adapter.warp import WARP_INPUT_NAMES, call_warp, compile_warp, load
+  from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
 
   CAM, MODEL = (int(sys.argv[1]), int(sys.argv[2])), (512, 256)
   tmp = Path(tempfile.mkdtemp())
@@ -114,10 +118,9 @@ WARP_SCRIPT = textwrap.dedent('''
 
   graph, size = op.make_warp(*CAM, *MODEL)
   compile_warp(graph, size, op.warp_path())
-  jit = Warps(op).load(*CAM, *MODEL)                        # the check modeld makes: captured, and the call convention
+  jit = load(op.warp_path())                                # the check modeld makes: captured, and the call convention
   found["names"] = list(jit.captured.expected_names)
-  face = op.model_face()
-  found["frame_size_matches"] = size == face.frame_size(*CAM)
+  found["frame_size_matches"] = size == get_nv12_info(*CAM)[3]
 
   # run the loaded pickle on two noise frames and compare with the graph called directly
   from tinygrad.tensor import Tensor
@@ -130,13 +133,22 @@ WARP_SCRIPT = textwrap.dedent('''
   direct = graph(Tensor(tfm, device="NPY"), Tensor(big_tfm, device="NPY"), blobs[0], blobs[1]).numpy()
   found.update(shape=list(via_pickle.shape), dtype=str(via_pickle.dtype), nbytes=int(via_pickle.nbytes),
                same_as_direct=bool(np.array_equal(via_pickle, direct)), nonconstant=bool(via_pickle.std() > 1.0))
+
+  # what Jetlink 0.8.10 runs: the adapter's model_warp, held to its FrameWarp protocol, through start()/wait()/output
+  warp = op.model_warp(None, *CAM, *MODEL)
+  found["frame_warp_problems"] = conformance(warp, FrameWarp)
+  warp.start(frames[0].ctypes.data, frames[1].ctypes.data, tfm, big_tfm)
+  warp.wait()
+  out = np.frombuffer(warp.output, dtype=np.uint8).reshape(via_pickle.shape)
+  found["model_warp_same_as_direct"] = bool(np.array_equal(out, direct))
   print("RESULT" + json.dumps(found))
 ''')
 
 
 @pytest.mark.parametrize("cam", [(1928, 1208), (1344, 760)])
 def test_the_warp_builds_loads_and_runs_from_the_forks_graph_on_cpu(cam):
-  """make_warp -> compile_warp -> pickle -> Warps.load -> the call every frame makes, for both cameras. This does NOT
+  """make_warp -> compile_warp -> pickle -> warp.load -> the call every frame makes, and the adapter's model_warp as Jetlink
+  0.8.10 runs it, for both cameras. This does NOT
   qualify the QCOM pickle: the kernels are the CPU's here. It proves the graph, the output layout and the call convention."""
   env = {"PYTHONPATH": jetlink_adapter.pythonpath(str(REPO)), "DEV": "CPU", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin",
          "HOME": str(Path.home())}
@@ -149,3 +161,4 @@ def test_the_warp_builds_loads_and_runs_from_the_forks_graph_on_cpu(cam):
   assert found["frame_size_matches"]
   assert found["shape"] == [2, 6, 128, 256] and found["dtype"] == "uint8" and found["nbytes"] == 393216
   assert found["same_as_direct"] and found["nonconstant"]
+  assert found["frame_warp_problems"] == [] and found["model_warp_same_as_direct"]

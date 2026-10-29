@@ -14,7 +14,11 @@ engagement state. What differs on purpose:
 * The model manager's big-model slot is a model-key STRING for Chestnut artifacts, not Jetlink's {ref, displayName}
   JSON, and its manifest is not Jetlink's {bundles} catalog. Phase 1 therefore gives Jetlink no slot and no catalog
   (Keys.big_model / Keys.catalog are None) and runs Jetlink's pinned default model; validate_spec() refuses anything else.
-* make_warp() passes this fork's explicit frame_skip / image-history arguments to compile_modeld.make_warp.
+* The warp is this fork's own (warp.py, model_warp()): Jetlink 0.8.10 runs openpilot's driving warp pickle, which this
+  fork's modeld does not have, so the fork keeps the 0.8.5 standalone warp build and hands Jetlink the warp it runs.
+  make_warp() passes this fork's explicit frame_skip / image-history arguments to compile_modeld.make_warp.
+* in_control() answers what modeld last worked out for the frame (set_in_control, from runner.JetlinkRunner.set_control):
+  API 3 has Jetlink ask the adapter before every frame where API 2 had modeld write it onto the joining model.
 * Chestnut is not Jetlink's business: Jetlink stays off while one is fitted (native path unchanged).
 
 The resident owner (jetlinkd) imports this module in a long-lived process, so the top level is the standard library
@@ -30,13 +34,13 @@ from collections import namedtuple
 from pathlib import Path
 
 # the version of jetlink.openpilot's API this adapter is written to; any other is treated as Jetlink being absent,
-# with the reason as the offroad alert
-API = 2
+# with the reason as the offroad alert. 3 (Jetlink 0.8.7+): the joining model asks the adapter's in_control() itself
+API = 3
 
 # the gadget owner, as manager names the process and selfdrived exempts it
 OWNER = 'jetlinkd'
 
-# the module Jetlink's own processes (the provisioning run, the warp build) import to reach this adapter. Written out
+# the module Jetlink's own process (the provisioning run) imports to reach this adapter. Written out
 # rather than __name__ so it resolves the same whichever way manager imported this file
 ADAPTER_MODULE = 'openpilot.starpilot.jetlink_adapter'
 
@@ -87,7 +91,7 @@ def vendor_on_path() -> None:
 
 
 def pythonpath(basedir: str) -> str:
-  """PYTHONPATH for the processes Jetlink starts (the provisioning run, the warp build)."""
+  """PYTHONPATH for the processes Jetlink starts (the provisioning run) and the warp build."""
   parts = [basedir, str(VENDOR_DIR)]
   parts += [p for p in os.environ.get('PYTHONPATH', '').split(os.pathsep) if p and p not in parts]
   return os.pathsep.join(parts)
@@ -134,9 +138,14 @@ def warp_meta(cam_w: int, cam_h: int, model_w: int, model_h: int) -> dict:
           'model': [model_w, model_h], 'api': API}
 
 
+# what a warp pickle depends on, and must match. The record also names the Jetlink version and API it was built beside, for
+# the reader: since the build moved into this fork (warp.py), neither changes what the pickle computes
+WARP_RECORD_KEYS = ('tinygrad_commit', 'camera', 'model')
+
+
 def warp_problem(cam_w: int, cam_h: int, model_w: int, model_h: int) -> str | None:
   """Why the warp on disk for this geometry cannot be used, or None when it can. A missing pickle is not a "problem" here
-  (Jetlink says so itself); a pickle built against another tinygrad or Jetlink, or with no record of what it was built
+  (Jetlink says so itself); a pickle built against another tinygrad or geometry, or with no record of what it was built
   against, is refused rather than trusted."""
   import json
   path = warp_path(cam_w, cam_h, model_w, model_h)
@@ -147,7 +156,7 @@ def warp_problem(cam_w: int, cam_h: int, model_w: int, model_h: int) -> str | No
   except (OSError, ValueError):
     return "the warp has no build record; rebuild it with starpilot/jetlink_adapter/build_warp.py"
   want = warp_meta(cam_w, cam_h, model_w, model_h)
-  for key in ('tinygrad_commit', 'jetlink_version', 'camera', 'model', 'api'):
+  for key in WARP_RECORD_KEYS:
     if meta.get(key) != want[key]:
       return f"the warp was built with {key} {meta.get(key)}, this build has {want[key]}; rebuild it with build_warp.py"
   return None
@@ -213,7 +222,7 @@ def main() -> None:
 
 
 def adapter() -> Adapter:
-  """The adapter, for Jetlink's entry points that run as their own process: the provisioning run and the warp build."""
+  """The adapter, for the entry points that run as their own process: Jetlink's provisioning run and the warp build."""
   vendor_on_path()
   return Adapter()
 
@@ -287,9 +296,10 @@ class Adapter:
     return camera.width, camera.height, *MEDMODEL_INPUT_SIZE
 
   def warp_path(self, cam_w: int, cam_h: int, model_w: int, model_h: int) -> Path:
-    """Where Jetlink looks for the warp, for reading. A pickle that fails warp_problem() is reported as absent (the
-    path with a ``.stale`` suffix, which does not exist), so Jetlink's own checks (`built()`, `load()`) refuse it with its
-    usual "no warp built" and the driver sees the specific reason through reason(). The build writes to warp_path()."""
+    """Where Jetlink and model_warp() look for the warp, for reading. A pickle that fails warp_problem() is reported as
+    absent (the path with a ``.stale`` suffix, which does not exist), so Jetlink's offroad check (`Warps.built()`) says its
+    usual "no warp built" and model_warp() refuses it; the driver sees the specific reason through reason(). The build
+    writes to warp_path()."""
     try:
       if warp_problem(cam_w, cam_h, model_w, model_h) is not None:
         return warp_path(cam_w, cam_h, model_w, model_h).with_suffix('.pkl.stale')
@@ -325,8 +335,23 @@ class Adapter:
                      constants=ModelConstants, lat_smooth_seconds=LAT_SMOOTH_SECONDS,
                      long_smooth_seconds=LONG_SMOOTH_SECONDS, get_action_from_model=get_action_from_model)
 
+  def in_control(self) -> bool:
+    """Is anything in control of the car, or about to be? Asked by Jetlink's joining model on modeld's frame thread before
+    every frame (API 3); the large model swaps in only while False. modeld works the answer out first (the module's
+    in_control() and runner.JetlinkRunner.set_control) and leaves it with set_in_control(); True until it has."""
+    return _in_control_now
+
   def event(self, name: str, **fields) -> None:
     self.log.event(name, **fields)
+
+  def model_warp(self, small, cam_w: int, cam_h: int, model_w: int, model_h: int):
+    """The warp the link sends frames through, loaded and warmed (ModelSide.model_warp, Jetlink 0.8.10): this fork's own
+    pickle (warp.py), since Jetlink's default is openpilot's driving warp pickle, which this fork does not build. Raising
+    keeps the drive on the small model, as a missing or stale pickle should."""
+    from openpilot.starpilot.jetlink_adapter import warp
+    from openpilot.system.camerad.cameras.nv12_info import get_nv12_info
+    jit = warp.load(self.warp_path(cam_w, cam_h, model_w, model_h))
+    return warp.Warp(jit, get_nv12_info(cam_w, cam_h)[3], self.log)
 
   def validate_spec(self, spec) -> None:
     """Refuse a server model this fork has not validated. Called by the vendored joining state before it builds the
@@ -338,7 +363,8 @@ class Adapter:
   # -- the build --------------------------------------------------------------
 
   def make_warp(self, cam_w: int, cam_h: int, model_w: int, model_h: int):
-    """The camera warp graph for this geometry and the size of the NV12 frame it reads.
+    """The camera warp graph for this geometry and the size of the NV12 frame it reads, for the fork's own warp build
+    (warp.py). No longer part of Jetlink's interface (BuildSide went at API 3).
 
     The policy-history graph (image history lives in the model, not the warp): warp(tfm, big_tfm, frame, big_frame) ->
     uint8 (2, 6, model_h/2, model_w/2), the (2, 6, 128, 256) Jetlink sends. frame_skip only shapes the warp-history
@@ -544,6 +570,16 @@ def prepare() -> bool:
 
 # what in_control() reads; modeld subscribes to all three
 IN_CONTROL = ('carState', 'carControl', 'starpilotCarState')
+
+# modeld's answer for the frame about to run, which Adapter.in_control() gives Jetlink. Written and read on modeld's frame
+# thread only; True (nothing may swap) until modeld has said otherwise
+_in_control_now = True
+
+
+def set_in_control(value: bool) -> None:
+  """modeld, before every frame (runner.JetlinkRunner.set_control): what Adapter.in_control() answers for it."""
+  global _in_control_now
+  _in_control_now = bool(value)
 
 
 @_guarded(True)

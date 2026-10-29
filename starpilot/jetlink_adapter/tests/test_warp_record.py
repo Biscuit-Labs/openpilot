@@ -32,7 +32,7 @@ def make_pickle(warp_dir, meta=None, **overrides):
 def test_the_record_names_the_tinygrad_pin_and_the_jetlink_version():
   meta = ja.warp_meta(*GEOMETRY)
   assert meta["tinygrad_commit"] == "f6fc4e3f2c3db5fae1e19cbfbc3ad9fc579a12ae" == ja.tinygrad_commit()
-  assert meta["jetlink_version"] == "0.8.5"
+  assert meta["jetlink_version"] == "0.8.10"
   import jetlink
   assert ja.jetlink_version() == jetlink.__version__
 
@@ -55,13 +55,27 @@ def test_a_pickle_with_no_record_is_refused(warp_dir):
   assert Warps(ja.Adapter()).is_cached(*GEOMETRY) is False
 
 
-@pytest.mark.parametrize("key,value", [("tinygrad_commit", "0" * 40), ("jetlink_version", "0.1.0"), ("camera", [1344, 760]),
-                                       ("model", [1, 1]), ("api", 99)])
+@pytest.mark.parametrize("key,value", [("tinygrad_commit", "0" * 40), ("camera", [1344, 760]), ("model", [1, 1])])
 def test_a_pickle_built_against_anything_else_is_refused_and_says_what(warp_dir, key, value):
   make_pickle(warp_dir, **{key: value})
   problem = ja.warp_problem(*GEOMETRY)
   assert problem and key in problem and "build_warp.py" in problem
   assert Warps(ja.Adapter()).is_cached(*GEOMETRY) is False
+
+
+@pytest.mark.parametrize("key,value", [("jetlink_version", "0.8.5"), ("api", 2)])
+def test_the_jetlink_version_beside_a_pickle_does_not_invalidate_it(warp_dir, key, value):
+  """The warp build is the fork's own (warp.py), so a Jetlink update does not change what the pickle computes; the committed
+  pickles were built beside Jetlink 0.8.5 / API 2 and stay usable."""
+  make_pickle(warp_dir, **{key: value})
+  assert ja.warp_problem(*GEOMETRY) is None
+  assert Warps(ja.Adapter()).is_cached(*GEOMETRY) is True
+
+
+def test_the_committed_pickles_pass_the_record_check():
+  for cam in ((1928, 1208), (1344, 760)):
+    assert ja.warp_path(*cam, 512, 256).is_file()
+    assert ja.warp_problem(*cam, 512, 256) is None
 
 
 def test_the_driver_is_told_to_rebuild_not_that_nothing_was_built(warp_dir, monkeypatch, tmp_path):
@@ -81,14 +95,14 @@ def test_the_build_script_writes_the_record_that_the_check_accepts(warp_dir, mon
   built = []
 
   def fake_run(cmd, **kwargs):
-    if "jetlink.openpilot.warp" in cmd:
+    if "openpilot.starpilot.jetlink_adapter.warp" in cmd:
       Path(cmd[cmd.index("--output") + 1]).write_bytes(b"pickle")
       built.append(cmd)
     return subprocess.CompletedProcess(cmd, 0)
   monkeypatch.setattr(build_warp.subprocess, "run", fake_run)
   monkeypatch.setattr(ja.Adapter, "camera", lambda self: GEOMETRY)
   assert build_warp.main(["--camera", "1928x1208"]) == 0
-  assert len(built) == 1 and "--adapter" in built[0] and ja.ADAPTER_MODULE in built[0]
+  assert len(built) == 1 and "--camera" in built[0] and "1928x1208" in built[0]
   assert ja.warp_problem(*GEOMETRY) is None
   assert json.loads(ja.warp_meta_path(ja.warp_path(*GEOMETRY)).read_text()) == ja.warp_meta(*GEOMETRY)
 

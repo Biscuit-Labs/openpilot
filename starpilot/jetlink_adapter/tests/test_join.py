@@ -22,13 +22,24 @@ class FakeParts:
     self.progress = FakeProgress()
     self.spec = types.SimpleNamespace(load=lambda: p_spec())
     self.warps = types.SimpleNamespace(geometry=lambda: (1928, 1208, 512, 256), load=lambda *a: "warp-jit")
+    self.models = types.SimpleNamespace(name_for=lambda sha: None)
+
+
+class FakeWarp:
+  output = b""
+
+  def start(self, frame, big_frame, tfm, big_tfm):
+    pass
+
+  def wait(self):
+    pass
 
 
 @pytest.fixture
 def fake_join(monkeypatch):
   """join() over a fake link, fake warp and fake large model state; the real joining model and the real adapter."""
   from jetlink.openpilot import link as links
-  from jetlink.openpilot import model_state, warp
+  from jetlink.openpilot import warp
   built = []
   specs = {"spec": p_spec()}
 
@@ -42,14 +53,15 @@ def fake_join(monkeypatch):
   monkeypatch.setattr(links, "present_early", lambda link, bg: None)
   monkeypatch.setattr(links, "open_link", lambda parts, link, should_stop=None: (types.SimpleNamespace(
     dead=False, leave=lambda *a, **k: None, ping=lambda timeout=None: None, close=lambda: None), specs["spec"]))
-  monkeypatch.setattr(warp, "Warp", lambda jit, frame_size, log: "warp")
+  # the adapter's own warp (model_warp), which Jetlink holds to interface.FrameWarp; its pickle is test_tinygrad's
+  monkeypatch.setattr(ja.Adapter, "model_warp", lambda self, small, *geometry: FakeWarp())
   monkeypatch.setattr(warp, "prepare_reset", lambda small: (lambda: None))
 
   def make_state(client, spec, warp_, *, face, log, event):
     big = FakeBig(spec)
     built.append(big)
     return big
-  monkeypatch.setattr(model_state, "JetlinkModelState", make_state)
+  monkeypatch.setattr(joining, "JetlinkModelState", make_state)
   monkeypatch.setattr(joining, "REJOIN_DELAY_QUICK", 0.02)
   monkeypatch.setattr(joining, "REJOIN_DELAY", 0.02)
 

@@ -14,7 +14,7 @@ owed is listed at the end.
 | | |
 | --- | --- |
 | comma | 3X (tici/tizi) or 4 (mici), no Chestnut fitted (Jetlink stays off beside one) |
-| Host | A Jetson or Mac running the **same Jetlink release as the vendored package: 0.8.5** (`jetlink.protocol.VERSION == 3`). The wire protocol is version-exact; never pair a newer or older server |
+| Host | A Jetson or Mac running the **same Jetlink release as the vendored package: 0.8.10** (`jetlink.protocol.VERSION == 3`). The wire protocol is version-exact; never pair a newer or older server |
 | Cable | USB-C data cable from the comma's USB-C port to the host |
 | Model | Cinque Terre V3 (comma commit `bf3e3631b3f9`, ONNX sha256 `404a18cf…`, 766 354 845 bytes), fetched and built by the host on first use |
 | Build | Warp pickles for the device's camera, built on a comma: `python3 starpilot/jetlink_adapter/build_warp.py` (see *Building*) |
@@ -89,10 +89,11 @@ modeld ──> JetlinkRunner ──> JoiningModelState ──> LocalRunner ─�
 
 | Path | |
 | --- | --- |
-| `starpilot/third_party/jetlink_repo/` | Vendored Jetlink 0.8.5 (`@4b747aeb`), see its `VENDORED.md`; three small additions in `LOCAL_MODIFICATIONS.patch` |
+| `starpilot/third_party/jetlink_repo/` | Vendored Jetlink 0.8.10 (`@3d4f6710`, API 3), see its `VENDORED.md`; three small additions in `LOCAL_MODIFICATIONS.patch` |
 | `starpilot/jetlink_adapter/__init__.py` | The adapter (Jetlink's `Openpilot` interface), the hooks every process calls, the engagement gate `in_control`, the warp record check |
 | `starpilot/jetlink_adapter/runner.py` | `LocalRunner` (Jetlink's view of `ModelState`) and `JetlinkRunner` (modeld's view of Jetlink) |
 | `starpilot/jetlink_adapter/profiles.py` | The validated external models |
+| `starpilot/jetlink_adapter/warp.py` | The fork's own warp: build, load and frame runner (Jetlink 0.8.5's, kept here), handed to Jetlink by `Adapter.model_warp` |
 | `starpilot/jetlink_adapter/build_warp.py` | Builds the warp pickles on a comma |
 | `starpilot/jetlink_adapter/route_report.py` | Qualification report from a route's logs |
 | `starpilot/controls/lib/jetlink_events.py` | Driver alerts and the settling window |
@@ -121,8 +122,11 @@ python3 starpilot/jetlink_adapter/build_warp.py --all-cameras   # both, for a pr
 ```
 
 Each pickle is written beside a `.json` record of the tinygrad commit, Jetlink version, camera and model geometry it was built
-against, and loaded back the way modeld loads it. modeld and the offroad alert refuse a pickle whose record does not match the
-running tree. QCOM kernels are GPU-specific: build each geometry on the device model that will run it. The pickles are
+against, and loaded back the way modeld loads it. modeld and the offroad alert refuse a pickle whose tinygrad commit or geometry
+does not match the running tree. The Jetlink version and API in the record are for the reader only: since Jetlink 0.8.10 the
+build and the frame runner are the fork's own (`starpilot/jetlink_adapter/warp.py`), so a Jetlink update does not change the
+pickle. Jetlink 0.8.10 by default runs openpilot's driving warp pickle, which this fork does not have; `Adapter.model_warp`
+hands it this one instead. QCOM kernels are GPU-specific: build each geometry on the device model that will run it. The pickles are
 committed with the other prebuilt artifacts; any tinygrad bump needs them rebuilt. Releases need nothing else (the packaging
 scripts keep `starpilot/third_party/jetlink_repo/` and `starpilot/jetlink_adapter/models/`).
 
@@ -144,8 +148,32 @@ Trung's branch ports the same Zoompilot work. The persisted keys are named alike
 `JetlinkChargePhone`, `JetlinkBigModel`, `JetlinkCatalog`), so a setting or a built engine carries across. The two transient keys differ:
 his `AcceleratorProgress` / `Offroad_AcceleratorUnavailable` are `JetlinkProgress` / `Offroad_JetlinkUnavailable` here ("accelerator" is
 ambiguous beside the Chestnut's `UsbGpu*`); both are cleared at manager start. His branch vendors Jetlink `69d308f` (0.8.3), this one
-`4b747aeb` (0.8.5), and both use `starpilot/jetlink_adapter/`, so merging means choosing one adapter. See the comparison in the session
+`3d4f6710` (0.8.10; was `4b747aeb`, 0.8.5), and both use `starpilot/jetlink_adapter/`, so merging means choosing one adapter. See the comparison in the session
 notes for what each has.
+
+## Jetlink 0.8.10 update (2026-10-29)
+
+Vendored Jetlink moved from 0.8.5 (API 2) to 0.8.10 (API 3). What changed for the fork:
+
+* **Engagement gate (API 3).** Jetlink's joining model now asks the adapter's `in_control()` before every frame and overwrites
+  whatever modeld wrote onto it. modeld still works the answer out exactly as before (`jetlink_adapter.in_control(sm, …)`, then
+  `JetlinkRunner.set_control` adds the blinker and the lock-out) and leaves it with `set_in_control()`, which `Adapter.in_control()`
+  returns. True until modeld has said otherwise.
+* **Warp.** Jetlink dropped its own warp build (`BuildSide.make_warp`, `python -m jetlink.openpilot.warp`) for openpilot's driving
+  warp pickle. The fork keeps the 0.8.5 build and runner in `warp.py` and gives Jetlink the warp through the new optional
+  `ModelSide.model_warp`. The committed pickles are unchanged and still pass the record check.
+* **Bad output.** The fork's own invalid-output hand-back (`demote_invalid`) now uses Jetlink's `BAD_OUTPUT` path (counted as lag,
+  link kept), which 0.8.8 added for the same case, instead of a lost link.
+* Upstream fixes picked up: a NaN from the big model hands back keeping the link, the 3X no longer powers off when a laptop is on the
+  port, the Jetson sleeps until the comma wakes it, a model the host already has is not downloaded again, a runtime record at
+  `/dev/shm/jetlink/modeld.json`, Mountain Dew models listed (still refused here: not in `profiles.py`).
+* **The host must run 0.8.10 too** (Jetlink.app / `jetlink update`).
+
+Verified (static, in a cloud container, no comma): the adapter test suite against the vendored 0.8.10, including Jetlink's own
+`join()` with the real adapter and the fork's warp built, loaded and run through `model_warp` on tinygrad's CPU device (output
+byte-identical to the graph). Tests that need the native `msgq` build (`test_loop`, `test_lifecycle`, `test_events`, `test_pipeline`)
+were not run there. **Not verified:** anything on a comma or over USB with 0.8.10. The QCOM-only parts of the warp runner are
+unchanged code from 0.8.5 but have not been run against 0.8.10's frame path. The device checks below were all made with 0.8.5.
 
 ## Tests
 

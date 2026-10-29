@@ -25,9 +25,22 @@ class TestTheInterface:
     from jetlink.openpilot.interface import Openpilot, conformance
     assert conformance(ja.Adapter(), Openpilot) == []
 
+  def test_in_control_answers_what_modeld_last_set_and_is_true_until_then(self):
+    """API 3: Jetlink asks the adapter before every frame; the answer is modeld's (runner.JetlinkRunner.set_control)."""
+    assert ja.Adapter.in_control(None) is True
+    ja.set_in_control(False)
+    assert ja.Adapter.in_control(None) is False
+    ja.set_in_control(1)
+    assert ja.Adapter.in_control(None) is True
+
+  def test_the_adapter_supplies_its_own_warp(self):
+    """Jetlink 0.8.10 runs openpilot's driving warp pickle unless the adapter has model_warp; this fork's warp is its own."""
+    from jetlink.openpilot.interface import ModelSide, optional
+    assert "model_warp" in optional(ModelSide) and callable(ja.Adapter.model_warp)
+
   def test_api_modes_and_states_are_jetlinks(self):
     import jetlink.openpilot as jl
-    assert ja.API == jl.API == 2
+    assert ja.API == jl.API == 3
     assert ja.MODES == jl.MODES
     assert set(ja.SUPPORTED_MODES) <= set(ja.MODES)
 
@@ -260,9 +273,9 @@ class TestWithoutAUsableJetlink:
   def test_another_api_turns_the_link_off_and_says_why(self, monkeypatch, tmp_path):
     self._link_on(monkeypatch, tmp_path)
     import jetlink.openpilot as jl
-    monkeypatch.setattr(jl, "API", 3)
+    monkeypatch.setattr(jl, "API", 2)
     assert ja.should_run(True, None, None) is False
-    assert "API 3" in ja.reason() and "expects 2" in ja.reason()
+    assert "API 2" in ja.reason() and "expects 3" in ja.reason()
     assert ja.prepare() is False and ja.attach(object(), 1, 1) is None
 
   def test_a_package_that_fails_to_import_says_so(self, monkeypatch, tmp_path):

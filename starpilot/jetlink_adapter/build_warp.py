@@ -6,10 +6,11 @@ the device's GPU (QCOM); a host build (CPU/Metal) produces a pickle that cannot 
     python3 starpilot/jetlink_adapter/build_warp.py                  # this device's camera
     python3 starpilot/jetlink_adapter/build_warp.py --all-cameras    # both geometries, for a prebuilt release
 
-Each geometry is its own process (tinygrad fixes its device at first use) and goes through Jetlink's own capture
-(``python -m jetlink.openpilot.warp``), which calls the adapter's ``make_warp`` for this fork's warp graph and writes
+Each geometry is its own process (tinygrad fixes its device at first use) and goes through the fork's capture
+(``python -m openpilot.starpilot.jetlink_adapter.warp``, Jetlink 0.8.5's build, kept here since Jetlink dropped it), which
+calls the adapter's ``make_warp`` for this fork's warp graph and writes
 ``starpilot/jetlink_adapter/models/warp_<cam>_<model>_tinygrad.pkl`` through a temporary, so a killed build leaves nothing
-under the name modeld opens. Afterwards each pickle is loaded back the way modeld loads it (``Warps.load``), which checks
+under the name modeld opens. Afterwards each pickle is loaded back the way modeld loads it (``warp.load``), which checks
 that it captured and that its call convention is the one every frame uses.
 
 A tinygrad bump invalidates every pickle: rebuild them with it. They are committed with the other prebuilt artifacts; a
@@ -56,7 +57,7 @@ def main(argv=None) -> int:
     target = ja.warp_path(cam_w, cam_h, model_w, model_h)
     if not args.check_only:
       print(f"== {cam_w}x{cam_h} -> {model_w}x{model_h}: {target}", flush=True)
-      cmd = [sys.executable, "-m", "jetlink.openpilot.warp", "--adapter", ja.ADAPTER_MODULE,
+      cmd = [sys.executable, "-m", "openpilot.starpilot.jetlink_adapter.warp",
              "--camera", f"{cam_w}x{cam_h}", "--model", f"{model_w}x{model_h}", "--output", str(target)]
       if subprocess.run(cmd, cwd=BASEDIR, env=env).returncode != 0:
         failed.append((cam_w, cam_h, "build failed"))
@@ -66,8 +67,8 @@ def main(argv=None) -> int:
     try:
       # a fresh process again: the capture process has the device open, and modeld loads in a clean one
       check = "; ".join(["from openpilot.starpilot import jetlink_adapter as ja", "ja.vendor_on_path()",
-                         "from jetlink.openpilot.warp import Warps",
-                         f"Warps(ja.adapter()).load({cam_w}, {cam_h}, {model_w}, {model_h})", "print('load ok')"])
+                         "from openpilot.starpilot.jetlink_adapter import warp",
+                         f"warp.load(ja.warp_path({cam_w}, {cam_h}, {model_w}, {model_h}))", "print('load ok')"])
       subprocess.run([sys.executable, "-c", check], cwd=BASEDIR, env=env, check=True)
     except subprocess.CalledProcessError:
       failed.append((cam_w, cam_h, "pickle does not load"))

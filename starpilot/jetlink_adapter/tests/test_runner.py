@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 from jetlink.openpilot import joining
+from openpilot.starpilot import jetlink_adapter as ja
 from openpilot.starpilot.jetlink_adapter import profiles, runner
 from openpilot.starpilot.jetlink_adapter.tests.fakes import (FakeBig, FakeClock, FakeLog, FakeModelState, FakeProgress, p_spec,
                                                              wait_until)
@@ -43,7 +44,8 @@ class Stack:
 
     client = types.SimpleNamespace(dead=False, leave=lambda *a, **k: None, ping=lambda timeout=None: None, close=lambda: None)
     self.joining = joining.JoiningModelState(self.local, lambda should_stop=None: (client, spec), build, None, reset_small=reset,
-                                             progress=FakeProgress(), log=self.log)
+                                             progress=FakeProgress(), log=self.log,
+                                             in_control=lambda: ja.Adapter.in_control(None))
     self.runner = runner.JetlinkRunner(self.joining, self.local, self.log, self.clock)
     self.eye = np.eye(3, dtype=np.float32)
 

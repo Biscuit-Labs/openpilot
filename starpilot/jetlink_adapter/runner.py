@@ -27,6 +27,7 @@ from typing import NamedTuple
 
 import numpy as np
 
+from openpilot.starpilot import jetlink_adapter
 from openpilot.starpilot.jetlink_adapter import profiles
 
 # After a backend switch, either way, this long counts as "settling": selfdrived holds engagement off and tolerates the
@@ -99,7 +100,7 @@ class LocalRunner:
     self._queue_ids = {k: id(v) for k, v in model.input_queues.items()}
     self._array_ids = {k: id(v) for k, v in self.numpy_inputs.items()}
     model.pin_buffers()
-    # JoiningModelState writes these on both models, every frame (setters in joining.py); nothing here reads them
+    # what Jetlink may write onto or read off the small model (interface.SmallModel); nothing here reads them
     self.lat_delay = 0.0
     self.PLANPLUS_CONTROL = 1.0
     self.frame_drop_ratio = 0.0
@@ -269,7 +270,11 @@ class JetlinkRunner:
     middle of a maneuver). After MAX_HANDBACKS handbacks the gate stays shut for the drive."""
     self._in_control = bool(in_control)
     self._blinker_on = bool(blinker_on)
-    self._joining.in_control = self._in_control or self._blinker_on or self._locked_out
+    gate = self._in_control or self._blinker_on or self._locked_out
+    # Jetlink (API 3) asks the adapter before every run() and overwrites anything written onto the joining model, so the
+    # answer goes through the adapter; written here too for a joining model that does not ask
+    jetlink_adapter.set_in_control(gate)
+    self._joining.in_control = gate
     self._joining.frame_drop_ratio = float(frame_drop_ratio)
 
   def run(self, bufs, transforms, inputs, prepare_only: bool, after_output_sync=None, shared_warp=None, *,

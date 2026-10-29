@@ -12,3 +12,4 @@ def fresh_adapter_binding(monkeypatch):
   monkeypatch.setattr(jetlink_adapter, "_bound", None)
   monkeypatch.setattr(jetlink_adapter, "_failed_hooks", {})
   monkeypatch.setattr(jetlink_adapter, "_status_cache", (0.0, None))
+  monkeypatch.setattr(jetlink_adapter, "_in_control_now", True)

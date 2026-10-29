@@ -18,6 +18,7 @@ from cereal import car, messaging
 from jetlink.openpilot import joining
 from openpilot.common.params import Params
 from openpilot.selfdrive.modeld import modeld
+from openpilot.starpilot import jetlink_adapter
 from openpilot.starpilot.jetlink_adapter import profiles
 from openpilot.starpilot.jetlink_adapter.tests.fakes import FakeBig, FakeLog, FakeModelState, FakeProgress, p_spec, wait_until
 
@@ -150,7 +151,8 @@ def drive(monkeypatch, tmp_path):
           array.fill(0)
         harness.model.prev_desire.fill(0)
       j = joining.JoiningModelState(small, lambda should_stop=None: (client, spec), build, None, reset_small=reset,
-                                    progress=FakeProgress(), log=FakeLog())
+                                    progress=FakeProgress(), log=FakeLog(),
+                                    in_control=lambda: jetlink_adapter.Adapter.in_control(None))
       harness.joining = j
       return j
 

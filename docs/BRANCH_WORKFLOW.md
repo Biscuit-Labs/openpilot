@@ -59,7 +59,7 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
   - changes arrive only by pull request, with merge commits only (no squash, no rebase, so upstream merges keep their history);
   - one approval from someone other than the last person to push, and new pushes dismiss earlier approvals;
   - every review thread resolved;
-  - the required checks pass on a branch that is up to date with its base.
+  - the required checks pass. The branch does not have to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Push CI on each long-lived branch tests the merged result.
 - `branch-names.json` refuses to create branches under `claude/`, `codex/`, `copilot/`, `cursor/` or `gemini/`.
 
 **branch guard** (`.github/workflows/branch_guard.yaml`, `tools/ci/branch_guard.py`) is a required check. Rulesets cannot say where a pull request comes from, so this check does:

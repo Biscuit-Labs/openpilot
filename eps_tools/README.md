@@ -1,12 +1,14 @@
 # EPS tools
 
-Canonical tooling repository: [RiskyBiscuit-arc/eps-tools](https://github.com/RiskyBiscuit-arc/eps-tools).
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and fork updates.
-The standalone repository keeps `rwd/` but distributes no firmware images.
+This folder is the Honda PTM openpilot fork's copy of
+[RiskyBiscuit-arc/eps-tools](https://github.com/RiskyBiscuit-arc/eps-tools), imported as
+recorded in the commit that last synced it. Fix the scripts, parser and tests in eps-tools
+and re-import them (see [CONTRIBUTING.md](CONTRIBUTING.md)); this README and
+`rwd/README.md` are kept for the fork. No firmware images are shipped here.
 
-Standalone tooling for reading, validating, and flashing Honda/Acura EPS
-firmware (`.rwd`). Works on the current opendbc layout — no panda-submodule or
-`selfdrive.car` dependencies.
+Tooling for reading, validating, and flashing Honda/Acura EPS firmware (`.rwd`).
+Works on the current opendbc layout — no panda-submodule or `selfdrive.car`
+dependencies.
 
 Credit to mmmorks for the original flasher scripts, and to
 [RiskyBiscuit-arc](https://github.com/RiskyBiscuit-arc) for updating them to the
@@ -28,49 +30,40 @@ eps_tools/
   rwd_xray/         cfranyota/rwd-xray @ 8d8e1ff (MIT), reference copy: eps_tool.py patch offsets and
                     table values per EPS, table/checksum search tools. Its format/ is the Python-2 original
                     of rwd_format/, which is the one to run.
-  rwd/              local firmware images (not distributed by eps-tools)
+  rwd/              where you put the image you flash (none are shipped; see rwd/README.md)
+  tests/            hardware-free regression tests (synthetic images, fake transports)
 ```
 
 Run the scripts **from this folder**: the examples below use `rwd/...` paths
 relative to it. `opendbc`/`panda` come from the openpilot install (prefix with
 `PYTHONPATH=/data/openpilot` if you hit import errors).
 
-## Add to your openpilot fork (primary use)
+## Where the tools are on the comma
 
-Copy the complete `eps_tools/` folder from this repository into the root of your
-openpilot fork, alongside `selfdrive/` and `tools/`, and commit the tooling to
-your fork. See [CONTRIBUTING.md](CONTRIBUTING.md) for importing future updates.
-The tools need the fork's `panda` and `opendbc` dependencies.
-
-Once your fork is installed on a comma, the tools are at
-`/data/openpilot/eps_tools/`. Run the recommended guided flasher there:
+The tools ship with this fork, so once it is installed they are at
+`/data/openpilot/eps_tools/` and use the installed `panda` and `opendbc`.
+Run the recommended guided flasher there:
 
 ```sh
 cd /data/openpilot/eps_tools
 python3 flash.py
 ```
 
-## Alternative: standalone copy on a comma
-
-If you want to use the tools without adding them to your fork, copy `eps_tools/`
-to the comma. A manually dropped `/data/openpilot/eps_tools/` folder can be used,
-but it is untracked and can be removed by openpilot updates. For a standalone
-copy you want to keep across updates, use `/data/media/0/eps_tools/` instead:
+The tools themselves are tracked and survive updates, but anything you add under
+`/data/openpilot` is removed by the updater (it runs `git clean -xdff`). If you
+want a copy that also keeps your firmware across updates, copy `eps_tools/` to
+`/data/media/0/eps_tools/` and run it from there:
 
 ```sh
 cd /data/media/0/eps_tools
 python3 flash.py
 ```
 
-This alternative still uses the installed openpilot dependencies. The media
-location is for standalone copies; it is not where you add the tools to a fork.
-
 ## Recommended flasher: flash.py
 
 Supply a firmware image for your exact ECU under `rwd/`; firmware is not included
-in the standalone repository. Keep a validated matching stock recovery image.
-Run `python3 flash.py` from the tools folder for whichever installation above
-you use.
+in this fork. Keep a validated matching stock recovery image.
+Run `python3 flash.py` from whichever tools folder above you use.
 
 The guided script lists compatible images when the car's cached fingerprint
 (CarParams) is available, checks the selected image, prompts you to turn the car
@@ -170,8 +163,13 @@ Every image gets the same checks, whatever the vehicle:
 - both firmware checksums: the word sum at `length - 0x80` and the negative word
   sum at `length - 2` of the decrypted block.
 
+The layout is the same for every known image, so no per-vehicle table is needed.
+For example: 0x4c000-byte blocks (Civic TBA/TEA/TGG/TGN, Clarity TRW) are checked at
+0x4bf80/0x4bffe, 0x6c000 (CR-V TLA, Insight TXM) at 0x6bf80/0x6bffe, and 0x74000
+(RDX TJB) at 0x73f80/0x73ffe.
+
 Malformed images and failed checksums return a nonzero exit status. The explicit
 `--skip-checksum` flow can bypass only the firmware checksums.
 
-See `rwd/README.md` for local firmware handling. Firmware is excluded from the
-standalone tools repository.
+See `rwd/README.md` for where firmware images come from. `.rwd` files are
+git-ignored here so an image can't be committed by accident.

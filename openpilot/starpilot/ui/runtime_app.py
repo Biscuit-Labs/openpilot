@@ -57,7 +57,8 @@ from openpilot.starpilot.ui.feature_settings_state import (
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.models.runtime import ModelStatusSource
 from openpilot.starpilot.models.status import project_status
-from openpilot.starpilot.ui.models_state import model_page, model_profile_choices, model_profile_request, home_model_label
+from openpilot.starpilot.ui.models_state import (model_page, model_profile_choices, model_profile_request, home_model_label,
+                                                 model_action_allowed, model_download_choices)
 from openpilot.starpilot.ui.maps_state import MapStatusSource
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner, default_owner
 from openpilot.starpilot.ui.galaxy_access import GalaxyAccessFlow
@@ -936,6 +937,11 @@ class StarShellSession:
       profile = action.row.page.split(":", 1)[1]
       manager = self.model_manager_snapshot()
       choices = dict(model_profile_choices(manager, profile))
+      if not choices:
+        checking = any(m.get("checking") for m in manager.get("models", ()))
+        self._unavailable("still checking installed models; try again" if checking else
+                          "no installed Small model yet; use Download a model")
+        return
       current = manager["activeSmallModel" if profile == "small" else "activeBigModel"]
       current_label = next((label for label, model_id in choices.items() if model_id == current), "")
 
@@ -956,6 +962,40 @@ class StarShellSession:
 
       dialog = MultiOptionDialog(f"Active {'Small' if profile == 'small' else 'Big'}", list(choices), current_label, callback=confirmed)
       gui_app.push_widget(dialog)
+    elif action.kind == "open" and action.row in state.rows and action.row.page == "models:download":
+      from openpilot.system.ui.lib.application import gui_app
+      from openpilot.system.ui.widgets import DialogResult
+      from openpilot.system.ui.widgets.option_dialog import MultiOptionDialog
+      downloads = dict(model_download_choices(self.model_manager_snapshot()))
+      if not downloads:
+        self._unavailable("no model left to download")
+        return
+
+      def download(result):
+        if result == DialogResult.CONFIRM and download_dialog.selection in downloads:
+          self._model_download("download", {"model": downloads[download_dialog.selection]})
+
+      download_dialog = MultiOptionDialog("Download a model", list(downloads), "", callback=download)
+      gui_app.push_widget(download_dialog)
+    elif action.kind == "open" and action.row in state.rows and action.row.page in ("models:download_all", "models:cancel",
+                                                                                   "models:refresh_manifest"):
+      self._model_download(action.row.page.split(":", 1)[1], {})
+    self._snapshot_cache = None
+
+  def _model_download(self, action: str, payload: dict) -> None:
+    if self._mode != ShellMode.SETTINGS or self.selected != Destination.DRIVING_MODEL:
+      return
+    fresh = self.model_manager_snapshot()
+    model = next((m for m in fresh.get("models", ()) if m.get("value") == payload["model"]), None) if "model" in payload else None
+    downloads = dict(model_download_choices(fresh)).values()
+    if (not model_action_allowed(fresh, action, model) or action == "download" and (model or {}).get("value") not in downloads or
+        action == "download_all" and not downloads):
+      self._unavailable("turn off the vehicle, then try again")
+    else:
+      try:
+        self.model_manager_action(action, payload)
+      except (OSError, ValueError, RuntimeError) as error:
+        self._unavailable(str(error))
     self._snapshot_cache = None
 
   def power_request(self, request: FeatureSettingsRequest) -> bool:

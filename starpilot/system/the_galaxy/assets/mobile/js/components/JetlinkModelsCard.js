@@ -33,8 +33,19 @@ export const JetlinkModelsCard = {
         await this.request({ method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ref }) })
       } catch (e) { this.error = e.message } finally { this.busy = false }
     },
-    stateLabel(state) {
-      return state === "ready" ? "Built on host" : state === "downloaded" ? "Downloaded" : "Not downloaded"
+    // the pick says why it is not built yet: "Not downloaded" alone looks
+    // stuck while jetlinkd fetches it, and with the link off nothing does
+    stateLabel(m) {
+      if (m.state === "ready") return "Built on host"
+      if (m.selected) {
+        const d = this.data
+        if (!d || d.mode === "off") return "Waiting: Jetlink is off"
+        if (!d.present) return "Waiting for the host"
+        const p = d.progress
+        if (p && p.stage && p.stage !== "ready") return p.msg ? `${p.stage}: ${p.msg}` : p.stage
+        return "Queued"
+      }
+      return m.state === "downloaded" ? "Downloaded" : "Not downloaded"
     },
   },
   template: `
@@ -71,7 +82,7 @@ export const JetlinkModelsCard = {
             <button v-else type="button" class="gx-btn gx-btn--tonal" :disabled="locked" @click="select('')">Use Default</button>
           </div>
           <div v-for="m in models" :key="m.ref" class="gx-row">
-            <span class="gx-row__label" style="flex:1;">{{ m.name }}<br><small>{{ m.ref.slice(0, 10) }} · {{ stateLabel(m.state) }}<template v-if="m.supported === false"> · Not validated</template></small></span>
+            <span class="gx-row__label" style="flex:1;">{{ m.name }}<br><small>{{ m.ref.slice(0, 10) }} · {{ stateLabel(m) }}<template v-if="m.supported === false"> · Not validated</template></small></span>
             <span v-if="m.selected" class="gx-chip">Selected</span>
             <button v-else type="button" class="gx-btn" :disabled="locked || m.supported === false" @click="select(m.ref)">Select</button>
           </div>

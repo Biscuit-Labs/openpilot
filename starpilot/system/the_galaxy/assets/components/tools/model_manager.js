@@ -184,6 +184,11 @@ function getCurrentModelName() {
   return safeText(match.label, current);
 }
 
+// with Jetlink on, an empty Active Big runs Jetlink's pick, not Active Small
+const jetlinkBig = () => safeText(state.status?.jetlinkBigModel, "");
+const noBigLabel = () => jetlinkBig() ? `None — Jetlink runs ${jetlinkBig()}` : "None — always use Active Small";
+const bigModelName = () => state.activeBigModel || !jetlinkBig() ? getModelName(state.activeBigModel) : `Jetlink: ${jetlinkBig()}`;
+
 function getModelName(modelKey, fallback = "none selected") {
   const key = safeText(modelKey, "");
   if (!key) return fallback;
@@ -247,6 +252,7 @@ async function fetchStatus() {
       progress: safeText(payload.progress, ""),
       isOnroad: toBool(payload.isOnroad),
       terminal: toBool(payload.terminal),
+      jetlinkBigModel: safeText(payload.jetlinkBigModel, ""),
     };
 
     state.error = "";
@@ -643,7 +649,7 @@ export function ModelManager() {
       <div class="mm-status">
         <span class="mm-chip">Loaded: ${() => getCurrentModelName()}</span>
         <span class="mm-chip mm-chip-device-gpu">Active Small: ${() => getModelName(state.activeSmallModel)}</span>
-        <span class="mm-chip mm-chip-egpu">Active Big: ${() => getModelName(state.activeBigModel)}</span>
+        <span class="mm-chip mm-chip-egpu">Active Big: ${() => bigModelName()}</span>
         <span class="mm-chip">Progress: ${safeText(state.status.progress, "Idle")}</span>
         <span class="mm-chip">${() => getUserFavoriteModels(false).length} personal favorites</span>
         ${() => state.status.isOnroad ? html`<span class="mm-chip mm-chip-warning">Onroad: actions disabled</span>` : ""}
@@ -683,14 +689,14 @@ export function ModelManager() {
 
             return orderedInstalled.length > 0
               ? html`
-                <option value="" selected="${() => !state.activeBigModel || false}">None — always use Active Small</option>
+                <option value="" selected="${() => !state.activeBigModel || false}">${() => noBigLabel()}</option>
                 ${orderedInstalled.map(model => html`
                   <option value="${safeText(model.value)}" selected="${() => safeText(model.value) === state.activeBigModel || false}">
                     ${safeText(model.label, model.value)}
                   </option>
                 `)}
               `
-              : html`<option value="" selected>None — always use Active Small</option>`;
+              : html`<option value="" selected>${() => noBigLabel()}</option>`;
           }}
         </select>
 

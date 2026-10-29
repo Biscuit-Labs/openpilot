@@ -1,5 +1,5 @@
 {
-  "name": "Honda-PTM long-lived branches",
+  "name": "Honda-PTM promotion branches",
   "target": "branch",
   "enforcement": "active",
   "bypass_actors": [],
@@ -8,7 +8,6 @@
       "include": [
         "refs/heads/Honda-PTM-Stable",
         "refs/heads/Honda-PTM-Stage",
-        "refs/heads/Honda-PTM-Testing",
         "refs/heads/Honda-PTM-Clean"
       ],
       "exclude": []

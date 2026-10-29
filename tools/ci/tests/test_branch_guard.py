@@ -1,6 +1,9 @@
+import os
+import subprocess
+import tempfile
 import unittest
 
-from tools.ci.branch_guard import CLEAN, STABLE, STAGE, TESTING, violations
+from tools.ci.branch_guard import CLEAN, STABLE, STAGE, TESTING, base_violations, violations
 
 REPO = 'RiskyBiscuit-arc/openpilot'
 FORK = 'someone/openpilot'
@@ -33,6 +36,54 @@ class TestBranchGuard(unittest.TestCase):
   def test_other_bases_are_not_this_checks_business(self):
     self.assertEqual(violations('wifi-power-save', 'claude/x', REPO, REPO), [])
     self.assertEqual(violations(CLEAN, 'clean-sync', REPO, REPO), [])
+
+
+class TestBranchedFromTesting(unittest.TestCase):
+  """Stage holds a promotion merge commit Testing lacks; feature branches cut from each long-lived branch."""
+  def setUp(self):
+    self.cwd = os.getcwd()
+    self.tmp = tempfile.TemporaryDirectory()
+    os.chdir(self.tmp.name)
+    self.git('init', '-q', '-b', 'testing')
+    self.git('config', 'user.email', 'ci@example.com')
+    self.git('config', 'user.name', 'ci')
+    self.commit('base')
+    self.git('branch', 'stage')
+    self.commit('feature already in testing')
+    self.git('checkout', '-q', 'stage')
+    self.git('merge', '-q', '--no-ff', '-m', 'promote testing', 'testing')
+    self.git('branch', 'stable')
+    for name, branch in ((TESTING, 'testing'), (STAGE, 'stage'), (STABLE, 'stable')):
+      self.git('update-ref', f'refs/remotes/origin/{name}', branch)
+
+  def tearDown(self):
+    os.chdir(self.cwd)
+    self.tmp.cleanup()
+
+  def git(self, *args):
+    return subprocess.run(['git', *args], check=True, capture_output=True, text=True).stdout.strip()
+
+  def commit(self, message):
+    self.git('commit', '-q', '--allow-empty', '-m', message)
+    return self.git('rev-parse', 'HEAD')
+
+  def branch_off(self, start, name):
+    self.git('checkout', '-q', '-b', name, start)
+    self.git('commit', '-q', '--allow-empty', '-m', name)
+    self.git('checkout', '-q', 'testing')
+    return self.git('rev-parse', name)
+
+  def test_branch_of_testing_or_of_a_testing_branch_is_fine(self):
+    self.assertEqual(base_violations(TESTING, self.branch_off('testing', 'wifi-power-save')), [])
+    self.assertEqual(base_violations(TESTING, self.branch_off('wifi-power-save', 'wifi-power-save-logs')), [])
+
+  def test_branch_of_stage_or_stable_is_refused(self):
+    for start in ('stage', 'stable'):
+      with self.subTest(start=start):
+        self.assertEqual(len(base_violations(TESTING, self.branch_off(start, f'from-{start}'))), 1)
+
+  def test_only_testing_is_checked(self):
+    self.assertEqual(base_violations(STAGE, self.branch_off('stage', 'from-stage')), [])
 
 
 if __name__ == '__main__':

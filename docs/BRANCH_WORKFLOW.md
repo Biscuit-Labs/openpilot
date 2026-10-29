@@ -69,10 +69,12 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
 | --- | --- |
 | `Honda-PTM-Stable` | `Honda-PTM-Stage` in this repo |
 | `Honda-PTM-Stage` | `Honda-PTM-Testing` in this repo |
-| `Honda-PTM-Testing` | a feature or fix branch: not Stage, Stable or Clean, and no tool prefix |
+| `Honda-PTM-Testing` | a feature or fix branch cut from Testing (or from another branch of Testing): not Stage, Stable or Clean, no tool prefix, and no commits that are on Stage or Stable but not on Testing |
 | `Honda-PTM-Clean` | anything that leaves Clean equal to Stable plus exactly the clean changes (`tools/night_star_port/check_clean_branch.py`) |
 
 The guard also runs on every push to Clean.
+
+Git does not record which branch a branch was created from, and GitHub cannot stop someone creating a branch from Stage or Stable. The guard catches it when the pull request opens: a branch cut from Stage or Stable after a promotion carries that promotion's merge commit, which Testing never has.
 
 **Required checks** (the same list in both branch rulesets) are the CI jobs that pass today. `process replay` and `complete custom pytest catalog` join the list once issue #13 is closed; until then a reviewer reads their results by hand.
 

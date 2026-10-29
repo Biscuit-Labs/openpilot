@@ -5,12 +5,17 @@ Rulesets can protect a branch, but they cannot say which branch a pull request c
   - Honda-PTM-Stable takes pull requests only from Honda-PTM-Stage,
   - Honda-PTM-Testing takes no pull request from Stage, Stable or Clean (changes move one way), and
     no branch named with a tool or agent prefix such as `claude/`,
-  - Honda-PTM-Clean is checked by tools/night_star_port/check_clean_branch.py against Honda-PTM-Stable.
+  - Honda-PTM-Clean is checked by tools/night_star_port/check_clean_branch.py against Honda-PTM-Stable,
+  - a pull request into Honda-PTM-Testing must be branched from Testing (or from a branch of Testing): it may not
+    carry commits that are on Stage or Stable but not on Testing, such as promotion merge commits.
+
+Git does not record which branch a branch was created from, so this is checked from the commits the pull request brings.
 
 Promotion pull requests must come from this repository, not from a fork.
 
-usage: branch_guard.py <base> <head> <head-repo> <repo>
+usage: branch_guard.py <base> <head> <head-repo> <repo> [<head-sha>]
 """
+import subprocess
 import sys
 
 STABLE, STAGE, TESTING, CLEAN = 'Honda-PTM-Stable', 'Honda-PTM-Stage', 'Honda-PTM-Testing', 'Honda-PTM-Clean'
@@ -35,10 +40,29 @@ def violations(base, head, head_repo, repo):
   return []
 
 
+def rev_list(*revs):
+  return set(subprocess.run(['git', 'rev-list', *revs], check=True, capture_output=True, text=True).stdout.split())
+
+
+def base_violations(base, head_sha, remote='origin'):
+  """Commits the pull request brings that come from Stage or Stable instead of Testing."""
+  if base != TESTING:
+    return []
+  brought = rev_list(head_sha, f'^{remote}/{TESTING}')
+  promoted = rev_list(f'{remote}/{STAGE}', f'{remote}/{STABLE}', f'^{remote}/{TESTING}')
+  foreign = brought & promoted
+  if not foreign:
+    return []
+  return [f'this branch carries {len(foreign)} commit(s) from {STAGE} or {STABLE} that are not on {TESTING} '
+          f'(for example {sorted(foreign)[0][:12]}). Branch off {TESTING} instead and cherry-pick your own commits.']
+
+
 def main(argv):
-  if len(argv) != 4:
+  if len(argv) not in (4, 5):
     sys.exit(__doc__)
-  found = violations(*argv)
+  found = violations(*argv[:4])
+  if len(argv) == 5:
+    found += base_violations(argv[0], argv[4])
   for line in found:
     print(f'::error::{line}')
   print(f'{argv[2]}:{argv[1]} -> {argv[0]}: ' + ('FAIL' if found else 'ok'))

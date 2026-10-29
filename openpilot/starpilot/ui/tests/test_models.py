@@ -3,7 +3,7 @@
 import unittest
 from dataclasses import replace
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 from unittest import mock
 
 from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, BY_ID
@@ -122,7 +122,7 @@ class TestModelManager(unittest.TestCase):
                     "communityFavorite": True, "downloadAvailable": False}
     self.missing = {"value": "missing", "label": "Missing", "installed": False, "selectable": False, "requiresGpu": True,
                     "downloadAvailable": True, "gpuAvailable": False}
-    self.data = {"schemaVersion": 1, "models": [self.small, self.big, self.pending, self.missing], "isOnroad": False,
+    self.data: dict[str, Any] = {"schemaVersion": 1, "models": [self.small, self.big, self.pending, self.missing], "isOnroad": False,
                  "activeSmallModel": "small", "activeBigModel": "big", "currentModel": "small", "downloading": False,
                  "capabilities": {"select": True, "download": True, "downloadAll": True, "favorites": True, "delete": True, "cancel": True,
                                   "randomizer": True, "exclusions": True}}
@@ -158,7 +158,7 @@ class TestModelManager(unittest.TestCase):
 
   def test_catalog_count_is_honest_and_download_rows_follow_the_owner(self):
     status = ModelStatus(BUNDLED_CURRENT, None, None, ModelHealth.UNAVAILABLE, False, None, None)
-    data = self.data | {"summary": {"installed": 2, "total": 4}}
+    data: dict[str, Any] = self.data | {"summary": {"installed": 2, "total": 4}}
     state = model_page(status, data)
     self.assertEqual(state.rows[0].value, "2 installed / 4 in catalog")
     self.assertEqual([row.label for row in state.rows[3:6]], ["Download a model", "Download all missing", "Refresh catalog"])

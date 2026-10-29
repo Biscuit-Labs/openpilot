@@ -1,6 +1,6 @@
 # Branch workflow
 
-This repo (`RiskyBiscuit-arc/openpilot`) is the shared codebase for the Honda CR-V PTM work.
+This repo (`RiskyBiscuit-arc/openpilot`) is the shared openpilot codebase for Honda EPS torque modding. It is not specific to one model: it covers any Honda whose power steering is torque-modded.
 Collaborators push here directly. Nobody works from a separate fork.
 
 ## Branches

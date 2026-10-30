@@ -7,6 +7,8 @@ on:
 jobs:
   comment:
     name: comment
+    # tests.yaml skips process replay on pull requests into Honda-PTM-Testing, so there is no report to post.
+    if: github.event.pull_request.base.ref != 'Honda-PTM-Testing'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:

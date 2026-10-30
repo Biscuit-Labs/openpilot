@@ -551,7 +551,7 @@ jobs:
 
   process_replay:
     name: process replay
-    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
+    # Runs on Testing PRs too: it is cheap (~9 runner-min) and shows when a car or controls change shifts behaviour.
     runs-on: ${{
       (github.repository == 'commaai/openpilot') &&
       ((github.event_name != 'pull_request') ||

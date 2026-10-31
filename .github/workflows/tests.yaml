@@ -24,6 +24,12 @@ concurrency:
 permissions:
   contents: read
 
+# Pull requests into Honda-PTM-Testing run a reduced set to keep Actions usage down: every check the Testing
+# ruleset requires still runs, and the jobs gated on the full suite below are skipped. Pull requests into
+# Honda-PTM-Stage, Honda-PTM-Stable and every other base, pushes and workflow_dispatch run the full suite;
+# "Run workflow" on a Testing PR's branch runs it on demand. Full-suite gate, repeated on each job because job
+# conditions cannot read env: !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing')
+
 env:
   CI: 1
   PYTHONPATH: ${{ github.workspace }}
@@ -108,7 +114,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-latest]
+        os: ${{ fromJSON((github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') && '["ubuntu-24.04"]' || '["ubuntu-24.04", "macos-latest"]') }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -137,6 +143,7 @@ jobs:
 
   build_mac:
     name: build macOS
+    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
     runs-on: ${{ ((github.repository == 'commaai/openpilot') && ((github.event_name != 'pull_request') || (github.event.pull_request.head.repo.full_name == 'commaai/openpilot'))) && 'namespace-profile-macos-8x14' || 'macos-latest' }}
     steps:
     - uses: actions/checkout@v7
@@ -251,6 +258,7 @@ jobs:
 
   custom_pytest:
     name: custom pytest (${{ matrix.shard }})
+    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -303,7 +311,7 @@ jobs:
   custom_pytest_complete:
     name: complete custom pytest catalog
     needs: custom_pytest
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -553,6 +561,7 @@ jobs:
 
   process_replay:
     name: process replay
+    # Runs on Testing PRs too: it is cheap (~9 runner-min) and shows when a car or controls change shifts behaviour.
     runs-on: ${{
       (github.repository == 'commaai/openpilot') &&
       ((github.event_name != 'pull_request') ||
@@ -632,6 +641,7 @@ jobs:
 
   create_ui_report:
     name: Create UI Report
+    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
     runs-on: ${{
       (github.repository == 'commaai/openpilot') &&
       ((github.event_name != 'pull_request') ||

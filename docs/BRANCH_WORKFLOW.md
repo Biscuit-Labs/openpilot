@@ -59,8 +59,8 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
   - changes arrive only by pull request, with merge commits only (no squash, no rebase, so upstream merges keep their history);
   - one approval from someone other than the last person to push, and new pushes dismiss earlier approvals;
   - every review thread resolved;
-  - the required checks pass. Stage, Stable and Clean do not require the branch to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Push CI on each long-lived branch tests the merged result.
-- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required (passing checks and branch guard are enough) and a pull request must be up to date with Testing before it merges, so its checks ran against the latest Testing. A second person reviews when Testing is promoted to Stage.
+  - the required checks pass. Stage, Stable and Clean do not require the branch to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Each promotion's pull request checks run on the merge result at the time they run.
+- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required (passing checks and branch guard are enough). A pull request does not have to be up to date with Testing before it merges: requiring it made every open pull request rerun CI after each merge and let only one merge at a time. Two pull requests that pass on their own can still break each other once both are in Testing, so the promotion's full run is the check of Testing as a whole. A second person reviews when Testing is promoted to Stage.
 - `branch-names.json` refuses to create branches under `claude/`, `codex/`, `copilot/`, `cursor/` or `gemini/`.
 
 **branch guard** (`.github/workflows/branch_guard.yaml`, `tools/ci/branch_guard.py`) is a required check. Rulesets cannot say where a pull request comes from, so this check does:
@@ -74,7 +74,9 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
 
 The guard also runs on every push to Clean.
 
-**Required checks** (the same list in both branch rulesets) are the CI jobs that pass today. `process replay` and `complete custom pytest catalog` join the list once issue #13 is closed; until then a reviewer reads their results by hand.
+**Required checks** (the same list in both branch rulesets) are the CI jobs that pass today. `process replay` and `complete custom pytest catalog` join the Stage and Stable list once issue #13 is closed; until then a reviewer reads their results by hand.
+
+**How much CI runs where.** To keep GitHub Actions usage down, pull requests into Testing run a reduced `tests` workflow: every check the Testing ruleset requires, plus `safety` and `docs`. They skip the 24 custom pytest shards and their catalog, the UI report, and the macOS builds; process replay and its diff report comment still run. That is about half the runner minutes of a full run. Pull requests into Stage and Stable run the full suite, so everything skipped on Testing runs before a promotion merges. `complete custom pytest catalog` is not a required check on Stage or Stable yet (see above), so the reviewer of a promotion must confirm it passed. To run the full suite on a Testing pull request, open Actions → tests → Run workflow and pick the pull request's branch. The skipped jobs can never be required on Testing, because a skipped job counts as passed.
 
 ### Before you ask for review
 

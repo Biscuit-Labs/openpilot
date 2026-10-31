@@ -55,7 +55,8 @@ def jetlink_op(store):
     value = store.get(key)
     return adapter.with_default_bundle(value) if key == adapter.CATALOG_KEY else value
 
-  return SimpleNamespace(keys=cls.KEYS, catalog_selector=cls.CATALOG_SELECTOR, get=get,
+  # params_dir() names a missing directory: the store is in memory, so the pick has no file time.
+  return SimpleNamespace(keys=cls.KEYS, catalog_selector=cls.CATALOG_SELECTOR, get=get, params_dir=lambda: "/nonexistent-params",
                          log=logging.getLogger("jetlink-test"), put=store.put)
 
 

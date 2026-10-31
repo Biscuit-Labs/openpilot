@@ -120,6 +120,7 @@ def model_manager_rows(data: dict) -> tuple[FeatureRow, ...]:
   summary = data.get("summary", {})
   last = "" if data.get("downloading") else data.get("progress", "")
   rows = [FeatureRow("", "Model catalog", f"{summary.get('installed', 0)} installed / {summary.get('total', 0)} in catalog",
+                     available=bool(data.get("models")), page="models:catalog", action_label="View",
                      reason=f"Last job: {last}" if last else "Only installed models can be selected")]
   for profile, field in (("small", "activeSmallModel"), ("big", "activeBigModel")):
     mid = data.get(field, "")
@@ -139,18 +140,36 @@ def model_manager_rows(data: dict) -> tuple[FeatureRow, ...]:
                          page="models:download"))
   if data.get("downloading"):
     rows.append(FeatureRow("", "Cancel download", data.get("progress") or "Downloading", available=model_action_allowed(data, "cancel"),
-                           reason="Stops the running download", page="models:cancel"))
+                           reason="Stops the running download", page="models:cancel", action_label="Stop"))
   else:
     # The owner skips GPU-only models on a device without a GPU, so "all" means the same set the dialog offers.
     allowed = model_action_allowed(data, "download_all") and bool(downloads)
     rows.append(FeatureRow("", "Download all missing", f"{len(downloads)} models" if downloads else "None", available=allowed,
                            reason="Skips GPU-only models" if allowed else
-                           "Turn the vehicle off to download" if not parked else "Nothing left to download", page="models:download_all"))
+                           "Turn the vehicle off to download" if not parked else "Nothing left to download",
+                           page="models:download_all", action_label="Download"))
   rows.append(FeatureRow("", "Refresh catalog", "Check for new models", available=model_action_allowed(data, "refresh_manifest"),
                          reason="Turn the vehicle off to refresh" if not parked else "A download is running" if data.get("downloading") else
                          "Updates the list; downloads nothing",
-                         page="models:refresh_manifest"))
+                         page="models:refresh_manifest", action_label="Refresh"))
   return tuple(rows)
+
+
+def model_catalog_html(data: dict) -> str:
+  # Read-only list for the catalog row. The renderer does not decode entities, so markup characters are dropped from names.
+  def line(m: dict) -> str:
+    name = "".join(c for c in model_display_text(str(m.get("label", m["value"]))) if c not in "<>&")
+    size = "Big" if m.get("requiresGpu") else "Small"
+    if m.get("installed") is True:
+      return f"<p>{name} ({size})</p>"
+    note = ("checking" if m.get("checking") else "needs a GPU" if m.get("requiresGpu") is True and m.get("gpuAvailable") is not True else
+            "not published" if m.get("downloadAvailable") is not True else "not downloaded")
+    return f"<p>{name} ({size}) - {note}</p>"
+  rows = model_catalog_rows(data, "name")
+  installed = [m for m in rows if m.get("installed") is True]
+  missing = [m for m in rows if m.get("installed") is not True]
+  return "".join([f"<h3>Installed ({len(installed)})</h3>", *map(line, installed),
+                  f"<h3>Not installed ({len(missing)})</h3>", *map(line, missing)])
 
 
 def model_display_text(value: str) -> str:

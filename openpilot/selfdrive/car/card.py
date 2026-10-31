@@ -69,6 +69,7 @@ from openpilot.starpilot.car.nissan.aol import (
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config, pending_stock_angle_arm
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
+from openpilot.starpilot.aol.honda_override import honda_override_shield
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
 from openpilot.starpilot.conditional_mode.manual import Button, ButtonTracker, IoniqMediaMapCache, WheelMapCache, Press, ioniq6_media_eligible
@@ -458,7 +459,7 @@ class Car:
     self.controller_cruise_consumer = CruiseActionConsumer()
     self.controller_cruise_sock = messaging.sub_sock('slcAction', conflate=False) if cruise_action_eligible(self.CP) else None
     self.v_cruise_helper = VCruiseHelper(self.CP)
-    self.v_cruise_helper.intervals = read_cruise_intervals(self.params, pcm_cruise=self.CP.pcmCruise)
+    self.v_cruise_helper.intervals = read_cruise_intervals(self.params, self.CP)
 
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
     self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
@@ -621,7 +622,9 @@ class Car:
       angle_arm_pending = pending_stock_angle_arm(self.CP, CS, self.sm, self.aol_card_intent,
         now_ns=now_ns, producer=self.slc_producer_session,
         acknowledged_arm_ns=getattr(self, '_angle_aol_acknowledged_arm_ns', 0))
-      transport_reset = not (hkg_cancel_retained or rivian_brake_retained or angle_arm_pending) and self.aol_transport_feedback.observe(
+      # Night Star: a Honda override's temporary EPS fault feeds neither the transport tracker nor native loss
+      honda_shield = honda_override_shield(self, self.CP, CS, self.aol_card_intent.allowed_latch)
+      transport_reset = not (hkg_cancel_retained or rivian_brake_retained or angle_arm_pending or honda_shield) and self.aol_transport_feedback.observe(
         self.sm, self.CP, CS, now_ns,
         latched=self.aol_card_intent.allowed_latch, cancel_source_ns=cancel_source_ns,
         brake_source_ns=brake_source_ns,
@@ -647,7 +650,7 @@ class Car:
           not feedback.retention_started_ns and not feedback.retention_qualified and not feedback.retention_pending and
           not any(e.immediateDisable or e.softDisable or e.userDisable for e in self.sm['onroadEvents']))
         fault_active = transport_reset or self.aol_disarming_fault(CS, event_ns, now_ns,
-          transport_observed_healthy=reuse_transport or angle_arm_pending)
+          transport_observed_healthy=reuse_transport or angle_arm_pending or honda_shield)
       angle_aol, ford_aol, honda_aol, mazda_aol, preap_aol, volkswagen_aol = self.aol_permission_owners()
       nissan_aol = qualified_nissan_aol(self.CP, marked_only=True)
       rivian_aol = qualified_rivian_aol(self.CP, marked_only=True)
@@ -693,7 +696,7 @@ class Car:
             native.observedMonoTime >= preap_observation['pending_cancel_ns']):
           self._preap_cancel_echo_pending_ns = 0
         self._angle_aol_pending_since_ns = pending_since
-        if lost:
+        if lost and not honda_shield:
           fault_active = True
       if (angle_aol and native is not None and native.requestedLateral and native.lateralAllowed and
           0 < self.aol_card_intent.physical_arm_ns <= native.observedMonoTime):
@@ -1831,7 +1834,7 @@ class Car:
       now = time.monotonic()
       if now >= next_cruise_read:
         self.slc_requested_configuration = self.read_slc_configuration()
-        self.v_cruise_helper.intervals = read_cruise_intervals(self.params, pcm_cruise=self.CP.pcmCruise)
+        self.v_cruise_helper.intervals = read_cruise_intervals(self.params, self.CP)
         pitch_input = getattr(self.CI.CC, 'long_pitch_input', None)
         if pitch_input is not None:
           self.CI.CC.long_pitch = pitch_input.update(time.monotonic_ns())

@@ -1,6 +1,6 @@
 # Branch workflow
 
-This repo (`RiskyBiscuit-arc/openpilot`) is the shared openpilot codebase for Honda EPS torque modding. It is not specific to one model: it covers any Honda whose power steering is torque-modded.
+This repo (`Biscuit-Labs/openpilot`) is the shared openpilot codebase for Honda EPS torque modding. It is not specific to one model: it covers any Honda whose power steering is torque-modded.
 Collaborators push here directly. Nobody works from a separate fork.
 
 ## Branches
@@ -29,8 +29,10 @@ Never open a pull request straight into Stage or Stable.
 
 Changes move in one direction only: Testing → Stage → Stable.
 
-- **Testing → Stage:** open a pull request from `Honda-PTM-Testing` into `Honda-PTM-Stage` when Testing has a set of changes worth driving.
-- **Stage → Stable:** open a pull request from `Honda-PTM-Stage` into `Honda-PTM-Stable` once Stage has been driven and nothing new is wrong.
+- **Testing → Stage:** when Testing has a set of changes worth driving, run `tools/ci/promote.py testing`. It pushes a snapshot branch `promote-testing-<commit>` at the tip of Testing and opens its pull request into `Honda-PTM-Stage`, listing the pull requests it carries.
+- **Stage → Stable:** once Stage has been driven and nothing new is wrong, run `tools/ci/promote.py stage`. It does the same from Stage into `Honda-PTM-Stable`.
+
+Promote from a snapshot, not from the long-lived branch itself. A pull request from `Honda-PTM-Testing` follows the branch, so every later merge into Testing joins the promotion and reruns its full CI. A snapshot never moves: its checks and approval stay on exactly the commit that was tested, and Testing keeps taking merges while the promotion waits for review or driving. Pass a commit (`tools/ci/promote.py testing <commit>`) to promote an earlier point of Testing. After the promotion merges, `tools/ci/promote.py cleanup` deletes the snapshot branches whose pull requests are closed. A pull request straight from `Honda-PTM-Testing` or `Honda-PTM-Stage` is still accepted.
 
 A fix found on Stage goes through the same path: branch off Testing, merge into Testing, then promote it again.
 
@@ -39,6 +41,7 @@ A fix found on Stage goes through the same path: branch off Testing, merge into 
 - Name a branch after the work, in lowercase with hyphens, for example `wifi-power-save` or `jetlink-0.8.10-update`.
 - Don't use tool or agent prefixes such as `claude/`.
 - Only the three long-lived branches above use the `Honda-PTM-` prefix.
+- `promote-testing-` and `promote-stage-` are for promotion snapshots cut by `tools/ci/promote.py`.
 
 ## Bringing in upstream (VFN `night-star7`)
 
@@ -67,10 +70,12 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
 
 | Into | Only from |
 | --- | --- |
-| `Honda-PTM-Stable` | `Honda-PTM-Stage` in this repo |
-| `Honda-PTM-Stage` | `Honda-PTM-Testing` in this repo |
+| `Honda-PTM-Stable` | `Honda-PTM-Stage`, or a `promote-stage-<commit>` snapshot, in this repo |
+| `Honda-PTM-Stage` | `Honda-PTM-Testing`, or a `promote-testing-<commit>` snapshot, in this repo |
 | `Honda-PTM-Testing` | a feature or fix branch: not Stage, Stable or Clean, and no tool prefix |
 | `Honda-PTM-Clean` | anything that leaves Clean equal to Stable plus exactly the clean changes (`tools/night_star_port/check_clean_branch.py`) |
+
+A snapshot branch must be named after its tip (10 to 40 lowercase hex digits), must not have moved since it was cut, and its commit must already be in the source branch.
 
 The guard also runs on every push to Clean.
 

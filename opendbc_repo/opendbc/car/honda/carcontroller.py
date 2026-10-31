@@ -30,6 +30,28 @@ def compute_gb_honda_nidec(accel, speed):
   return np.clip(gb, 0.0, 1.0), np.clip(-gb, 0.0, 1.0)
 
 
+# A Nidec hybrid's COMPUTER_BRAKE_HYBRID reaches 320, the stock ACC camera's own ceiling (00000042--6d427003af segs
+# 5/10). Under the Nidec 255 the Clarity's hardest braking was ~-2.7 m/s2, mostly regen, against a -3.5 plan
+# (00000047--ac3b1f5def seg 6, the driver finished the stop at -6 to -9).
+# The command is the inverse of the Clarity's measured brake curve (aEgo 0.15 s after the command, openpilot braking
+# alone, 00000042/43/47): regen alone and linear to ~52, a knee where regen saturates (~10k on 0x183) and friction
+# starts, then friction carries the rest. Decel = -1.24e-4*regen - 1.47*pressure - 0.34 explains 93% of it; the top
+# knot (320 <-> 3.3 m/s2) is that fit extrapolated (3.3-3.8 by speed), placed so -4.0 less wind_brake reaches the
+# ceiling up to ~75 mph.
+# The brake fraction (accel / 4.8, after wind_brake) is read as the brake's share of the decel in m/s2.
+HYBRID_DECEL_BP = [0.0, 0.3, 0.7, 1.0, 1.27, 1.5, 1.7, 1.85, 2.2, 2.55, 2.7, 3.3]
+HYBRID_COMMAND_V = [0.0, 8.0, 22.0, 38.0, 52.0, 95.0, 112.0, 130.0, 150.0, 170.0, 200.0, 320.0]
+HYBRID_BRAKE_MAX = 320
+
+
+def hybrid_brake_command(brake_fraction: float, v_ego: float = 10.0) -> int:
+  measured = float(np.interp(brake_fraction * 4.8, HYBRID_DECEL_BP, HYBRID_COMMAND_V))
+  # The curve was measured at 5-35 mph. Below ~3 mph regen fades out and the brake is all friction, so the road-tested
+  # linear command (fraction * 256, the final-stop and hold behavior of 00000039/3a/3b) stays a floor, fading by ~7 mph.
+  linear_floor = brake_fraction * 256.0 * float(np.interp(v_ego, [1.3, 3.0], [1.0, 0.0]))
+  return int(np.clip(max(measured, linear_floor), 0, HYBRID_BRAKE_MAX))
+
+
 def compute_gas_brake(accel, speed, CP):
   if CP.flags & HondaFlags.BOSCH:
     return compute_gb_honda_bosch(accel, speed)
@@ -254,8 +276,11 @@ class CarController(CarControllerBase):
           can_sends.extend(hondacan.create_acc_commands(self.packer, self.CAN, CC.enabled, CC.longActive, self.accel, self.gas,
                                                         self.stopping_counter, self.CP, gas_force=gas_force, braking=braking))
         else:
-          apply_brake = np.clip(self.brake_last - wind_brake, 0.0, 1.0)
-          apply_brake = int(np.clip(apply_brake * self.params.NIDEC_BRAKE_MAX, 0, self.params.NIDEC_BRAKE_MAX - 1))
+          brake_fraction = np.clip(self.brake_last - wind_brake, 0.0, 1.0)
+          if self.CP.flags & HondaFlags.HYBRID:
+            apply_brake = hybrid_brake_command(brake_fraction, CS.out.vEgo)
+          else:
+            apply_brake = int(np.clip(brake_fraction * self.params.NIDEC_BRAKE_MAX, 0, self.params.NIDEC_BRAKE_MAX - 1))
           pump_on, self.last_pump_ts = brake_pump_hysteresis(apply_brake, self.apply_brake_last, self.last_pump_ts, ts)
 
           pcm_override = True
@@ -263,7 +288,7 @@ class CarController(CarControllerBase):
                                                          pcm_override, pcm_cancel_cmd, alert_fcw, CS.stock_brake,
                                                          hybrid=bool(self.CP.flags & HondaFlags.HYBRID)))
           self.apply_brake_last = apply_brake
-          self.brake = apply_brake / self.params.NIDEC_BRAKE_MAX
+          self.brake = float(brake_fraction) if self.CP.flags & HondaFlags.HYBRID else apply_brake / self.params.NIDEC_BRAKE_MAX
           if self.nidec_interceptor is not None:
             command = self.nidec_interceptor.update(CC, CS, gas, brake, wind_brake)
             can_sends.append(create_command(self.packer, command, (self.frame // 2) % 16))

@@ -35,3 +35,58 @@ def _clarity_params(extra_addrs):
 def test_alt_brake_hold_message_sets_its_flag():
   assert _clarity_params([0x223]).flags & HondaFlags.HYBRID_ALT_BRAKEHOLD
   assert not _clarity_params([]).flags & HondaFlags.HYBRID_ALT_BRAKEHOLD
+
+
+def test_hybrid_brake_map_follows_the_measured_curve_and_reaches_the_stock_ceiling():
+  from opendbc.car.honda.carcontroller import HYBRID_BRAKE_MAX, hybrid_brake_command
+  # measured (decel m/s2 -> command): regen-only and linear to ~52, the knee to ~112, friction above
+  for decel, command in ((0.0, 0), (1.0, 38), (1.27, 52), (1.7, 112), (2.55, 170)):
+    assert hybrid_brake_command(decel / 4.8) == command, decel
+  assert hybrid_brake_command(3.3 / 4.8) == HYBRID_BRAKE_MAX == 320
+  assert hybrid_brake_command(4.0 / 4.8 - 0.145) == 320   # -4.0 at 75 mph, after wind_brake
+  assert hybrid_brake_command(1.0) == 320
+  values = [hybrid_brake_command(f / 200) for f in range(201)]
+  assert values == sorted(values)
+
+
+def test_standstill_hold_stays_at_the_stock_level_through_the_map():
+  from opendbc.car.honda import pcm_acc
+  from opendbc.car.honda.carcontroller import hybrid_brake_command
+  assert 98 <= hybrid_brake_command(pcm_acc.STANDSTILL_HOLD_BRAKE) <= 106
+
+
+def test_a_full_brake_request_reaches_320_on_a_hybrid_only():
+  from opendbc.can import CANPacker
+  from opendbc.car import structs
+  from opendbc.car.honda.tests.test_nidec_interceptor import source_frames
+  for hybrid in (True, False):
+    fp = gen_empty_fingerprint()
+    fp[0][0x201] = 6
+    if hybrid:
+      fp[0][0x184] = 8
+    cp = CarInterface.get_params(CAR.HONDA_CLARITY, fp, [], False, False, False)
+    assert bool(cp.flags & HondaFlags.HYBRID) == hybrid
+    ci = CarInterface(cp)
+    packer = CANPacker(DBC[CAR.HONDA_CLARITY][Bus.pt])
+    for tick in range(50):
+      ci.update([(1_000_000_000 + tick * 10_000_000, source_frames(cp, packer, tick))])
+    command = structs.CarControl(enabled=True, longActive=True)
+    command.actuators.accel = -4.0
+    command.actuators.longControlState = "pid"
+    brake = 0
+    for tick in range(50, 250):
+      _, frames = ci.apply(command.as_reader(), 1_000_000_000 + tick * 10_000_000)
+      for f in frames:
+        if f[0] == 0x1FA:
+          brake = _brake_fields(f[1])[1 if hybrid else 0]
+    assert (310 <= brake <= 320) if hybrid else (brake <= 255), (hybrid, brake)
+
+
+def test_low_speed_keeps_the_road_tested_linear_floor():
+  from opendbc.car.honda.carcontroller import hybrid_brake_command
+  for fraction in (0.05, 0.1, 0.2, 0.33):
+    assert hybrid_brake_command(fraction, 0.0) >= int(fraction * 256)      # final stop / hold: never below the old command
+    assert hybrid_brake_command(fraction, 0.0) >= hybrid_brake_command(fraction, 10.0)
+  # above ~7 mph only the measured curve
+  assert hybrid_brake_command(0.1, 3.5) == hybrid_brake_command(0.1, 20.0)
+  assert hybrid_brake_command(0.1, 0.0) == int(0.1 * 256)

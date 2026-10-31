@@ -6,7 +6,7 @@
 Like UseStarPilotLongitudinalPlanner, the values are latched for the life of the plannerd process, so a change
 applies on the next drive. Only an exact saved "1" turns a feature on; a missing, unreadable or malformed value is
 Off. A toggle only arms its feature: each one still applies its own car gate (honda_bosch_a_long.active_for,
-human_following.enabled_for), so a car that is not a verified Bosch-A Honda with openpilot longitudinal is unaffected.
+human_following.enabled_for), so a car that is not on a Bosch-A platform (classic or alt-radar stock) with openpilot longitudinal is unaffected.
 """
 from dataclasses import dataclass
 
@@ -40,12 +40,17 @@ def read_toggles(params) -> BoschAToggles:
 
 
 def vehicle_supported(CP) -> bool:
-  """Settings-row gate: a Honda with a verified Bosch-A radar and openpilot longitudinal. The planners still apply their
-  own gates; this only decides whether the rows can be turned on."""
+  """Settings-row gate: verified Bosch-A Honda that can use StarPilot longitudinal (active now or after Alpha Long).
+
+  The planner hooks still require openpilotLongitudinalControl at runtime; this only controls whether the saved
+  toggles can be edited."""
   if CP is None:
     return False
   try:
     from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS
-    return bool(CP.brand == "honda" and CP.carFingerprint in VERIFIED_BOSCH_A_CARS and CP.openpilotLongitudinalControl)
+    if CP.brand != "honda" or CP.carFingerprint not in VERIFIED_BOSCH_A_CARS:
+      return False
+    alpha_ready = bool(getattr(CP, "openpilotLongitudinalControl", False) or getattr(CP, "alphaLongitudinalAvailable", False))
+    return alpha_ready
   except Exception:
     return False

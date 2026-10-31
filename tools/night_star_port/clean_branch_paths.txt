@@ -5,10 +5,7 @@ M openpilot/common/params_keys.h
 M openpilot/selfdrive/car/card.py
 M openpilot/selfdrive/monitoring/policy.py
 M openpilot/selfdrive/monitoring/test_monitoring.py
-M openpilot/selfdrive/pandad/libpanda.a
-M openpilot/selfdrive/pandad/panda_usb.o
 M openpilot/selfdrive/pandad/pandad
-M openpilot/selfdrive/pandad/spi.o
 M openpilot/selfdrive/selfdrived/selfdrived.py
 M openpilot/selfdrive/test/process_replay/refs/starpilot/manifest.json
 D openpilot/selfdrive/test/process_replay/refs/starpilot/regen218A4DCFAA1_2025-04-08--22-57-51--0_dmonitoringd.zst

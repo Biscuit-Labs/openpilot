@@ -74,7 +74,7 @@ class BoschAStopGap:
       return float(target), bool(should_stop)
     d_rel = float(lead.dRel)
 
-    if self.holding:
+    if self.hold_d is not None:
       if pulling_away(lead, v_ego):
         self.reset()
       else:

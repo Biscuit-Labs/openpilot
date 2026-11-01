@@ -17,8 +17,8 @@
         "discriminantOffset": 0
       },
       "new_storage": {
-        "dataWordCount": 3,
-        "pointerCount": 6,
+        "dataWordCount": 4,
+        "pointerCount": 7,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
         "discriminantCount": 0,
@@ -63,6 +63,48 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 38
+          }
+        },
+        {
+          "slot": {
+            "offset": 6,
+            "type": {
+              "list": {
+                "elementType": {
+                  "struct": {
+                    "typeId": 10798184186878151150
+                  }
+                }
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "000000000400000000000000020001000e0000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "radarPointStatus",
+          "codeOrder": 39,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 39
+          }
+        },
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "radarTracksMonoTime",
+          "codeOrder": 40,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 40
           }
         }
       ]

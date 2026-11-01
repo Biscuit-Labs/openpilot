@@ -1217,7 +1217,7 @@ class Car:
       tracks_msg.valid = not any(RD.errors.to_dict().values())
       tracks_msg.radarTracks = RD
       self.pm.send('radarTracks', tracks_msg)
-      statuses = getattr(self.RI, 'point_statuses', None)
+      statuses = getattr(getattr(self, 'RI', None), 'point_statuses', None)
       if statuses is not None:
         from openpilot.starpilot.car.honda import radar_point_status
         self.radar_point_status = (int(tracks_msg.logMonoTime), dict(statuses))

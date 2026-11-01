@@ -137,9 +137,9 @@ class SettingsGatewayTest(unittest.TestCase):
     cp.carFingerprint = "TOYOTA_HIGHLANDER_TSS2"
     cp.pcmCruise = True
     page = self.page("slc")
-    index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Adopt fixed offsets")
+    index = next(i for i, row in enumerate(page["rows"]) if row["label"].endswith("offset"))
     self.assertTrue(page["rows"][index]["available"])
-    intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation)
+    intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value=3)
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     row = next(row for row in self.page("slc")["rows"] if row["label"] == "Speed Limit Controller")
     self.assertTrue(row["available"])
@@ -157,8 +157,10 @@ class SettingsGatewayTest(unittest.TestCase):
     self.params.put('CustomCruise', 2.0, block=True)
     self.params.put('CustomCruiseLong', 8.0, block=True)
     before = {key: read_saved(self.params, key, 128)[0] for key in ('CustomCruise', 'CustomCruiseLong')}
+    self.assertFalse(any(row['label'] in ('Short press', 'Hold', 'Swap Toyota Cruise Steps')
+                         for row in self.page('profiles')['rows']))
     for value, enabled in (('On', True), ('Off', False)):
-      page = self.page('profiles')
+      page = self.page('wheel')
       self.assertFalse(any(row['label'] in ('Short press', 'Hold') for row in page['rows']))
       index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Swap Toyota Cruise Steps')
       self.assertTrue(page['rows'][index]['available'])
@@ -170,14 +172,15 @@ class SettingsGatewayTest(unittest.TestCase):
         self.gateway.confirm(intent['intent'], self.session, self.generation)
       self.assertEqual({key: read_saved(self.params, key, 128)[0] for key in before}, before)
     self.context.value.cp.brand = 'honda'
-    self.assertFalse(any(row['label'] == 'Swap Toyota Cruise Steps' for row in self.page('profiles')['rows']))
+    self.assertFalse(any(row['label'] == 'Swap Toyota Cruise Steps' for row in self.page('wheel')['rows']))
 
   def test_row_revision_is_stable_only_for_same_source_vehicle_and_session(self):
     first, second = self.page("lane"), self.page("lane")
     self.assertNotEqual(first["view"], second["view"])
     self.assertEqual(first["rows"], second["rows"])
     first_row = first["rows"][0]
-    self.params.put_bool("LaneCentering", False, block=True)
+    self.assertEqual(first_row["value"], "On")
+    self.params.put_bool("LaneCentering", True, block=True)
     row = self.page("lane")["rows"][0]
     self.assertEqual(first_row["value"], row["value"])
     self.assertNotEqual(first_row["revision"], row["revision"])
@@ -192,8 +195,13 @@ class SettingsGatewayTest(unittest.TestCase):
       self.gateway.preview(changed_vehicle["revision"], 0, 1, self.session, self.generation)
 
   def test_direct_switch_and_slider_values_preserve_source_checks(self):
-    page = self.page("profiles")
-    page = self.page("profiles")
+    vehicle = ToyotaInterface.get_non_essential_params(ToyotaCar.TOYOTA_COROLLA_TSS2)
+    vehicle.pcmCruise = False
+    vehicle.openpilotLongitudinalControl = True
+    self.context.value = AuthorityContext(True, vehicle, vehicle.to_bytes())
+    self.assertFalse(any(row['label'] in ('Short press', 'Hold', 'Swap Toyota Cruise Steps')
+                         for row in self.page('profiles')['rows']))
+    page = self.page("wheel")
     index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Short press")
     for invalid in (True, "nan", float("inf"), 0, 151, 2.5, "bogus"):
       with self.subTest(value=invalid), self.assertRaises(SettingsChanged):
@@ -203,7 +211,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual(self.params.get("CustomCruise"), 7.0)
     with self.assertRaises(SettingsChanged):
       self.gateway.preview(page["view"], index, 0, self.session, self.generation, value=9)
-    page = self.page("profiles")
+    page = self.page("wheel")
     intent = self.gateway.preview(page["view"], index, 0, self.session, self.generation, value=9)
     self.context.value = AuthorityContext(False, self.context.value.cp, self.context.value.cp_raw)
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
@@ -211,7 +219,7 @@ class SettingsGatewayTest(unittest.TestCase):
 
   def test_direct_offset_slider_keeps_si_units_and_range(self):
     from openpilot.starpilot.speed_limits import offset_document as od
-    self.params.put("SLCOffsetSchedule", od.to_value(od.adopt_legacy(False, (0.0,) * 7)), block=True)
+    self.params.put("SLCOffsetSchedule", od.to_value(od.default_document(False)), block=True)
     page = self.page("slc")
     index = next(i for i, row in enumerate(page["rows"]) if row["label"].endswith("offset"))
     self.assertEqual((page["rows"][index]["minimum"], page["rows"][index]["maximum"]), (-25, 99))
@@ -766,6 +774,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertEqual(legacy.read_bytes(), b'{"0.001":{"average":2.4,"count":2}}')
 
   def test_one_use_confirmation_and_exact_source_context(self):
+    self.params.put_bool("LaneCentering", False, block=True)
     page = self.page("lane")
     index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Enable Lane Centering")
     intent = self.gateway.preview(page["view"], index, 1, self.session, self.generation)
@@ -782,7 +791,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertFalse(self.gateway.confirm(intent["intent"], self.session, self.generation))
     self.assertFalse(self.params.get_bool("LaneCentering"))
 
-  def test_slc_adoption_long_preset_and_lane_change_use_owner(self):
+  def test_slc_first_edit_long_preset_and_lane_change_use_owner(self):
     from opendbc.car.car_helpers import interfaces
     from opendbc.car.toyota.values import CAR as TOYOTA
 
@@ -791,10 +800,13 @@ class SettingsGatewayTest(unittest.TestCase):
     cp.pcmCruise = False
     self.context.value = replace(self.context.value, cp=cp)
     slc = self.page("slc")
-    adopt = next(i for i, row in enumerate(slc["rows"]) if row["label"] == "Adopt fixed offsets")
-    intent = self.gateway.preview(slc["view"], adopt, 0, self.session, self.generation)
+    self.assertFalse(any(row["label"] == "Adopt fixed offsets" for row in slc["rows"]))
+    offset = next(i for i, row in enumerate(slc["rows"]) if row["label"].endswith("offset"))
+    self.assertEqual(slc["rows"][offset]["value"], "0")
+    intent = self.gateway.preview(slc["view"], offset, 0, self.session, self.generation, value=3)
     self.assertTrue(self.gateway.confirm(intent["intent"], self.session, self.generation))
     assert read_saved(self.params, "SLCOffsetSchedule", 4096)[0] is not None
+    self.assertAlmostEqual(self.params.get("SLCOffsetSchedule")["offsets_mps"][0], 3 * .44704)
     page = self.page("aggressive/acceleration")
     preset = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Preset")
     intent = self.gateway.preview(page["view"], preset, 1, self.session, self.generation)
@@ -890,7 +902,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertTrue(readable)
     assert raw is not None
     document = json.loads(raw)
-    self.assertEqual(document["schemaVersion"], 5)
+    self.assertEqual(document["schemaVersion"], 6)
     self.assertEqual(document["selectedDecelerationProfile"], "sport")
     self.assertNotIn("globalBrakingResponse", document)
     self.assertEqual(document["profiles"]["aggressive"]["braking"], previous)
@@ -1112,7 +1124,7 @@ class SettingsGatewayTest(unittest.TestCase):
     from opendbc.car.mazda.values import CAR
     from openpilot.starpilot.lateral.controller_selection import policy_for
     cp = interfaces[CAR.MAZDA_CX5_2022].get_non_essential_params(CAR.MAZDA_CX5_2022)
-    self.assertIsNone(policy_for(cp))
+    self.assertEqual(policy_for(cp), 'generic')
     self.context.value = AuthorityContext(True, cp, cp.as_reader().as_builder().to_bytes())
     page = self.page('torque')
     index = next(i for i, row in enumerate(page['rows']) if row['label'] == 'Turn Assist')
@@ -1147,6 +1159,7 @@ class SettingsGatewayTest(unittest.TestCase):
     self.assertFalse(_onroad_preference("torque", "reset_profiles"))
 
   def test_live_lane_rejects_unsupported_vehicle_and_master_dependency(self):
+    self.params.put_bool("LaneCentering", False, block=True)
     tagged, _ = self._live_lane_context()
     page = self.page("lane")
     pause = next(row for row in page["rows"] if row["label"] == "Pause on signal")
@@ -1910,6 +1923,7 @@ class SettingsHttpTest(unittest.TestCase):
     self.assertEqual(legacy.read_bytes(), b'{}')
 
   def test_auth_precedes_source_read_and_http_save(self):
+    self.params.put_bool("LaneCentering", False, block=True)
     calls = 0
     original = self.gateway.page
     def counted(*args):
@@ -1973,6 +1987,7 @@ class SettingsHttpTest(unittest.TestCase):
     self.assertFalse(self.params.get_bool("LaneCentering"))
 
   def test_confirm_finishes_before_acknowledged_logout(self):
+    self.params.put_bool("LaneCentering", False, block=True)
     cookie = self.login()
     _, page, _ = self.request("/api/settings/pages/lane", cookie=cookie)
     index = next(i for i, row in enumerate(page["rows"]) if row["label"] == "Enable Lane Centering")

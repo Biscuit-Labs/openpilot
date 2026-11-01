@@ -27,6 +27,21 @@ from openpilot.starpilot.system.starport.incoming_pairing import IncomingPairing
 AA_AGENT_PATH = '/org/starpilot/starport/pairing'
 
 
+
+STATUS_DEVICE_LIMIT = 64
+STATUS_NAME_LIMIT = 80  # the web page rejects the whole status if any name is longer
+
+
+def status_name(name: str) -> str:
+  return name if len(name) <= STATUS_NAME_LIMIT else name[:STATUS_NAME_LIMIT - 1] + '\u2026'
+
+
+def status_devices(devices: list[dict]) -> list[dict]:
+  # BlueZ lists devices in no fixed order; keep Android Auto receivers, connected and paired ones inside the cap
+  ranked = sorted(devices, key=lambda item: (not item['starport'], not item['connected'], not item['paired']))
+  return [{'address': item['address'], 'name': status_name(item['name']), 'paired': item['paired'],
+           'connected': item['connected'], 'starport': item['starport']} for item in ranked[:STATUS_DEVICE_LIMIT]]
+
 class BluetoothAdmissionError(RuntimeError):
   pass
 
@@ -489,12 +504,11 @@ class SharedBluetoothOwner(BluetoothOwner):
       return empty
     result = lease.incoming.status() if lease.incoming is not None else dict(empty, active=True)
     devices = lease.phone.devices()
-    result.update(devices=[{key: item[key] for key in ('address', 'name', 'paired', 'connected', 'starport')}
-                           for item in devices[:64]], discovering=lease.discovering,
+    result.update(devices=status_devices(devices), discovering=lease.discovering,
                   state=lease.operation_state, error=lease.error)
     if lease.receiver:
       device = next((item for item in devices if item['address'] == lease.receiver and item['path'] == lease.device_path), None)
-      result['receiver'] = {'address': lease.receiver, 'name': device['name'] if device else lease.receiver}
+      result['receiver'] = {'address': lease.receiver, 'name': status_name(device['name']) if device else lease.receiver}
       result['approved'] = bool(device and device['paired'] and lease.operation_state in ('paired', 'connected'))
       if lease.outgoing is not None:
         with lease.outgoing.condition:

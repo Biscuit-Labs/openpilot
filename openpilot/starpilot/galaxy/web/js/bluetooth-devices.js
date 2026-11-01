@@ -12,8 +12,9 @@ export class BluetoothDeviceList {
   update(devices) {
     const current = new Map()
     for (const device of devices) {
-      if (!hasBluetoothName(device)) continue
-      current.set(device.address, { ...device, name: device.name.trim() })
+      // An Android Auto receiver stays visible by address until BlueZ resolves its name
+      if (!hasBluetoothName(device) && device.starport !== true) continue
+      current.set(device.address, { ...device, name: hasBluetoothName(device) ? device.name.trim() : device.address })
       if (!this.order.includes(device.address)) this.order.push(device.address)
     }
     return this.order.filter((address) => current.has(address)).map((address) => current.get(address))

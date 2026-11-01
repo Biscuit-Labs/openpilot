@@ -29,3 +29,11 @@ test('stable rows follow addresses with live rename, flags, disappearance and di
   list.reset()
   assert.deepEqual(list.update([adapter, car]).map(d => d.address), [adapter.address, car.address])
 })
+
+test('an unnamed Android Auto receiver stays visible by its address', () => {
+  const list = new BluetoothDeviceList()
+  const dongle = {address:'AA:BB:CC:DD:EE:04', name:'AA:BB:CC:DD:EE:04', starport:true}
+  const other = {address:'AA:BB:CC:DD:EE:05', name:'AA:BB:CC:DD:EE:05', starport:false}
+  assert.deepEqual(list.update([dongle, other]).map(d => d.name), ['AA:BB:CC:DD:EE:04'])
+  assert.deepEqual(list.update([{...dongle, name:'CarPlay-AA'}]).map(d => d.name), ['CarPlay-AA'])
+})

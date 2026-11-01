@@ -17,6 +17,8 @@ from openpilot.common.hardware.comma.pins import GPIO
 from openpilot.common.hardware.comma.amplifier import Amplifier
 
 MODEM_STATE_PATH = "/dev/shm/modem"
+# PA supply of the WCN3990's second WLAN chain; AGNOS's icnss node only lists chain 0's (L25)
+WIFI_CHAIN1_SUPPLY = "/sys/kernel/debug/regulator/soc:rpmh-regulator-ldoa23-pm8998_l23"
 
 NetworkType = log.DeviceState.NetworkType
 NetworkStrength = log.DeviceState.NetworkStrength
@@ -342,6 +344,26 @@ class HardwareComma(HardwareBase):
       return 100.0 * int(used) / int(total)
     except Exception:
       return 0
+
+  def configure_wifi_chains(self):
+    # The 3X's second WLAN chain is wired but unpowered, so wlan runs 1x1. Power it (L23, as vamOS's
+    # device tree does) and run 2x2. Re-checked periodically: a WLAN firmware restart drops the chain masks.
+    if self.get_device_type() != "tizi":
+      return
+    if sudo_read(f"{WIFI_CHAIN1_SUPPLY}/enable") != "1":
+      sudo_write("1", f"{WIFI_CHAIN1_SUPPLY}/enable")
+      if sudo_read(f"{WIFI_CHAIN1_SUPPLY}/enable") != "1":
+        return
+      sudo_write("2", f"{WIFI_CHAIN1_SUPPLY}/mode")  # normal mode, set once enabled: chain 1 carries transmit current
+    try:
+      mask = subprocess.check_output(["iwpriv", "wlan0", "get_txchainmask"], encoding='utf8', stderr=subprocess.DEVNULL)
+    except Exception:
+      return
+    if "get_txchainmask:3" in mask:
+      return
+    # the driver reports EINVAL from its antenna-mode step, but the firmware applies the mask
+    for param in ("txchainmask", "rxchainmask"):
+      subprocess.run(["sudo", "iwpriv", "wlan0", param, "3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
   def initialize_hardware(self):
     if self.amplifier is not None:

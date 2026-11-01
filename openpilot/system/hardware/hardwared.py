@@ -219,6 +219,12 @@ def hw_state_thread(end_event, hw_queue):
       except Exception:
         cloudlog.exception("Error getting hardware state")
 
+    if (count % int(60. / DT_HW)) == 0:
+      try:
+        HARDWARE.configure_wifi_chains()
+      except Exception:
+        cloudlog.exception("Error configuring wifi chains")
+
     count += 1
     time.sleep(DT_HW)
 

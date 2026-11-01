@@ -151,6 +151,9 @@ class HardwareBase(ABC):
   def initialize_hardware(self):
     pass
 
+  def configure_wifi_chains(self):
+    pass
+
   def reset_internal_panda(self):
     pass
 

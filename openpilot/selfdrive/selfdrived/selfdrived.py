@@ -269,7 +269,7 @@ class SelfdriveD:
       self.events.add(EventName.dashcamMode, static=True)
 
   def update_process_health(self) -> bool:
-    not_running = driving_process_failures(self.sm['managerState'].processes)
+    not_running = driving_process_failures(self.sm['managerState'].processes) - {'ui'}
     if self.sm.recv_frame['managerState'] and not_running:
       if not_running != self.not_running_prev:
         cloudlog.event("process_not_running", not_running=not_running, error=True)
@@ -1420,6 +1420,10 @@ class SelfdriveD:
         not self.events.contains(ET.IMMEDIATE_DISABLE) and
         (not decision.longitudinal_active or self.enabled and self.active))
     user_disable = self.events.contains(ET.USER_DISABLE)
+    if (user_disable and getattr(self, 'nostalgia_paddle_cancel', False) and fresh_successor and
+        decision.lateral_active and not decision.longitudinal_active and not self.enabled and not self.active and
+        intent.allowedLatch and intent.lateralArmed):
+      user_disable = any(event.userDisable and event.name != EventName.buttonCancel for event in self.events.to_msg())
     if user_disable:
       from opendbc.car.hyundai.canfd_angle_aol import qualified as angle_qualified
       from opendbc.car.hyundai.canfd_stock_aol import qualified as stock_canfd_qualified

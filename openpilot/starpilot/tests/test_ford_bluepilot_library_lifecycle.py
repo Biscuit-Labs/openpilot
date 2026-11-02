@@ -6,14 +6,17 @@ from openpilot.starpilot.tests.ford_lifecycle_helpers import ford_joined as ford
 
 
 @pytest.fixture(autouse=True)
-def library_settings(monkeypatch, mode, pinion, topology):
+def library_settings(monkeypatch, mode, pinion, topology, request):
   monkeypatch.ford_bluepilot = True
   monkeypatch.ford_angle = mode == 'angle'
+  monkeypatch.ford_starpilot = mode == 'starpilot'
   monkeypatch.ford_pinion = pinion
   monkeypatch.ford_topology = topology
   monkeypatch.ford_nonzero = True
   monkeypatch.ford_native_first_pedal = True
   monkeypatch.ford_native_10hz = True
+  if request.node.originalname == "test_brake_retains_independent_lateral_intent":
+    monkeypatch.ford_brake_pause = .44704
 
 
 @pytest.mark.parametrize('identity', [(CAR.FORD_MUSTANG_MACH_E_MK1, 2), (CAR.FORD_F_150_MK14, 2), (CAR.FORD_ESCAPE_MK4, 0)])
@@ -33,7 +36,7 @@ def test_library_angle_curvature_aol_native_lifecycle(ford_joined, monkeypatch):
 @pytest.mark.parametrize('identity,alpha,hands_free,topology,pinion', [
   ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True, True, 'automatic', False),
 ])
-@pytest.mark.parametrize('mode', ['curvature', 'angle'])
+@pytest.mark.parametrize('mode', ['curvature', 'angle', 'starpilot'])
 def test_model_loss_still_withdraws_library_output_through_actual_callers(ford_joined, monkeypatch):
   run_actual_producer(ford_joined, monkeypatch, scenario='model-loss')
 
@@ -115,3 +118,47 @@ def test_reengaging_in_a_manual_curve_respects_native_convergence(ford_joined, m
   monkeypatch.ford_curve_gas = gas
   monkeypatch.ford_curve_manual = manual
   run_actual_producer(ford_joined, monkeypatch, scenario='curvature-handoff')
+
+
+@pytest.mark.parametrize('identity,hands_free', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True),
+])
+@pytest.mark.parametrize('alpha', [False, True])
+@pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
+@pytest.mark.parametrize('mode', ['curvature', 'angle', 'starpilot'])
+@pytest.mark.parametrize('pinion', [False, True])
+@pytest.mark.parametrize('brake_pause', [False, True], ids=['overlap', 'pause'])
+def test_brake_retains_independent_lateral_intent(ford_joined, monkeypatch, brake_pause):
+  run_actual_producer(ford_joined, monkeypatch, scenario='brake-pause' if brake_pause else 'brake-overlap')
+
+
+@pytest.mark.parametrize('identity,pinion', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), False),
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), True),
+  ((CAR.FORD_EXPLORER_MK6, 0), False),
+  ((CAR.FORD_EXPLORER_MK6, 0), True),
+  ((CAR.FORD_ESCAPE_MK4, 0), False),
+  ((CAR.FORD_F_150_MK14, 2), True),
+  ((CAR.FORD_EDGE_MK2, 8), False),
+  ((CAR.FORD_MONDEO_MK5, 10), True),
+])
+@pytest.mark.parametrize('alpha', [False, True])
+@pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
+@pytest.mark.parametrize('mode,hands_free', [('starpilot', True)])
+def test_starpilot_tuning_uses_current_native_aol_path(ford_joined, monkeypatch):
+  run_actual_producer(ford_joined, monkeypatch, scenario='configuration-parity')
+  assert ford_joined.host.CI.CC.bp.starpilot_selected
+  assert ford_joined.nonzero_after_brake > 0
+
+
+@pytest.mark.parametrize('identity,mode,hands_free', [
+  ((CAR.FORD_MUSTANG_MACH_E_MK1, 2), 'starpilot', True),
+])
+@pytest.mark.parametrize('alpha', [False, True])
+@pytest.mark.parametrize('topology', ['automatic', 'manual-multi'])
+@pytest.mark.parametrize('pinion', [False, True])
+def test_starpilot_low_speed_assistance_survives_brake_with_native_limits(ford_joined, monkeypatch):
+  ford_joined.speed = 3.1
+  monkeypatch.ford_test_curvature = .03
+  run_actual_producer(ford_joined, monkeypatch, scenario='configuration-parity')
+  assert ford_joined.path_angle_after_brake > 0

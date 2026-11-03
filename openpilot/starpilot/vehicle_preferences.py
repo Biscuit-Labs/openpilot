@@ -17,6 +17,15 @@ def bolt_disable_supported(cp) -> bool:
                                                is_bolt_pedal_profile(cp, stock_only=True) or is_bolt_pedal_stock_denied(cp))
 
 
+def honda_bosch_a_radar_requested(params) -> bool:
+  """HondaBoschARadar: missing (default "1") or exact b"1" is on; b"0", unreadable or malformed is off."""
+  try:
+    raw, readable = read_saved(params, "HondaBoschARadar", 8)
+  except (OSError, TypeError, ValueError):
+    return False
+  return bool(readable and raw in (None, b"1"))
+
+
 @dataclass(frozen=True)
 class VehicleStartupPreferences:
   toyota_auto_hold: bool = False
@@ -63,17 +72,7 @@ class VehicleStartupPreferences:
     preap_stock = stock_configuration(params, radar, pedal)
     from openpilot.starpilot.car.volkswagen.preferences import stock_long_requested
     vw_stock_long = stock_long_requested(params)
-    try:
-      raw_radar, radar_readable = read_saved(params, "HondaBoschARadar", 8)
-      if radar_readable and raw_radar in (None, b"1"):
-        honda_radar = True
-      elif radar_readable and raw_radar == b"0":
-        honda_radar = False
-      else:
-        legacy, legacy_readable = read_saved(params, "BoschARadar", 8)
-        honda_radar = legacy_readable and legacy in (None, b"1")
-    except (OSError, TypeError, ValueError):
-      honda_radar = False
+    honda_radar = honda_bosch_a_radar_requested(params)
     try:
       raw, readable = read_saved(params, "DisableOpenpilotLongitudinal", 8)
       disable_bolt = not readable or raw not in (None, b"0")

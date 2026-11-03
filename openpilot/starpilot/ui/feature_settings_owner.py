@@ -24,8 +24,7 @@ from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_A
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
-from openpilot.starpilot.longitudinal.bosch_a_toggles import (HUMAN_FOLLOWING_KEY as BOSCH_A_HUMAN_FOLLOWING_KEY,
-                                                               STOCK_BRAKE_FEEL_KEY as BOSCH_A_STOCK_BRAKE_FEEL_KEY,
+from openpilot.starpilot.longitudinal.bosch_a_toggles import (KEYS as BOSCH_A_KEYS, ROWS as BOSCH_A_ROWS,
                                                                vehicle_supported as bosch_a_vehicle_supported)
 
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -93,7 +92,7 @@ BOOL_DEFAULTS = {
   "PauseLateralOnSignal": False,
   "LaneCentering": True, "LaneCenteringPauseOnSignal": True,
   "CustomPersonalities": False, PLANNER_SELECTION_KEY: True,
-  BOSCH_A_STOCK_BRAKE_FEEL_KEY: False, BOSCH_A_HUMAN_FOLLOWING_KEY: False,
+  **dict.fromkeys(BOSCH_A_KEYS, False),
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
   NUDGE_KEY: True,
@@ -1180,15 +1179,7 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
                                  reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
       bosch_a_supported = bosch_a_vehicle_supported(self.vehicle_params())
-      for bosch_a_key, bosch_a_label, bosch_a_reason in (
-          (BOSCH_A_STOCK_BRAKE_FEEL_KEY, "Stock Brake Feel (Bosch-A)",
-           ("Shapes how braking builds and lets off using the stock Honda ACC timing, so braking feels closer to stock. " +
-            "It never brakes harder than the planner asks. Works with either planner. Changes apply on the next drive. " +
-            "Acts only on verified Bosch-A Hondas with openpilot longitudinal.")),
-          (BOSCH_A_HUMAN_FOLLOWING_KEY, "Human Following (Bosch-A)",
-           ("Follows the driving model's predicted path for the car ahead instead of a straight-line guess, and eases " +
-            "acceleration at low set speeds and near the set speed. Works with either planner. Changes apply on the next drive. " +
-            "Acts only on verified Bosch-A Hondas with openpilot longitudinal."))):
+      for bosch_a_key, bosch_a_label, bosch_a_reason in BOSCH_A_ROWS:
         bosch_a_enabled, _, _ = self._value(bosch_a_key)
         rows.append(self._bool_row(bosch_a_key, bosch_a_label, self.authority("preferences") and
                                    (bosch_a_supported or bosch_a_enabled == "1"), reason=bosch_a_reason))
@@ -1503,7 +1494,7 @@ class FeatureSettingsOwner:
                   key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
       if key in ("ShowSpeedLimits", "AlwaysAllowUploads", SLC_PRIORITY, SLC_SECONDARY) or (key == "ForceStops" and request.value == "Off"):
         group = "preferences"
-      elif key in (BOSCH_A_STOCK_BRAKE_FEEL_KEY, BOSCH_A_HUMAN_FOLLOWING_KEY):
+      elif key in BOSCH_A_KEYS:
         if request.value == "On" and not bosch_a_vehicle_supported(self.vehicle_params()):
           return False
         group = "preferences"

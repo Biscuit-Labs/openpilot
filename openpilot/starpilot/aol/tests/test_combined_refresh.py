@@ -5,6 +5,7 @@ one 10 ms frame about every 2.3 s. The 30 ms axis lease could lapse between cont
 refresh and its AOL admission check while a newer axis was already queued. Port of origin 8fd1fdc46.
 """
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -14,7 +15,7 @@ from openpilot.starpilot.aol.runtime import (AXIS_MAX_AGE_NS, COMBINED_REFRESH_M
 
 T0 = 1_000_000_000
 LEASE = 30_000_000
-NON_GM = {'allow_combined': True, 'margin_ns': COMBINED_REFRESH_MARGIN_NS, 'wait_for_new': False}
+NON_GM: dict[str, Any] = {'allow_combined': True, 'margin_ns': COMBINED_REFRESH_MARGIN_NS, 'wait_for_new': False}
 
 
 class FakeSM:

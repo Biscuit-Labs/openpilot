@@ -15,6 +15,17 @@ from openpilot.starpilot.saved_source import read_saved
 STOCK_BRAKE_FEEL_KEY = 'BoschAStockBrakeFeel'
 HUMAN_FOLLOWING_KEY = 'BoschAHumanFollowing'
 KEYS = (STOCK_BRAKE_FEEL_KEY, HUMAN_FOLLOWING_KEY)
+# (key, label, reason) for the settings rows on the Long Planner page
+ROWS = (
+  (STOCK_BRAKE_FEEL_KEY, "Stock Brake Feel (Bosch-A)",
+   ("Shapes how braking builds and lets off using the stock Honda ACC timing, so braking feels closer to stock. " +
+    "It never brakes harder than the planner asks. Works with either planner. Changes apply on the next drive. " +
+    "Acts only on Bosch-A Hondas (classic and alt-radar) with openpilot longitudinal.")),
+  (HUMAN_FOLLOWING_KEY, "Human Following (Bosch-A)",
+   ("Follows the driving model's predicted path for the car ahead instead of a straight-line guess, and eases " +
+    "acceleration at low set speeds and near the set speed. Works with either planner. Changes apply on the next drive. " +
+    "Acts only on Bosch-A Hondas (classic and alt-radar) with openpilot longitudinal.")),
+)
 
 
 @dataclass(frozen=True)
@@ -54,3 +65,20 @@ def vehicle_supported(CP) -> bool:
     return alpha_ready
   except Exception:
     return False
+
+
+def unavailable_reason(CP, supported: bool) -> str:
+  """Suffix for the Bosch-A settings rows explaining why they cannot be edited ("" when they can)."""
+  if supported or CP is None:
+    return ""
+  try:
+    from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS
+    if CP.brand == "honda" and CP.carFingerprint not in VERIFIED_BOSCH_A_CARS:
+      return (" Unavailable: the settings vehicle is not a verified Bosch-A Honda — set Vehicle Selection "
+              "to Auto or ACURA_RDX_3G / ACURA_RDX_3G_MMR and refresh this page.")
+    elif not getattr(CP, "openpilotLongitudinalControl", False):
+      return (" Unavailable until StarPilot controls speed: enable Alpha Longitudinal under Vehicle Settings, "
+              "restart, then refresh this page.")
+  except Exception:
+    pass
+  return ""

@@ -51,6 +51,11 @@ def model_fits_profile(model: dict, profile: str) -> bool:
   return profile in profiles if isinstance(profiles, list) else model.get("requiresGpu") is (profile == "big")
 
 
+def big_none_label(data: dict) -> str:
+  """Active Big with no model of its own, as the manager words it: under Jetlink, the Jetlink app's choice."""
+  return str(data.get("bigNoneLabel") or "None — always use Active Small")
+
+
 def model_action_allowed(data: dict, action: str, model: dict | None = None, profile: str = "") -> bool:
   capability = {"active": "select", "preferences": "favorites", "download_all": "downloadAll", "refresh_manifest": "refresh",
                 "exclusion": "exclusions"}.get(action, action)
@@ -59,9 +64,9 @@ def model_action_allowed(data: dict, action: str, model: dict | None = None, pro
   if data.get("isOnroad") is not False and action not in ("preferences", "cancel"):
     return False
   if action == "active":
-    return (not data.get("randomizer") and not data.get("downloading") and profile in ("small", "big") and
+    return (not data.get("randomizer") and (not data.get("downloading") or data.get("refreshing") is True) and profile in ("small", "big") and
             ((model is None and profile == "big") or
-             bool(model and model.get("installed") is True and model.get("selectable") is True and model_fits_profile(model, profile))))
+             bool(model and model.get("selectable") is True and model_fits_profile(model, profile))))
   if action == "download":
     return not data.get("downloading") and bool(model and not model.get("installed") and model.get("downloadAvailable") is True)
   if action == "download_all":
@@ -82,7 +87,7 @@ def model_action_allowed(data: dict, action: str, model: dict | None = None, pro
 def model_catalog_rows(data: dict, sort_mode: str = "date", profile: str = "", installed_only: bool = False) -> list[dict]:
   rows = [m for m in data.get("models", ()) if isinstance(m, dict) and isinstance(m.get("value"), str) and
           (not profile or model_fits_profile(m, profile)) and
-          (not installed_only or m.get("installed") is True and m.get("selectable") is True)]
+          (not installed_only or m.get("selectable") is True)]
   if sort_mode == "favorites":
     rows = [m for m in rows if m.get("userFavorite")]
   elif sort_mode == "community":
@@ -97,7 +102,7 @@ def model_catalog_rows(data: dict, sort_mode: str = "date", profile: str = "", i
 def model_profile_choices(data: dict, profile: str) -> tuple[tuple[str, str], ...]:
   rows = model_catalog_rows(data, "name", profile, installed_only=True)
   choices = tuple((model_display_text(m.get("label", m["value"])), m["value"]) for m in rows)
-  return (("None – always use Active Small", ""),) + choices if profile == "big" else choices
+  return ((model_display_text(big_none_label(data)), ""),) + choices if profile == "big" else choices
 
 
 def model_download_choices(data: dict) -> tuple[tuple[str, str], ...]:
@@ -120,12 +125,13 @@ def model_manager_rows(data: dict) -> tuple[FeatureRow, ...]:
   summary = data.get("summary", {})
   last = "" if data.get("downloading") else data.get("progress", "")
   rows = [FeatureRow("", "Model catalog", f"{summary.get('installed', 0)} installed / {summary.get('total', 0)} in catalog",
+                     available=bool(data.get("models")), page="models:catalog", action_label="View",
                      reason=f"Last job: {last}" if last else "Only installed models can be selected")]
   for profile, field in (("small", "activeSmallModel"), ("big", "activeBigModel")):
     mid = data.get(field, "")
-    label = next((m.get("label", mid) for m in data.get("models", ()) if m.get("value") == mid), mid or "None — always use Active Small")
+    label = next((m.get("label", mid) for m in data.get("models", ()) if m.get("value") == mid), mid or big_none_label(data))
     available = (data.get("capabilities", {}).get("select") is True and data.get("isOnroad") is False and
-                 not data.get("downloading") and not data.get("randomizer"))
+                 (not data.get("downloading") or data.get("refreshing") is True) and not data.get("randomizer"))
     rows.append(FeatureRow("", f"Active {profile.title()}", model_display_text(label), source=mid.encode(), available=available,
                            reason="Randomizer selects at the next start" if data.get("randomizer") else
                            "Change for next start" if available else
@@ -139,18 +145,36 @@ def model_manager_rows(data: dict) -> tuple[FeatureRow, ...]:
                          page="models:download"))
   if data.get("downloading"):
     rows.append(FeatureRow("", "Cancel download", data.get("progress") or "Downloading", available=model_action_allowed(data, "cancel"),
-                           reason="Stops the running download", page="models:cancel"))
+                           reason="Stops the running download", page="models:cancel", action_label="Stop"))
   else:
     # The owner skips GPU-only models on a device without a GPU, so "all" means the same set the dialog offers.
     allowed = model_action_allowed(data, "download_all") and bool(downloads)
     rows.append(FeatureRow("", "Download all missing", f"{len(downloads)} models" if downloads else "None", available=allowed,
                            reason="Skips GPU-only models" if allowed else
-                           "Turn the vehicle off to download" if not parked else "Nothing left to download", page="models:download_all"))
+                           "Turn the vehicle off to download" if not parked else "Nothing left to download",
+                           page="models:download_all", action_label="Download"))
   rows.append(FeatureRow("", "Refresh catalog", "Check for new models", available=model_action_allowed(data, "refresh_manifest"),
                          reason="Turn the vehicle off to refresh" if not parked else "A download is running" if data.get("downloading") else
                          "Updates the list; downloads nothing",
-                         page="models:refresh_manifest"))
+                         page="models:refresh_manifest", action_label="Refresh"))
   return tuple(rows)
+
+
+def model_catalog_html(data: dict) -> str:
+  # Read-only list for the catalog row. The renderer does not decode entities, so markup characters are dropped from names.
+  def line(m: dict) -> str:
+    name = "".join(c for c in model_display_text(str(m.get("label", m["value"]))) if c not in "<>&")
+    size = "Big" if m.get("requiresGpu") else "Small"
+    if m.get("installed") is True:
+      return f"<p>{name} ({size})</p>"
+    note = ("checking" if m.get("checking") else "needs a GPU" if m.get("requiresGpu") is True and m.get("gpuAvailable") is not True else
+            "not published" if m.get("downloadAvailable") is not True else "not downloaded")
+    return f"<p>{name} ({size}) - {note}</p>"
+  rows = model_catalog_rows(data, "name")
+  installed = [m for m in rows if m.get("installed") is True]
+  missing = [m for m in rows if m.get("installed") is not True]
+  return "".join([f"<h3>Installed ({len(installed)})</h3>", *map(line, installed),
+                  f"<h3>Not installed ({len(missing)})</h3>", *map(line, missing)])
 
 
 def model_display_text(value: str) -> str:

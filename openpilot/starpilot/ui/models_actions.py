@@ -2,8 +2,8 @@
 
 `session` is runtime_app's StarShellSession; these read and write its model manager and settings state."""
 
-from openpilot.starpilot.ui.models_state import (model_action_allowed, model_download_choices, model_profile_choices,
-                                                 model_profile_request)
+from openpilot.starpilot.ui.models_state import (model_action_allowed, model_catalog_html, model_download_choices,
+                                                 model_profile_choices, model_profile_request)
 from openpilot.starpilot.ui.settings_state import Destination
 from openpilot.starpilot.ui.shell import ShellMode
 
@@ -16,9 +16,13 @@ def open_model_page(session, page: str) -> bool:
   """Opens a Driving Model row's page; False when it refused and left the shell's snapshot as it was."""
   if page in ("models:small", "models:big"):
     return _open_profile(session, page.split(":", 1)[1])
-  if page == "models:download":
+  if page == "models:catalog":
+    from openpilot.system.ui.lib.application import gui_app
+    from openpilot.system.ui.widgets.html_render import HtmlModal
+    gui_app.push_widget(HtmlModal(text=model_catalog_html(session.model_manager_snapshot())))
+  elif page == "models:download":
     return _open_download(session)
-  if page in ("models:download_all", "models:cancel", "models:refresh_manifest"):
+  elif page in ("models:download_all", "models:cancel", "models:refresh_manifest"):
     model_download(session, page.split(":", 1)[1], {})
   return True
 

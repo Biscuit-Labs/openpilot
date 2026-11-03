@@ -12,7 +12,7 @@ from openpilot.common.constants import CV
 from openpilot.common.hardware import HARDWARE
 from openpilot.common.params import Params
 from openpilot.common.realtime import config_realtime_process, DT_CTRL, Priority, Ratekeeper, set_core_affinity
-from openpilot.selfdrive.controls.lib.cycle_timing import ControlCycleTiming
+from openpilot.selfdrive.controls.lib.cycle_timing import ControlCycleTiming, PUBLISH_PHASES
 from openpilot.common.swaglog import cloudlog
 
 from opendbc.car.car_helpers import interfaces
@@ -145,11 +145,11 @@ class Controls:
 
     from openpilot.starpilot.flm.live_trial_store import load_confirmed_history
     self.global_learning = GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
-    # Load optional capture code before publishing the first control command.
+    # Load optional capture and live-trial code before the first control command.
     # Engagement must not compile/import replay and feedback modules in the loop.
     if self.global_learning.descriptor is not None:
       try:
-        for module in ('controller_replay', 'physical_input_observation', 'feedback_wire'):
+        for module in ('controller_replay', 'physical_input_observation', 'feedback_wire', 'live_trial_wire', 'live_tracking_response'):
           importlib.import_module('openpilot.starpilot.flm.' + module)
       except Exception:
         self._discard_global_learning()
@@ -167,8 +167,8 @@ class Controls:
     assist_enabled = self.vehicle_startup_preferences.turn_assist and model_turn_assist_supported(self.CP)
     self.turn_assist_enabled = lambda: assist_enabled
 
-  def update(self):
-    self.sm.update(15)
+  def update(self, timeout: int = 15):
+    self.sm.update(timeout)
     if self.sm.updated["extrinsicsCalibration"]:
       self.pose_calibrator.feed_extrinsics_calibration(self.sm['extrinsicsCalibration'])
     if self.sm.updated["deviceMotion"]:
@@ -207,6 +207,7 @@ class Controls:
     diagnostic_initial_lateral = diagnostic_onset = True
     lateral_inputs_refreshed = False
     late_gm_refresh = False
+    refresh_combined_long = False
     if (self.aol_replay and os.getenv('REPLAY') != '1' and
         getattr(self, 'aol_previous_lateral_active', False)):
       refresh_now_ns = time.monotonic_ns()
@@ -215,6 +216,9 @@ class Controls:
       late_gm_refresh = self.CP.brand == 'gm'
       if not late_gm_refresh:
         lateral_inputs_refreshed = refresh_expired_lateral_snapshot(self.sm, now_ns=refresh_now_ns)
+    if (self.lane_centering_host is not None and os.getenv('REPLAY') != '1' and
+        self.lane_centering_host.inputs_need_refresh(self.sm, now_ns=time.monotonic_ns())):
+      self.update(0)
     CS = self.sm['carState']
     self.flm_native_witness = None
     if self.lateral_gain_owner is not None:
@@ -263,7 +267,9 @@ class Controls:
       if late_gm_refresh:
         # Use the authority check's clock sample: a proof can expire after the
         # earlier preparation/qualification work, even when it was fresh on entry.
-        lateral_inputs_refreshed = refresh_expired_lateral_snapshot(self.sm, now_ns=now_ns)
+        previous_axis = self.sm['aolAxisState']
+        refresh_combined_long = bool(CC.longActive and previous_axis.longitudinalActive and previous_axis.desiredLongitudinal)
+        lateral_inputs_refreshed = refresh_expired_lateral_snapshot(self.sm, now_ns=now_ns, allow_combined=True)
         if lateral_inputs_refreshed:
           CS = self.sm['carState']
           CC.enabled = self.sm['selfdriveState'].enabled
@@ -301,10 +307,10 @@ class Controls:
                             on_validated_native=lambda native: setattr(self, 'flm_native_witness', native)))
 
     if lateral_inputs_refreshed:
-      # A newly received physical veto wins over an older admitted axis. This
-      # LAT-only refresh cannot enable ordinary LONG; its next normal cycle owns that transition.
+      # Fresh receipts can continue a requested GM LONG axis. A LAT-only refresh
+      # cannot start LONG, and a newly received physical veto still wins.
       CC.latActive = bool(CC.latActive and CS.canValid and not CS.canTimeout)
-      CC.longActive = False
+      CC.longActive = bool(refresh_combined_long and CC.enabled and CC.longActive and CS.canValid and not CS.canTimeout)
 
     fault_latch = getattr(self, 'hyundai_lateral_fault', None)
     if fault_latch is not None:
@@ -540,6 +546,9 @@ class Controls:
     return CC, lac_log
 
   def publish(self, CC, lac_log):
+    publish_timing = getattr(self, 'publish_cycle_timing', None)
+    if publish_timing is not None:
+      publish_timing.start()
     CS = self.sm['carState']
 
     # Orientation and angle rates can be useful for carcontroller
@@ -615,13 +624,19 @@ class Controls:
     elif lat_tuning == 'torque':
       cs.lateralControlState.torqueState = lac_log
 
+    if publish_timing is not None:
+      publish_timing.mark()
     self.pm.send('controlsState', dat)
+    if publish_timing is not None:
+      publish_timing.mark()
 
     # carControl
     cc_send = messaging.new_message('carControl')
     cc_send.valid = CS.canValid
     cc_send.carControl = CC
     self.pm.send('carControl', cc_send)
+    if publish_timing is not None:
+      publish_timing.mark()
     feedback = feedback_message(
       self.last_lane_centering_result, self.lane_centering_applied, CC.latActive,
       model_mono_time=self.sm.logMonoTime['modelV2'], car_control_mono_time=cc_send.logMonoTime,
@@ -639,8 +654,9 @@ class Controls:
         feedback = learning_feedback
       except Exception:
         self._discard_global_learning()
-    if isinstance(self.LaC, LatControlHondaEps):
-      write_eps_state(feedback.starpilotLateralState, self.LaC.starpilot_lateral_state)
+    lac = getattr(self, 'LaC', None)  # publish-timing tests run publish() on a Controls stand-in without one
+    if isinstance(lac, LatControlHondaEps):
+      write_eps_state(feedback.starpilotLateralState, lac.starpilot_lateral_state)
     if (automatic is not None and automatic.eligible and automatic.source is not None and
         automatic.source.enabled and not automatic.source.manual and
         self.CP.steerControlType == car.CarParams.SteerControlType.torque):
@@ -656,15 +672,20 @@ class Controls:
         self.learning_feedback_prior_publish_ns = 0
     else:
       self.learning_feedback_prior_publish_ns = 0
+    if publish_timing is not None:
+      publish_timing.mark()
     self.pm.send('starpilotLateralState', feedback)
     diagnostic_observer = getattr(self, 'aol_transition_diagnostic', None)
     if diagnostic_observer is not None:
       diagnostic_observer.emit(cloudlog.event, cc_send)
+    if publish_timing is not None:
+      publish_timing.mark()
 
   def run(self):
     rk = Ratekeeper(100, print_delay_threshold=None)
     next_overrun_log_ns = 0
     self.control_cycle_timing = ControlCycleTiming()
+    self.publish_cycle_timing = ControlCycleTiming(phases=PUBLISH_PHASES)
     while True:
       started, cpu_started = time.monotonic_ns(), time.thread_time_ns()
       self.update()
@@ -680,7 +701,9 @@ class Controls:
                        control_ms=(controlled - updated) / 1e6, publish_ms=(published - controlled) / 1e6,
                        wall_ms=(published - started) / 1e6, cpu_ms=(time.thread_time_ns() - cpu_started) / 1e6,
                        control_phases=self.control_cycle_timing.snapshot(),
-                       control_phases_complete=self.control_cycle_timing.complete, error=True)
+                       control_phases_complete=self.control_cycle_timing.complete,
+                       publish_phases=self.publish_cycle_timing.snapshot(),
+                       publish_phases_complete=self.publish_cycle_timing.complete, error=True)
       rk.monitor_time()
 
 
@@ -690,6 +713,10 @@ def main():
   if HARDWARE.get_device_type() in ("tici", "tizi", "mici"):
     set_core_affinity([6])
     os.sched_setscheduler(0, os.SCHED_OTHER, os.sched_param(0))
+    try:
+      os.setpriority(os.PRIO_PROCESS, 0, -5)
+    except OSError:
+      cloudlog.warning("Controls normal scheduling preference unavailable")
   else:
     set_core_affinity([4, 5])
   controls.run()

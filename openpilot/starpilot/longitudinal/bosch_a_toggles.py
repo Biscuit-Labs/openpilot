@@ -75,10 +75,10 @@ def unavailable_reason(CP, supported: bool) -> str:
   try:
     from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS
     if CP.brand == "honda" and CP.carFingerprint not in VERIFIED_BOSCH_A_CARS:
-      return (" Unavailable: the settings vehicle is not a Bosch-A Honda. Set Vehicle Selection "
+      return (" Unavailable: the settings vehicle is not a Bosch-A Honda. Set Vehicle Selection " +
               "to Auto or to a Bosch-A Honda and refresh this page.")
     elif not getattr(CP, "openpilotLongitudinalControl", False):
-      return (" Unavailable until StarPilot controls speed: enable Alpha Longitudinal under Vehicle Settings, "
+      return (" Unavailable until StarPilot controls speed: enable Alpha Longitudinal under Vehicle Settings, " +
               "restart, then refresh this page.")
   except Exception:
     pass

@@ -1179,8 +1179,9 @@ class FeatureSettingsOwner:
       title = "Long Planner"
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
                                  reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
-      bosch_a_supported = bosch_a_vehicle_supported(self.vehicle_params())
-      bosch_a_block = bosch_a_unavailable_reason(self.vehicle_params(), bosch_a_supported)
+      bosch_a_cp = self.vehicle_params()
+      bosch_a_supported = bosch_a_vehicle_supported(bosch_a_cp)
+      bosch_a_block = bosch_a_unavailable_reason(bosch_a_cp, bosch_a_supported)
       for bosch_a_key, bosch_a_label, bosch_a_reason in BOSCH_A_ROWS:
         bosch_a_enabled, _, _ = self._value(bosch_a_key)
         rows.append(self._bool_row(bosch_a_key, bosch_a_label, self.authority("preferences") and

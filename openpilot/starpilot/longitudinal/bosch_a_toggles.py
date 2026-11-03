@@ -51,10 +51,11 @@ def read_toggles(params) -> BoschAToggles:
 
 
 def vehicle_supported(CP) -> bool:
-  """Settings-row gate: verified Bosch-A Honda that can use StarPilot longitudinal (active now or after Alpha Long).
+  """Settings-row gate: a Honda in VERIFIED_BOSCH_A_CARS with openpilot longitudinal active, or available through
+  Alpha Longitudinal (alphaLongitudinalAvailable) but not yet on.
 
-  The planner hooks still require openpilotLongitudinalControl at runtime; this only controls whether the saved
-  toggles can be edited."""
+  This only decides whether the saved toggles can be edited. The planner hooks still require
+  openpilotLongitudinalControl at runtime, so with Alpha Long off the toggles are saved but do nothing."""
   if CP is None:
     return False
   try:
@@ -74,8 +75,8 @@ def unavailable_reason(CP, supported: bool) -> str:
   try:
     from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS
     if CP.brand == "honda" and CP.carFingerprint not in VERIFIED_BOSCH_A_CARS:
-      return (" Unavailable: the settings vehicle is not a verified Bosch-A Honda — set Vehicle Selection "
-              "to Auto or ACURA_RDX_3G / ACURA_RDX_3G_MMR and refresh this page.")
+      return (" Unavailable: the settings vehicle is not a Bosch-A Honda. Set Vehicle Selection "
+              "to Auto or to a Bosch-A Honda and refresh this page.")
     elif not getattr(CP, "openpilotLongitudinalControl", False):
       return (" Unavailable until StarPilot controls speed: enable Alpha Longitudinal under Vehicle Settings, "
               "restart, then refresh this page.")

@@ -8,8 +8,7 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from openpilot.cereal import log
-from openpilot.starpilot.models.catalog import CATALOG_PATH
-from openpilot.starpilot.models.runtime_selection import LEGACY_ABI as ARTIFACT_ABI, LEGACY_REVISION as COMPILER_REVISION
+from openpilot.starpilot.models.catalog import ARTIFACT_ABI, CATALOG_PATH, COMPILER_REVISION
 from openpilot.starpilot.models.laboratory_runner import LaboratoryPair, load_laboratory_pair
 from openpilot.starpilot.models.manager import artifact_path, atomic_json
 from openpilot.starpilot.models.receipt import PreparedArtifact

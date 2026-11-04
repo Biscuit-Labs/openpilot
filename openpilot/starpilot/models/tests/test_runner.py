@@ -8,8 +8,7 @@ import numpy as np
 from tinygrad import Context, Device
 
 from openpilot.cereal import log
-from openpilot.starpilot.models.runtime_selection import LEGACY_ABI as ARTIFACT_ABI, LEGACY_REVISION as COMPILER_REVISION
-from openpilot.starpilot.models.runner import (CatalogModelState,
+from openpilot.starpilot.models.runner import (ARTIFACT_ABI, COMPILER_REVISION, CatalogModelState,
                                               action_from_outputs, load_verified_model, validate_artifact)
 from openpilot.starpilot.models.parser import Parser
 from openpilot.selfdrive.modeld.fill_model_msg import PublishState, fill_model_msg, fill_driving_model_data, fill_pose_msg

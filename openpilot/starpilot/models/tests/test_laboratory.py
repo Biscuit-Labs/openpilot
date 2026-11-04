@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-from openpilot.starpilot.models.catalog import ARTIFACT_ABI, CATALOG_PATH, COMPILER_REVISION, NATIVE_CATALOG_PATH
+from openpilot.starpilot.models.catalog import ARTIFACT_ABI, CATALOG_PATH, COMPILER_REVISION
 from openpilot.starpilot.models.laboratory import ModelLaboratory, configuration
 from openpilot.starpilot.models.manager import ModelError, ModelManager, artifact_path, atomic_json, validate_manifest
 
@@ -20,7 +20,6 @@ class LaboratoryTest(unittest.TestCase):
     self.parked = True
     self.gpu = False
     self.manifest = json.loads(CATALOG_PATH.read_text())
-    self.native_manifest = json.loads(NATIVE_CATALOG_PATH.read_text())
     self.payloads = {}
     for mid in ('gwm8223', 'sc23'):
       row = next(row for row in self.manifest['models'] if row['id'] == mid)
@@ -38,8 +37,7 @@ class LaboratoryTest(unittest.TestCase):
 
     def opener(url, timeout):
       if '/manifests/' in url:
-        document = self.native_manifest if url.endswith('/model_names_native02e-v1.json') else self.manifest
-        return io.BytesIO(json.dumps(document).encode())
+        return io.BytesIO(json.dumps(self.manifest).encode())
       return io.BytesIO(self.payloads[url.rsplit('/', 1)[-1]])
 
     self.manager = ModelManager(root=self.root, parked=lambda: self.parked, gpu_present=lambda: self.gpu, opener=opener)
@@ -68,11 +66,8 @@ class LaboratoryTest(unittest.TestCase):
   def test_catalog_discovery_keeps_unpublished_and_big_rows_visible(self):
     result = self.ready_snapshot()
     rows = {row['value']: row for row in result['models']}
-    expected = {row['id'] for document in (self.manifest, self.native_manifest) for row in document['models']}
-    self.assertEqual(set(rows), expected)
-    self.assertEqual(result['summary']['catalog'], len(expected))
-    native_rdf = next(row for row in self.native_manifest['models'] if row['id'] == 'rdf43')
-    self.assertEqual(rows['rdf43']['label'], native_rdf['name'])
+    self.assertEqual(set(rows), {row['id'] for row in self.manifest['models']})
+    self.assertEqual(result['summary']['catalog'], len(self.manifest['models']))
     self.assertEqual(result['summary']['published'], 2)
     self.assertFalse(result['runtimeSupported'])
     big = rows['cinquev3']
@@ -129,19 +124,6 @@ class LaboratoryTest(unittest.TestCase):
     big['accelerator_artifacts'] = small['accelerator_artifacts']
     with self.assertRaises(ModelError):
       validate_manifest(bad)
-
-  def test_native_refresh_keeps_wrong_runtime_and_abi_refusal(self):
-    original = copy.deepcopy(self.native_manifest)
-    for field, value in (('compiler_revision', COMPILER_REVISION), ('artifact_abi', ARTIFACT_ABI)):
-      with self.subTest(field=field):
-        self.native_manifest = copy.deepcopy(original)
-        self.native_manifest[field] = value
-        self.lab.action('download', {'model': 'gwm8223'})
-        self.manager.worker.join(3)
-        self.assertFalse(self.manager.worker.is_alive())
-        self.assertIn('different runtime', self.manager.snapshot()['progress'])
-        self.assertFalse(artifact_path('gwm8223', self.root, 'amd').exists())
-        self.assertFalse(configuration(self.root)['enabled'])
 
   def test_normal_models_and_old_amd_bytes_do_not_satisfy_pair_admission(self):
     self.gpu = True

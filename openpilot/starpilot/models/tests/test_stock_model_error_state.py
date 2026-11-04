@@ -121,7 +121,7 @@ class TestStockModelErrorState(unittest.TestCase):
     transforms = {name: np.eye(3, dtype=np.float32) for name in model.vision_input_names}
     inputs = {'desire_pulse': np.array([0., 1.], dtype=np.float32),
               'traffic_convention': np.array([1., 0.], dtype=np.float32), 'action_t': np.array([.1, .2], dtype=np.float32)}
-    selection = {'role': 'driving', 'family': 'legacy9d'} if legacy else None
+    selection = {'role': 'driving'} if legacy else None
     return SimpleNamespace(model=model, events=events, parsed=parsed, bufs=bufs, transforms=transforms,
                            inputs=inputs, selection=selection)
 

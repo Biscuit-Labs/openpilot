@@ -1,9 +1,6 @@
 """Exact source and artifact contract for laptop-only DM and warp QCOM imports."""
 
 import argparse
-import ast
-import importlib
-import importlib.util
 import hashlib
 import json
 import os
@@ -71,140 +68,6 @@ def compiler_tree(root: Path) -> Path:
   return legacy / 'tinygrad_repo'
 
 
-
-NATIVE_ASSETS = ("rdf43_driving_tinygrad.pkl", "dmonitoring_model_tinygrad.pkl",
-                 "dm_warp_1344x760_tinygrad.pkl", "dm_warp_1928x1208_tinygrad.pkl")
-NATIVE_BUILD_SOURCES = (
-  "openpilot/common/transformations/camera.py",
-  "openpilot/common/transformations/model.py",
-  "openpilot/system/camerad/cameras/nv12_info.py",
-  "openpilot/selfdrive/modeld/models/dmonitoring_model.onnx",
-  "openpilot/starpilot/models/compile_native.py",
-)
-NATIVE_REVISION = "02e698160eed1751738212144a7ea2cfb160b3f1"
-
-
-def _logical_source(path: Path) -> dict:
-  if path.is_symlink() or not path.is_file():
-    raise ValueError(f"Missing regular native build input: {path}")
-  with path.open("rb") as stream:
-    prefix = stream.read(1024)
-  if prefix.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
-    match = re.fullmatch(rb"version https://git-lfs.github.com/spec/v1\noid sha256:([0-9a-f]{64})\nsize ([1-9][0-9]*)\n?", prefix)
-    if match is None or len(prefix) != path.stat().st_size:
-      raise ValueError(f"Invalid native build LFS pointer: {path}")
-    return {"sha256": match[1].decode(), "bytes": int(match[2])}
-  return {"sha256": _sha(path), "bytes": path.stat().st_size}
-
-
-def _native_dm_geometry(root: Path, width: int, height: int) -> dict:
-  path = root / "openpilot/system/camerad/cameras/nv12_info.py"
-  spec = importlib.util.spec_from_file_location("_native_build_nv12", path)
-  if spec is None or spec.loader is None:
-    raise ValueError("Missing native NV12 source loader")
-  module = importlib.util.module_from_spec(spec)
-  spec.loader.exec_module(module)
-  tree = ast.parse((root / "openpilot/common/transformations/model.py").read_text())
-  sizes = [ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign) and
-           any(isinstance(target, ast.Name) and target.id == "DM_INPUT_SIZE" for target in node.targets)]
-  if len(sizes) != 1:
-    raise ValueError("Missing native DM target geometry")
-  return {"camera": [width, height], "nv12": list(module.get_nv12_info(width, height)),
-          "warp_to": list(sizes[0]), "layout": "luma", "border_fill": 16, "transform_device": "NPY"}
-
-
-def native_records(root: Path, *, verify_runtime: bool = False) -> dict | None:
-  """Read sealed native defaults separately from the unchanged legacy compiler package."""
-  root = root.resolve()
-  bridge = root / "openpilot/starpilot/models/runtime_bridge"
-  source, catalog = bridge / "native.py", bridge.parent / "catalog-native02e.json"
-  if not source.exists() and not catalog.exists():
-    return None
-  for path in (source, catalog, bridge / "native-policy.json"):
-    if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024**2:
-      raise ValueError("Missing or invalid sealed native build contract")
-  nodes = ast.parse(source.read_text()).body
-  pins = [ast.literal_eval(node.value) for node in nodes if isinstance(node, ast.Assign) and
-          any(isinstance(target, ast.Name) and target.id == "POLICY_SHA256" for target in node.targets)]
-  if len(pins) != 1 or not _valid_sha(pins[0]) or _sha(bridge / "native-policy.json") != pins[0]:
-    raise ValueError("Native policy is not release-qualified")
-  policy = json.loads((bridge / "native-policy.json").read_text(), object_pairs_hook=_unique_pairs)
-  document = json.loads(catalog.read_text(), object_pairs_hook=_unique_pairs)
-  if (policy.get("compiler_revision") != NATIVE_REVISION or policy.get("catalog_sha256") != _sha(catalog) or
-      document.get("compiler_revision") != NATIVE_REVISION or document.get("generation") != "native02e-v1" or
-      document.get("artifact_abi") != "tinygrad_single_v2_arena"):
-    raise ValueError("Native build runtime/catalog identity changed")
-  build_sources = policy.get("build_sources")
-  if not isinstance(build_sources, dict) or set(build_sources) != set(NATIVE_BUILD_SOURCES):
-    raise ValueError("Native release lacks exact build source qualification")
-  for name, expected in build_sources.items():
-    if _logical_source(root / name) != expected:
-      raise ValueError("Native build source changed; requalification required: " + name)
-  rows = document.get("models")
-  if not isinstance(rows, list):
-    raise ValueError("Invalid native model catalog")
-  rdf = [row for row in rows if isinstance(row, dict) and row.get("id") == "rdf43"]
-  stock = document.get("stock")
-  if len(rdf) != 1 or not isinstance(stock, dict) or set(stock) != set(NATIVE_ASSETS) - {NATIVE_ASSETS[0]}:
-    raise ValueError("Native bundled model set changed")
-  records = {NATIVE_ASSETS[0]: rdf[0], **stock}
-  for name, row in records.items():
-    if (not isinstance(row, dict) or not _valid_sha(row.get("artifact_sha256")) or
-        type(row.get("artifact_size")) is not int or not 0 < row["artifact_size"] <= 2 * 1024**3 or
-        not _valid_sha(row.get("qualification_sha256"))):
-      raise ValueError("Invalid qualified native artifact: " + name)
-    if name in NATIVE_ASSETS[:2]:
-      if (not _valid_sha(row.get("source_sha256")) or type(row.get("source_bytes")) is not int or
-          not 0 < row["source_bytes"] <= 2 * 1024**3):
-        raise ValueError("Missing native ONNX source identity: " + name)
-    else:
-      width, height = map(int, name.removeprefix("dm_warp_").removesuffix("_tinygrad.pkl").split("x"))
-      if row.get("source_geometry") != _native_dm_geometry(root, width, height):
-        raise ValueError("Native DM warp geometry changed")
-  dm = records[NATIVE_ASSETS[1]]
-  if {"sha256": dm["source_sha256"], "bytes": dm["source_bytes"]} != build_sources[NATIVE_BUILD_SOURCES[3]]:
-    raise ValueError("Native DM ONNX identity changed")
-  if verify_runtime:
-    sys.path.insert(0, str(root))
-    native = importlib.import_module("openpilot.starpilot.models.runtime_bridge.native")
-    if Path(native.__file__).resolve() != source.resolve() or native.ROOT.resolve() != root:
-      raise ValueError("Native build runtime import escaped this checkout")
-    if native._verify_policy() != policy:
-      raise ValueError("Native runtime/vendor/guard contract changed")
-  return records
-
-
-def verified_native_asset(root: Path, name: str, *, prefer_regular: bool = False) -> Path:
-  """Authenticate shipped assets; never regenerate them from legacy recipes."""
-  records = native_records(root)
-  if records is None or name not in records:
-    raise ValueError("Unknown native bundled artifact")
-  from openpilot.common.file_chunker import materialize_file_chunked
-  row, path = records[name], root / MODEL_DIR / name
-  if prefer_regular and path.is_file() and not path.is_symlink() and _sha(path) == row["artifact_sha256"]:
-    result = path
-  else:
-    result = materialize_file_chunked(path, expected_sha256=row["artifact_sha256"])
-  if result.is_symlink() or result.stat().st_size != row["artifact_size"] or _sha(result) != row["artifact_sha256"]:
-    raise ValueError("Native bundled artifact changed: " + name)
-  return result
-
-
-def verify_native_defaults(root: Path, *, prefer_regular: bool = False) -> dict:
-  records = native_records(root, verify_runtime=True)
-  if records is None:
-    raise ValueError("Native bundle is not selected")
-  for name in NATIVE_ASSETS:
-    verified_native_asset(root, name, prefer_regular=prefer_regular)
-  # Optional legacy models need their separately retained legacy RDF fallback.
-  from openpilot.common.file_chunker import materialize_file_chunked
-  from openpilot.starpilot.models.catalog import DEFAULT_SMALL_SHA256, DEFAULT_SMALL_SIZE
-  compat = materialize_file_chunked(root / MODEL_DIR / "compat9d/rdf43_driving_tinygrad.pkl", DEFAULT_SMALL_SHA256)
-  if compat.is_symlink() or compat.stat().st_size != DEFAULT_SMALL_SIZE:
-    raise ValueError("Retained legacy RDF fallback changed")
-  return records
-
-
 def commands(root: Path) -> dict[str, str]:
   sys.path.insert(0, str(root))
   from openpilot.common.transformations.camera import _ar_ox_fisheye, _os_fisheye
@@ -243,8 +106,7 @@ def _sources(root: Path) -> dict[str, str]:
     # Logical compiler paths retain the original package provenance after relocation.
     return ('tinygrad_repo/' + path.relative_to(compiler).as_posix() if path.is_relative_to(compiler)
             else path.relative_to(root).as_posix())
-  return {source_name(path): (_logical_source(path)["sha256"] if path.suffix == ".onnx" else _sha(path))
-          for path in sorted(paths)}
+  return {source_name(path): _sha(path) for path in sorted(paths)}
 
 
 def _tokens(command: str, root: Path) -> list[str]:

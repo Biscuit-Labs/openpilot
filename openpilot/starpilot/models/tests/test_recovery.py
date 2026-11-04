@@ -148,17 +148,6 @@ class TestModelRecovery(unittest.TestCase):
     statements = [ast.unparse(n) for n in main.body]
     selection = next(s for s in statements if 'selection = resolve_runtime' in s)
     self.assertIn('not recovery_small_only', selection)
-    self.assertIn('plan=MODEL_RUNTIME_PLAN', selection)
-    manager_source = Path(__file__).parents[1] / 'manager.py'
-    manager_tree = ast.parse(manager_source.read_text())
-    freeze = next(n for n in manager_tree.body if isinstance(n, ast.FunctionDef) and n.name == 'freeze_runtime')
-    randomizer = next(n for n in freeze.body if isinstance(n, ast.If) and
-                      any(isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and
-                          call.func.id == 'randomize_next_start' for call in ast.walk(n)))
-    self.assertEqual(ast.unparse(randomizer.test), 'randomize and (not recovery_small_only)')
-    self.assertIn('randomize_next_start(chestnut_available, root=root)', ast.unparse(randomizer))
-    runtime_source = Path(__file__).parents[1] / 'runtime_bridge/runtime.py'
-    prepare = next(n for n in ast.parse(runtime_source.read_text()).body if isinstance(n, ast.FunctionDef) and n.name == 'prepare')
-    self.assertIn("freeze_runtime(recovery_small_only=os.getenv('STARPILOT_MODELD_RECOVERY_SMALL_ONLY') == '1')", ast.unparse(prepare))
+    self.assertIn('randomize=not recovery_small_only', selection)
     self.assertLess(next(i for i, s in enumerate(statements) if 'selection = resolve_runtime' in s),
                     next(i for i, s in enumerate(statements) if 'from tinygrad.runtime.ops_amd import AMDDevice' in s))

@@ -18,11 +18,10 @@ _GUARD_HASHES = {
 _POLICY_SHA256 = 'ff9a762b130207dcf9919714bccd7aabc6d3f6e9d707e0b3a0dbd7fce5858aed'
 _selection = None
 _protection = None
-_plan = None
 
 
 def prepare(role):
-  global _selection, _plan
+  global _selection
   if _selection is not None and _selection.get('purpose') == 'compiler':
     raise RuntimeError('A model compiler cannot become an inference child')
   from openpilot.common.hardware import AGNOS
@@ -32,20 +31,9 @@ def prepare(role):
     if _selection['role'] != role:
       raise RuntimeError('A model child cannot change its execution role')
     return _selection
-  if role not in ('driving', 'monitoring'):
-    raise ValueError('Unknown model runtime role')
-  if role == 'driving':
-    import os
-    from openpilot.starpilot.models.manager import freeze_runtime
-    _plan = freeze_runtime(recovery_small_only=os.getenv('STARPILOT_MODELD_RECOVERY_SMALL_ONLY') == '1')
-  if role == 'monitoring' or _plan.family == 'native02e':
-    from openpilot.starpilot.models.runtime_bridge import native
-    _selection = native.prepare(role, _plan)
-  else:
-    _verify_policy()
-    cache = Path('/data/starpilot-model-runtime')
-    _selection = activate(BUNDLE, MANIFEST_SHA256, LEGACY_REVISION, role, cache)
-    _selection['family'] = 'legacy9d'
+  _verify_policy()
+  cache = Path('/data/starpilot-model-runtime')
+  _selection = activate(BUNDLE, MANIFEST_SHA256, LEGACY_REVISION, role, cache)
   return _selection
 
 
@@ -58,7 +46,6 @@ def prepare_compiler():
   selection = activate(BUNDLE, MANIFEST_SHA256, LEGACY_REVISION, 'driving',
                        Path(tempfile.gettempdir()).resolve() / 'starpilot-model-compiler')
   selection['purpose'] = 'compiler'
-  selection['family'] = 'legacy9d'
   _selection = selection
   return _selection
 
@@ -97,15 +84,7 @@ def _library(name):
 
 
 def selected_legacy():
-  return _selection is not None and _selection.get('family') == 'legacy9d'
-
-
-def prepared():
-  return _selection is not None and _selection.get('purpose') != 'compiler'
-
-
-def selected_plan():
-  return _plan
+  return _selection is not None
 
 
 def _guard(chestnut):
@@ -218,9 +197,6 @@ def _load_chestnut(path):
 
 
 def load_oob(path, chestnut=False):
-  if _selection is not None and _selection.get('family') == 'native02e':
-    from openpilot.starpilot.models.runtime_bridge import native
-    return native.load_oob(path, chestnut)
   if _selection is None:
     raise RuntimeError('A device model loader requires the selected runtime')
   if _selection.get('purpose') == 'compiler':
@@ -256,9 +232,6 @@ def load_oob(path, chestnut=False):
 
 
 def load_warp(path):
-  if _selection is not None and _selection.get('family') == 'native02e':
-    from openpilot.starpilot.models.runtime_bridge import native
-    return native.load_warp(path)
   import pickle
   if _selection is None or _selection['role'] != 'monitoring':
     raise RuntimeError('A monitoring warp loader requires the selected runtime')

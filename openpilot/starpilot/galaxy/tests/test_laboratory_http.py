@@ -10,7 +10,7 @@ import unittest
 from openpilot.starpilot.galaxy.access import GalaxyAccessOwner
 from openpilot.starpilot.galaxy.remote import RemotePairing
 from openpilot.starpilot.galaxy.server import make_remote_server, make_server
-from openpilot.starpilot.models.catalog import CATALOG_PATH, NATIVE_CATALOG_PATH
+from openpilot.starpilot.models.catalog import CATALOG_PATH
 from openpilot.starpilot.models.manager import ModelManager, atomic_json
 
 
@@ -20,7 +20,6 @@ class LaboratoryHttpTest(unittest.TestCase):
     self.addCleanup(temporary.cleanup)
     root = Path(temporary.name)
     self.manifest = json.loads(CATALOG_PATH.read_text())
-    self.native_manifest = json.loads(NATIVE_CATALOG_PATH.read_text())
     atomic_json(root / 'models' / 'catalog.json', self.manifest)
     manager = ModelManager(root=root / 'models', parked=lambda: True, gpu_present=lambda: False)
     self.addCleanup(manager.close)
@@ -72,10 +71,7 @@ class LaboratoryHttpTest(unittest.TestCase):
       cookie = self.remote_cookie if remote else self.local_cookie
       status, view, _ = self.request('/api/models/laboratory', remote=remote, cookie=cookie)
       self.assertEqual(status, 200)
-      expected = {row['id'] for document in (self.manifest, self.native_manifest) for row in document['models']}
-      self.assertEqual({r['value'] for r in view['models']}, expected)
-      native_rdf = next(row for row in self.native_manifest['models'] if row['id'] == 'rdf43')
-      self.assertEqual(next(row['label'] for row in view['models'] if row['value'] == 'rdf43'), native_rdf['name'])
+      self.assertEqual({r['value'] for r in view['models']}, {r['id'] for r in self.manifest['models']})
       self.assertFalse(view['runtimeSupported'])
       self.assertFalse(view['runtime']['active'])
       self.assertTrue(any(r['modelLabStatus'] == 'unsupported' and not r['small'] for r in view['models']))

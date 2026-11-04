@@ -47,8 +47,8 @@ def main() -> NoReturn:
       if level >= log_level:
         log_handler.emit(record)
 
-      if len(dat) > MAX_PUBLISH_SIZE:
-        print("WARNING: log too big to publish", len(dat))
+      if n - 1 > MAX_PUBLISH_SIZE:  # record is buf[1:n]
+        print("WARNING: log too big to publish", n - 1)
         print(record[:100])
         continue
 

@@ -42,6 +42,7 @@ def test_actual_modeld_startup_rejects_host_cable(monkeypatch, present, cable, l
     pass
 
   selection = Mock(side_effect=SelectionReached)
+  plan = object()
   monkeypatch.setattr(manager, 'resolve_runtime', selection)
   monkeypatch.delenv('STARPILOT_MODELD_RECOVERY_SMALL_ONLY', raising=False)
   source = Path(__file__).resolve().parents[2] / 'selfdrive/modeld/modeld.py'
@@ -53,7 +54,8 @@ def test_actual_modeld_startup_rejects_host_cable(monkeypatch, present, cable, l
       break
   namespace = {'cloudlog': Mock(), 'ModelReceiptOwner': Mock(), 'chestnut_present': lambda: present,
                'cable_connected': lambda: cable, 'usb_host_connected': lambda: host,
-               'jetlink_adapter': SimpleNamespace(link_on=lambda: link), 'os': __import__('os')}
+               'jetlink_adapter': SimpleNamespace(link_on=lambda: link), 'os': __import__('os'),
+               'MODEL_RUNTIME_PLAN': plan}
   with pytest.raises(SelectionReached):
     exec(compile(ast.Module(body=prefix, type_ignores=[]), str(source), 'exec'), namespace)
-  selection.assert_called_once_with(chestnut_available=available, randomize=True)
+  selection.assert_called_once_with(chestnut_available=available, plan=plan)

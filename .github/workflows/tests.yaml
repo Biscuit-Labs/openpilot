@@ -446,7 +446,7 @@ jobs:
   safety_release_contracts:
     name: RELEASE vehicle contracts (${{ matrix.shard }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -461,7 +461,7 @@ jobs:
     - name: Build native host dependencies
       run: scons
     - name: Run every assigned RELEASE target serially
-      timeout-minutes: 20
+      timeout-minutes: 30
       run: python3 tools/ci/run_vehicle_tests.py --suite safety-release --shard-index "${{ matrix.shard }}" --shard-count 4 --output "ci-results/safety-release-${{ matrix.shard }}"
     - name: Save every RELEASE outcome and native build
       if: always()

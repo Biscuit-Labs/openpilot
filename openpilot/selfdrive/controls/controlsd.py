@@ -219,8 +219,14 @@ class Controls:
         if not lateral_inputs_refreshed:
           # LAT+LONG: take an already-queued axis before the held one lapses mid-cycle (route 80 brake drops).
           # Not a LAT-only refresh, so it does not set lateral_inputs_refreshed (that path would end LONG).
+          # A firing refresh runs sm.update(0), which clears every `updated` flag. Restore this cycle's
+          # flags (OR with the new ones) so later readers, e.g. the Honda model ramp's modelV2 check, still see them.
+          updated_before = dict(self.sm.updated)
           refresh_expired_lateral_snapshot(self.sm, now_ns=refresh_now_ns, allow_combined=True,
                                            margin_ns=COMBINED_REFRESH_MARGIN_NS, wait_for_new=False)
+          for service, was_updated in updated_before.items():
+            if was_updated:
+              self.sm.updated[service] = True
     if (self.lane_centering_host is not None and os.getenv('REPLAY') != '1' and
         self.lane_centering_host.inputs_need_refresh(self.sm, now_ns=time.monotonic_ns())):
       self.update(0)

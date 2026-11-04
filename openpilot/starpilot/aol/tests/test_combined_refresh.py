@@ -177,3 +177,57 @@ def test_controlsd_non_gm_combined_axis_survives_lease_crossing_mid_cycle():
     poller.assert_not_called()
     assert command.latActive and command.longActive
     assert int(old_axis.validUntilMonoTime) == old_deadline
+
+
+def test_controlsd_combined_refresh_keeps_this_cycles_update_flags():
+  # The firing combined refresh runs sm.update(0), which clears every `updated` flag. Flags already set this
+  # cycle must survive it (the Honda model ramp reads updated['modelV2'] later), and newly received ones stay set.
+  from contextlib import ExitStack
+  from openpilot.common.prefix import OpenpilotPrefix
+  from openpilot.starpilot.aol.tests import test_ioniq_availability as fixture
+
+  case = fixture.IoniqAvailabilityTests(methodName='runTest')
+  with OpenpilotPrefix(), ExitStack() as cleanup:
+    cleanup.callback(case.doCleanups)
+    sd, controls, step, card, _ = case._ioniq_availability_callers(full_op=True)
+    cleanup.callback(card.vehicle_startup.close)
+    old_axis, _, old_command = step(2)
+    assert controls.CP.brand != 'gm'
+    old_deadline = int(old_axis.validUntilMonoTime)
+    pending = []
+    with (
+      patch.object(controls.sm, 'update_msgs', side_effect=lambda stamp, rows: pending.extend(rows)),
+      patch.object(controls, 'state_control', return_value=(old_command, None)),
+      patch.object(controls, 'publish'),
+    ):
+      step(5, offset_ns=-5_000_000)
+    # modelV2 arrived earlier this cycle only; the refresh receives the queued rows without it.
+    pending = [row for row in pending if row.which() != 'modelV2']
+    received = {row.which() for row in pending}
+    assert 'aolAxisState' in received
+    untouched = next(s for s in controls.sm.updated if s != 'modelV2' and s not in received)
+    controls.sm.updated = dict.fromkeys(controls.sm.updated, False)
+    controls.sm.updated['modelV2'] = True
+    top = old_deadline - COMBINED_REFRESH_MARGIN_NS + 1_000_000
+    late = old_deadline + 1_000_000
+    clock = iter([top])
+    ramp_reads = []
+
+    def receive(timeout):
+      assert timeout == 0
+      controls.sm.update_msgs(top / 1e9, pending)
+      assert not controls.sm.updated['modelV2']  # the receive itself clears it
+
+    ramp = SimpleNamespace(update=lambda curvature, model_updated, active: ramp_reads.append(model_updated) or curvature)
+    with (
+      patch.object(controls.sm, 'update', side_effect=receive) as receive_latest,
+      patch.object(controls, 'model_action_ramp', ramp, create=True),
+      patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', side_effect=lambda: next(clock, late)),
+      patch('openpilot.cereal.messaging.Poller'),
+    ):
+      controls.state_control()
+    receive_latest.assert_called_once_with(0)
+    assert ramp_reads == [True]
+    assert controls.sm.updated['modelV2']
+    assert all(controls.sm.updated[s] for s in received)
+    assert not controls.sm.updated[untouched]

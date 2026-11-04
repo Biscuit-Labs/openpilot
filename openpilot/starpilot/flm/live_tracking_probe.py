@@ -15,7 +15,7 @@ if TYPE_CHECKING:
   from openpilot.starpilot.flm.fullrate_collector import ControlEvidence
 
 from openpilot.starpilot.flm.canonical_surface_adapter import GROUPS, PROBE_GROUPS, probe_names, coordinate_bounds
-from openpilot.starpilot.flm.live_trial_contract import MAX_STEP
+from openpilot.starpilot.flm.live_trial_contract import MAX_STEP, SOURCE_EXPERIMENT_STEP
 
 _OWNER = object()
 MAX_FRESH_NS = 100_000_000
@@ -140,6 +140,11 @@ def _probe_key(value):
 
 def _primitive(value, depth=0):
   """Fresh exact bytes for source mutation detection; never invokes reducers."""
+  if depth == 0:
+    from openpilot.starpilot.flm.native_primitives import FALLBACK, try_native
+    exact = try_native('probe_source_key', value)
+    if exact is not FALLBACK:
+      return exact
   if depth > 40:
     raise ValueError('bounded probe source graph')
   kind = type(value)
@@ -945,9 +950,10 @@ def probe_endpoint(
   if base != actual_delivered or not source_only and not certificate.command_low <= -base <= certificate.command_high:
     raise ValueError('actual baseline outside measured command support')
   rows = []
+  probe_step = SOURCE_EXPERIMENT_STEP if source_only else MAX_STEP
   for name in names:
     lower, upper = coordinate_bounds(name)
-    minus, plus = max(lower, prior[name] - MAX_STEP), min(upper, prior[name] + MAX_STEP)
+    minus, plus = max(lower, prior[name] - probe_step), min(upper, prior[name] + probe_step)
     if not minus < plus:
       raise ValueError('nonempty original canonical probe interval required')
     try:

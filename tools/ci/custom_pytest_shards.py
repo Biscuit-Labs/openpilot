@@ -15,6 +15,7 @@ from tools.ci.lifecycle_shards import build_identity, same_build_inputs
 
 ROOT = Path(__file__).resolve().parents[2]
 HEAVY_MODULES = {
+  'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
   'openpilot/starpilot/car/toyota/tests/test_camera_pedal_extension_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_eps8_sdsu_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py',
@@ -28,21 +29,21 @@ HEAVY_MODULES = {
 
 CAPABILITY_NODES = {
   'openpilot/starpilot/galaxy_bluetooth/vendor/ifaddr/test_ifaddr.py::test_netifaces_compatibility',
-  'openpilot/starpilot/system/android_auto/tests/test_apk_identity.py::test_real_android_auto_17_6_xapk',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-0-0]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-4-2]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-20-3-5]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-40-18-0-6]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-18-0-0]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-18-4-2]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-20-3-5]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-40-18-0-6]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-18-0-0]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-18-4-2]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-20-3-5]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-18-0-0]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-18-4-2]',
-  'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-20-3-5]',
+  'openpilot/starpilot/system/starport/tests/test_apk_identity.py::test_real_starport_17_6_xapk',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-0-0]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-4-2]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-20-3-5]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-40-18-0-6]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-18-0-0]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-18-4-2]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-32-20-3-5]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[True-40-18-0-6]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-18-0-0]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-18-4-2]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[False-32-20-3-5]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-18-0-0]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-18-4-2]',
+  'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_fused_projection_conversion_matches_rgba_composition[True-32-20-3-5]',
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_draws_heading_up_roads_route_and_soft_edges',
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_opacity_fades_map_background',
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_without_gps_waits_without_drawing_roads',
@@ -75,7 +76,7 @@ def policy():
     raise ValueError('Unreviewed custom pytest grouping policy')
   for node in MAP_CAPABILITY_NODES:
     row = value['capability_skips'][node]
-    if (row.get('guard_source_path') != 'openpilot/starpilot/system/android_auto/tests/test_gpu_nv12.py' or
+    if (row.get('guard_source_path') != 'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py' or
         len(row.get('guard_source_blob', '')) != 40 or row['guard'] != 'gpu_env'):
       raise ValueError('Map capability requires exact shared GPU fixture definition')
   if type(value['independent_max_cases']) is not int or not 1 <= value['independent_max_cases'] <= 60:
@@ -97,7 +98,7 @@ def blob_id(path):
 
 def partition(catalog, count, root=ROOT):
   """Whole modules, except explicitly reviewed independent heavy parameter cases."""
-  if type(count) is not int or not 1 <= count <= 24 or not catalog or len(catalog) != len(set(catalog)):
+  if type(count) is not int or not 1 <= count <= 32 or not catalog or len(catalog) != len(set(catalog)):
     raise ValueError('Empty, duplicate or invalid custom pytest catalog')
   grouped = defaultdict(list)
   for node in catalog:
@@ -145,7 +146,7 @@ def source_snapshot(root=ROOT):
             'pytest_progress.py', 'worker_diagnostics.py', 'lifecycle_shards.py', 'lifecycle_build_outputs.json')}}
 
 
-REAL_XAPK = 'openpilot/.cache/android_auto/android-auto-17-6-663454-release.xapk'
+REAL_XAPK = 'openpilot/.cache/starport/android-auto-17-6-663454-release.xapk'
 
 
 def guard_observation(guard, root):
@@ -430,7 +431,7 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('action', choices=('run', 'aggregate'))
   parser.add_argument('--index', type=int)
-  parser.add_argument('--count', type=int, default=24)
+  parser.add_argument('--count', type=int, default=32)
   parser.add_argument('--output', type=Path, required=True)
   parser.add_argument('--directory', type=Path)
   args = parser.parse_args()

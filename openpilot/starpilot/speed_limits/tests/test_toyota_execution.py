@@ -10,8 +10,11 @@ from opendbc.car.toyota.interface import CarInterface
 from opendbc.car.toyota.prius_sdsu import RETROFIT_EPS
 from opendbc.car.toyota.values import CAR, ToyotaFlags
 from openpilot.cereal import messaging
-from openpilot.selfdrive.car.cruise import VCruiseHelper, SlcPendingConfirmation, V_CRUISE_MIN
+from openpilot.common.constants import CV
+from openpilot.common.params import Params
+from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS, IMPERIAL_INCREMENT, VCruiseHelper, SlcPendingConfirmation, V_CRUISE_MIN, slc_target_kph
 from openpilot.starpilot.car.toyota.tests.test_pedal_caller_native import firmware
+from openpilot.starpilot.longitudinal.cruise_intervals import read_cruise_intervals
 from openpilot.starpilot.speed_limits.runtime import Action, CruiseEvent, Runtime
 from openpilot.starpilot.speed_limits.runtime_settings import parse
 from openpilot.starpilot.speed_limits.tests import test_runtime_replay as replay
@@ -68,7 +71,89 @@ def update(helper, cs, approved=None, *, enabled=True, slc=True, metric=True, pe
   helper.update_v_cruise(cs, enabled, metric, pending, slc_enabled=slc, slc_approved=approved)
 
 
-def test_raise_waits_for_release_then_uses_existing_application(helper):
+def test_upcoming_approval_keeps_native_capacity_and_release_checks(helper):
+  approved = approval(70.)
+  approved.speedLimit = 50./3.6
+  approved.upcomingSpeedLimit = 70./3.6
+  approved.upcomingBoundaryId = 'a' * 64
+  update(helper, state(native=60.), approved)
+  assert helper.toyota.status == 'raise_dash'
+  update(helper, state(native=80., button='accelCruise', pressed=True), approved)
+  assert helper.toyota.status == 'release_plus'
+  update(helper, state(native=80., button='accelCruise', pressed=False), approved)
+  assert helper.toyota.status == 'ready' and helper.toyota.can_apply(70./3.6)
+
+
+@pytest.mark.parametrize('resume', [False, True, None], ids=['set', 'resume-hint', 'resume-button'])
+def test_engagement_adoption_waits_for_native_capacity_and_release(helper, resume):
+  helper.toyota.engaged = False
+  cs = state(native=60., button='decelCruise' if resume is False else 'accelCruise')
+  update(helper, cs)
+  before = helper.v_cruise_kph
+  assert helper.initialize_v_cruise(cs, False, resume=resume, slc_target_mps=70 / 3.6, is_metric=True)
+  assert helper.v_cruise_kph == before  # Existing Toyota preparation owns application.
+  approved = approval(70.)
+  approved.actionStatus, approved.actionSequenceId = 'adopt', 1
+  update(helper, state(native=60.), approved)
+  assert helper.toyota.status == 'raise_dash' and not helper.toyota.can_apply(70 / 3.6)
+  update(helper, state(native=80., button='accelCruise'), approved)
+  assert helper.toyota.status == 'release_plus'
+  update(helper, state(native=80., button='accelCruise', pressed=False), approved)
+  assert helper.toyota.status == 'ready' and helper.toyota.can_apply(70 / 3.6)
+  helper.apply_slc_target(70 / 3.6, True)
+  assert helper.v_cruise_kph == 70. and helper.slc_cruise_change is None
+
+
+@pytest.fixture(params=[False, True], ids=['normal-steps', 'swapped-steps'])
+def swap(helper, tmp_path, request):
+  params = Params(str(tmp_path))
+  params.put_bool('ReverseCruise', request.param, block=True)
+  params.put('CustomCruise', 3., block=True)
+  params.put('CustomCruiseLong', 7., block=True)
+  helper.intervals = read_cruise_intervals(params, helper.CP)
+  return request.param
+
+
+@pytest.mark.parametrize('metric', [False, True])
+@pytest.mark.parametrize('button,sign', [('accelCruise', 1), ('decelCruise', -1)])
+@pytest.mark.parametrize('held', [False, True])
+def test_saved_toyota_steps_apply_to_slc_set_speed(helper, swap, metric, button, sign, held):
+  increment = 1. if metric else IMPERIAL_INCREMENT
+  initial = 70. if metric else slc_target_kph(50 * CV.MPH_TO_MS, False)
+  helper.v_cruise_kph = helper.v_cruise_cluster_kph = initial
+  approved = approval(initial)
+  update(helper, state(140), approved, metric=metric)
+  update(helper, state(140, button=button), approved, metric=metric)
+  if held:
+    for _ in range(CRUISE_LONG_PRESS):
+      update(helper, state(140), approved, metric=metric)
+    assert helper.slc_cruise_change is not None
+  update(helper, state(140, button=button, pressed=False), approved, metric=metric)
+  step = (1 if swap else 5) if held else (5 if swap else 1)
+  target = initial + sign * step * increment
+  assert helper.v_cruise_kph == pytest.approx(target)
+  assert helper.v_cruise_cluster_kph == pytest.approx(target)
+  if held:
+    assert helper.slc_cruise_change is None
+  else:
+    assert helper.slc_cruise_change[:2] == pytest.approx((initial / 3.6, target / 3.6))
+
+
+@pytest.mark.parametrize('button,response', [('accelCruise', 'accel'), ('decelCruise', 'decel')])
+def test_saved_steps_do_not_change_confirmation_hold_or_release(helper, swap, button, response):
+  pending = SlcPendingConfirmation('drive', 1, 1)
+  update(helper, state(100), pending=pending)
+  update(helper, state(100, button=button), pending=pending)
+  assert helper.slc_consumed_button.button == response
+  for _ in range(CRUISE_LONG_PRESS + 2):
+    update(helper, state(100), pending=pending)
+    assert helper.v_cruise_kph == 50 and helper.slc_cruise_change is None
+  update(helper, state(100, button=button, pressed=False), pending=pending)
+  assert helper.v_cruise_kph == 50 and helper.slc_cruise_change is None
+  assert not helper.slc_suppressed_buttons
+
+
+def test_raise_waits_for_release_then_uses_existing_application(helper, swap):
   approved = approval()
   update(helper, state(), approved)
   assert helper.toyota.status == 'raise_dash' and helper.v_cruise_kph == 50
@@ -213,7 +298,7 @@ def test_minus_at_applied_native_ceiling_keeps_driver_intent(helper):
   assert helper.toyota.status == 'cancelled' and not helper.toyota.can_apply(70 / 3.6)
 
 
-def test_host_enabled_native_resume_does_not_add_software_step(helper):
+def test_host_enabled_native_resume_does_not_add_software_step(helper, swap):
   update(helper, state(80, active=False, button='accelCruise'), approval(50), enabled=True)
   update(helper, state(80), approval(50), enabled=True)
   update(helper, state(80, button='accelCruise', pressed=False), approval(50), enabled=True)
@@ -260,9 +345,13 @@ def test_resume_on_seeds_lower_target_before_approval_can_execute(helper):
   assert helper.v_cruise_kph == 50
 
 
-def test_standstill_resume_keeps_native_meaning(helper):
+def test_standstill_resume_keeps_native_meaning(helper, swap):
   update(helper, state(stopped=True, button='accelCruise'), pending=SlcPendingConfirmation('drive', 1, 1))
   assert helper.slc_consumed_button is None
+  for _ in range(CRUISE_LONG_PRESS + 2):
+    update(helper, state(stopped=True))
+  update(helper, state(button='accelCruise', pressed=False))
+  assert helper.v_cruise_kph == 50 and helper.slc_cruise_change is None
 
 
 def test_missing_can_does_not_release_retained_set_to_native(helper):
@@ -356,7 +445,7 @@ def test_same_limit_adoption_recovers_cancelled_toyota_through_real_runtime(help
   assert helper.toyota.status == 'cancelled' and not helper.toyota.can_apply(25.)
   screen = OnroadState(True, False, 20., helper.v_cruise_cluster_kph, speed_limit_from_message(changed),
                        metric=True, longitudinal_active=True, slc_system_long_available=True, toyota_cruise_status=helper.toyota.status)
-  assert all(slc_controls(profile, screen)[0].label == 'Use 90' for profile in Profile)
+  assert all(slc_controls(profile, screen) == () for profile in Profile)
   adopted = tick(5_020_000_000, request=Action('drive', 1, 0, changed.presentationId, 'adopt')).message.slcState
   assert adopted.actionStatus == 'adopt' and not adopted.driverOverrideActive
   assert adopted.acceptedMonoTime == accepted.acceptedMonoTime

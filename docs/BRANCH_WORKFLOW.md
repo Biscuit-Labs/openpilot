@@ -1,6 +1,6 @@
 # Branch workflow
 
-This repo (`RiskyBiscuit-arc/openpilot`) is the shared openpilot codebase for Honda EPS torque modding. It is not specific to one model: it covers any Honda whose power steering is torque-modded.
+This repo (`Biscuit-Labs/openpilot`) is the shared openpilot codebase for Honda EPS torque modding. It is not specific to one model: it covers any Honda whose power steering is torque-modded.
 Collaborators push here directly. Nobody works from a separate fork.
 
 ## Branches
@@ -29,8 +29,10 @@ Never open a pull request straight into Stage or Stable.
 
 Changes move in one direction only: Testing → Stage → Stable.
 
-- **Testing → Stage:** open a pull request from `Honda-PTM-Testing` into `Honda-PTM-Stage` when Testing has a set of changes worth driving.
-- **Stage → Stable:** open a pull request from `Honda-PTM-Stage` into `Honda-PTM-Stable` once Stage has been driven and nothing new is wrong.
+- **Testing → Stage:** when Testing has a set of changes worth driving, run `tools/ci/promote.py testing`. It pushes a snapshot branch `promote-testing-<commit>` at the tip of Testing and opens its pull request into `Honda-PTM-Stage`, listing the pull requests it carries.
+- **Stage → Stable:** once Stage has been driven and nothing new is wrong, run `tools/ci/promote.py stage`. It does the same from Stage into `Honda-PTM-Stable`.
+
+Promote from a snapshot, not from the long-lived branch itself. A pull request from `Honda-PTM-Testing` follows the branch, so every later merge into Testing joins the promotion and reruns its full CI. A snapshot never moves: its checks and approval stay on exactly the commit that was tested, and Testing keeps taking merges while the promotion waits for review or driving. Pass a commit (`tools/ci/promote.py testing <commit>`) to promote an earlier point of Testing. After the promotion merges, `tools/ci/promote.py cleanup` deletes the snapshot branches whose pull requests are closed. A pull request straight from `Honda-PTM-Testing` or `Honda-PTM-Stage` is still accepted.
 
 A fix found on Stage goes through the same path: branch off Testing, merge into Testing, then promote it again.
 
@@ -39,6 +41,7 @@ A fix found on Stage goes through the same path: branch off Testing, merge into 
 - Name a branch after the work, in lowercase with hyphens, for example `wifi-power-save` or `jetlink-0.8.10-update`.
 - Don't use tool or agent prefixes such as `claude/`.
 - Only the three long-lived branches above use the `Honda-PTM-` prefix.
+- `promote-testing-` and `promote-stage-` are for promotion snapshots cut by `tools/ci/promote.py`.
 
 ## Bringing in upstream (VFN `night-star7`)
 
@@ -59,22 +62,26 @@ GitHub enforces most of this workflow, so a mistake fails a check instead of rea
   - changes arrive only by pull request, with merge commits only (no squash, no rebase, so upstream merges keep their history);
   - one approval from someone other than the last person to push, and new pushes dismiss earlier approvals;
   - every review thread resolved;
-  - the required checks pass. Stage, Stable and Clean do not require the branch to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Push CI on each long-lived branch tests the merged result.
-- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required (passing checks and branch guard are enough) and a pull request must be up to date with Testing before it merges, so its checks ran against the latest Testing. A second person reviews when Testing is promoted to Stage.
+  - the required checks pass. Stage, Stable and Clean do not require the branch to be up to date with its base: promotions use merge commits, so Stage and Stable always hold a merge commit that Testing lacks, and Testing cannot take it back. Each promotion's pull request checks run on the merge result at the time they run.
+- `honda-ptm-testing.json` covers Testing with the same rules, except that no approval is required (passing checks and branch guard are enough). A pull request does not have to be up to date with Testing before it merges: requiring it made every open pull request rerun CI after each merge and let only one merge at a time. Two pull requests that pass on their own can still break each other once both are in Testing, so the promotion's full run is the check of Testing as a whole. A second person reviews when Testing is promoted to Stage.
 - `branch-names.json` refuses to create branches under `claude/`, `codex/`, `copilot/`, `cursor/` or `gemini/`.
 
 **branch guard** (`.github/workflows/branch_guard.yaml`, `tools/ci/branch_guard.py`) is a required check. Rulesets cannot say where a pull request comes from, so this check does:
 
 | Into | Only from |
 | --- | --- |
-| `Honda-PTM-Stable` | `Honda-PTM-Stage` in this repo |
-| `Honda-PTM-Stage` | `Honda-PTM-Testing` in this repo |
+| `Honda-PTM-Stable` | `Honda-PTM-Stage`, or a `promote-stage-<commit>` snapshot, in this repo |
+| `Honda-PTM-Stage` | `Honda-PTM-Testing`, or a `promote-testing-<commit>` snapshot, in this repo |
 | `Honda-PTM-Testing` | a feature or fix branch: not Stage, Stable or Clean, and no tool prefix |
 | `Honda-PTM-Clean` | anything that leaves Clean equal to Stable plus exactly the clean changes (`tools/night_star_port/check_clean_branch.py`) |
 
+A snapshot branch must be named after its tip (10 to 40 lowercase hex digits), must not have moved since it was cut, and its commit must already be in the source branch.
+
 The guard also runs on every push to Clean.
 
-**Required checks** (the same list in both branch rulesets) are the CI jobs that pass today. `process replay` and `complete custom pytest catalog` join the list once issue #13 is closed; until then a reviewer reads their results by hand.
+**Required checks** (the same list in both branch rulesets) are the CI jobs that pass today. `process replay` and `complete custom pytest catalog` join the Stage and Stable list once issue #13 is closed; until then a reviewer reads their results by hand.
+
+**How much CI runs where.** To keep GitHub Actions usage down, pull requests into Testing run a reduced `tests` workflow: every check the Testing ruleset requires, plus `safety` and `docs`. They skip the 24 custom pytest shards and their catalog, the UI report, and the macOS builds; process replay and its diff report comment still run. That is about half the runner minutes of a full run. Pull requests into Stage and Stable run the full suite, so everything skipped on Testing runs before a promotion merges. `complete custom pytest catalog` is not a required check on Stage or Stable yet (see above), so the reviewer of a promotion must confirm it passed. To run the full suite on a Testing pull request, open Actions → tests → Run workflow and pick the pull request's branch. The skipped jobs can never be required on Testing, because a skipped job counts as passed.
 
 ### Before you ask for review
 

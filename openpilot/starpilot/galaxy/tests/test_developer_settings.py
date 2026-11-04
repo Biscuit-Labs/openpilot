@@ -6,8 +6,9 @@ from types import SimpleNamespace
 from typing import cast
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from openpilot.starpilot.galaxy.developer_settings import DRIVER_MONITORING_RESET, AA_WIFI_KEY, DeveloperSettingsOwner
+from openpilot.starpilot.galaxy.developer_settings import CALIBRATION_RESET, DRIVER_MONITORING_RESET, STARPORT_WIFI_KEY, DeveloperSettingsOwner
 from openpilot.starpilot.galaxy.settings import AuthorityContext, ContextSource, SettingsChanged, SettingsGateway
 from openpilot.starpilot.longitudinal.voacc import KEY, selected
 from openpilot.starpilot.ui.feature_settings_state import FeatureSettingsRequest
@@ -37,7 +38,7 @@ class FileParams:
     Path(self.get_param_path(key)).write_bytes(b"1" if value else b"0")
 
 
-class FakeAndroidAuto:
+class FakeStarPort:
   def __init__(self, enabled=False, running=True):
     self.enabled, self.running = enabled, running
 
@@ -136,25 +137,25 @@ class DeveloperSettingsTest(unittest.TestCase):
     with self.assertRaises(SettingsChanged):
       gateway.confirm(intent, token, generation, session_valid=lambda: False)
 
-  def test_android_auto_stay_on_wifi_toggle(self):
-    self.assertNotIn(AA_WIFI_KEY, [row.key for row in self.owner.snapshot().rows])
-    service = FakeAndroidAuto()
-    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, android_auto=lambda: service)
-    row = next(row for row in owner.snapshot().rows if row.key == AA_WIFI_KEY)
+  def test_starport_stay_on_wifi_toggle(self):
+    self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in self.owner.snapshot().rows])
+    service = FakeStarPort()
+    owner = DeveloperSettingsOwner(self.params, lambda: self.parked, starport=lambda: service)
+    row = next(row for row in owner.snapshot().rows if row.key == STARPORT_WIFI_KEY)
     self.assertEqual((row.value, row.choices, row.available), ("Off", ("Off", "On"), True))
-    self.assertTrue(owner.apply(FeatureSettingsRequest(AA_WIFI_KEY, row.source, "On")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, row.source, "On")))
     self.assertTrue(service.enabled)
-    self.assertFalse(owner.apply(FeatureSettingsRequest(AA_WIFI_KEY, row.source, "Off")))  # stale view
-    self.assertFalse(owner.apply(FeatureSettingsRequest(AA_WIFI_KEY, b"1", "maybe")))
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, row.source, "Off")))  # stale view
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"1", "maybe")))
     self.parked = False
-    self.assertFalse(next(row for row in owner.snapshot().rows if row.key == AA_WIFI_KEY).available)
-    self.assertFalse(owner.apply(FeatureSettingsRequest(AA_WIFI_KEY, b"1", "Off")))
+    self.assertFalse(next(row for row in owner.snapshot().rows if row.key == STARPORT_WIFI_KEY).available)
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"1", "Off")))
     self.parked = True
-    self.assertTrue(owner.apply(FeatureSettingsRequest(AA_WIFI_KEY, b"1", "Off")))
+    self.assertTrue(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"1", "Off")))
     self.assertFalse(service.enabled)
     service.running = False
-    self.assertNotIn(AA_WIFI_KEY, [row.key for row in owner.snapshot().rows])
-    self.assertFalse(owner.apply(FeatureSettingsRequest(AA_WIFI_KEY, b"0", "On")))
+    self.assertNotIn(STARPORT_WIFI_KEY, [row.key for row in owner.snapshot().rows])
+    self.assertFalse(owner.apply(FeatureSettingsRequest(STARPORT_WIFI_KEY, b"0", "On")))
 
   def test_driver_monitoring_reset_matches_native_semantics_and_guards_preview(self):
     self.params.put_bool("IsRhdDetected", True, block=True)
@@ -170,3 +171,60 @@ class DeveloperSettingsTest(unittest.TestCase):
     self.assertFalse(row.available)
     self.assertFalse(self.owner.apply(FeatureSettingsRequest(DRIVER_MONITORING_RESET, b"1", "confirm", confirmation=True)))
     self.assertTrue(Path(self.params.get_param_path("IsRhdDetected")).exists())
+
+
+class CalibrationResetSettingsTest(unittest.TestCase):
+  setUp = DeveloperSettingsTest.setUp
+  def test_calibration_reset_adjacent_and_uses_existing_reset_service(self):
+    with patch("openpilot.starpilot.galaxy.developer_settings.calibration_reset") as reset:
+      reset.pending = False
+      rows = self.owner.snapshot().rows
+      keys = [row.key for row in rows]
+      self.assertEqual(keys[keys.index(DRIVER_MONITORING_RESET) + 1], CALIBRATION_RESET)
+      self.assertTrue(rows[keys.index(CALIBRATION_RESET)].available)
+      reset.request.return_value = True
+      self.assertTrue(self.owner.apply(FeatureSettingsRequest(CALIBRATION_RESET, None, "confirm", confirmation=True)))
+      reset.request.assert_called_once_with(self.params)
+
+  def test_calibration_reset_refuses_onroad_pending_stale_and_wrong_value(self):
+    with patch("openpilot.starpilot.galaxy.developer_settings.calibration_reset") as reset:
+      reset.pending = False
+      request = FeatureSettingsRequest(CALIBRATION_RESET, None, "confirm", confirmation=True)
+      self.assertFalse(self.owner.apply(replace(request, value="On")))
+      self.parked = False
+      self.assertFalse(self.owner.apply(request))
+      self.assertFalse(next(row for row in self.owner.snapshot().rows if row.key == CALIBRATION_RESET).available)
+      self.parked = True
+      reset.pending = True
+      self.assertFalse(self.owner.apply(request))
+      reset.pending = False
+      self.params.put_bool("OnroadCycleRequested", True)
+      self.assertFalse(self.owner.apply(request))
+      self.params.remove("OnroadCycleRequested")
+      Path(self.params.get_param_path("CalibrationParams")).write_bytes(b"changed")
+      self.assertFalse(self.owner.apply(request))
+      reset.request.assert_not_called()
+
+  def test_calibration_reset_gateway_requires_confirmation_and_fresh_parked_state(self):
+    with patch("openpilot.starpilot.galaxy.developer_settings.calibration_reset") as reset:
+      reset.pending = False
+      reset.request.return_value = True
+      context = SimpleNamespace(value=AuthorityContext(True, None, None))
+      context.sample = lambda: context.value
+      gateway = SettingsGateway(self.params, cast(ContextSource, context), clock=lambda: 10.)
+      def preview():
+        page = gateway.page("developer", "session", b"generation")
+        i = next(i for i,row in enumerate(page["rows"]) if row["label"] == "Reset Calibration")
+        self.assertTrue(page["rows"][i]["confirm"])
+        return gateway.preview(page["view"], i, 0, "session", b"generation")
+      pending = preview()
+      self.assertIn("recalibrate", pending["question"])
+      reset.request.assert_not_called()
+      context.value = replace(context.value, parked=False)
+      with self.assertRaises(SettingsChanged):
+        gateway.confirm(pending["intent"], "session", b"generation")
+      reset.request.assert_not_called()
+      context.value = replace(context.value, parked=True)
+      pending = preview()
+      self.assertTrue(gateway.confirm(pending["intent"], "session", b"generation"))
+      reset.request.assert_called_once()

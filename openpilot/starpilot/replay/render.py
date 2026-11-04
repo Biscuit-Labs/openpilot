@@ -272,8 +272,8 @@ class DrawUpdates(dict):
 
 class Compositor:
   def __init__(self, profile: str, width: int, height: int, *, nv12: bool, wide: bool, cabin: bool):
-    from openpilot.starpilot.system.android_auto.headless_egl import HeadlessContext, FrameReadback
-    from openpilot.starpilot.system.android_auto import gpu_nv12
+    from openpilot.starpilot.system.starport.headless_egl import HeadlessContext, FrameReadback
+    from openpilot.starpilot.system.starport import gpu_nv12
     self.resources = ExitStack()
     self.context = HeadlessContext(width, height)
     self.resources.callback(self.context.close)
@@ -356,7 +356,6 @@ class Compositor:
       self.view.stock_confidence_layer = lambda rect, state: self.camera.render_stock_confidence_layer(rect, lateral_active=state.lateral_active)
       self.view.stock_confidence_reset = self.camera.reset_stock_confidence_layer
       self.view.extra_overlays = lambda rect, state: self.camera.render_model_source_layer(rect, show_long_indicator=None)
-      self.view.compact_sidebar.personality_renderer = self._personality_layer
 
   def _camera_layer(self, rect, state):
     self.primary_ready = self._primary_matches()
@@ -469,13 +468,6 @@ class Compositor:
     self.monitor.render(state, monitor=monitor, driver=driver, fresh=monitor is not None and driver is not None,
                         onroad=self.ui.is_onroad(), top_icons=top_icons)
 
-  def _personality_layer(self, rect, state):
-    from openpilot.starpilot.ui.onroad_state import AlertSize, is_lane_change_notice
-    indicator = self.camera._long_indicator
-    indicator.set_should_draw(state.alert.size == AlertSize.NONE or is_lane_change_notice(state.alert))
-    indicator.render_sidebar(rect, personality=state.personality, longitudinal_active=state.cruise_active,
-                             traffic_mode=state.traffic_mode)
-
   def _close_camera(self):
     callbacks = self.ui._offroad_transition_callbacks
     if self.camera._offroad_transition in callbacks:
@@ -556,7 +548,7 @@ class Compositor:
       return False
     sample = self.ui.replay_sample
     key = epoch, sample.now_ns
-    from openpilot.starpilot.system.android_auto import gpu_nv12
+    from openpilot.starpilot.system.starport import gpu_nv12
     from openpilot.starpilot.ui.shell import ShellMode
     rl = self.rl
     self.context.begin_frame(cast(int, sample.now_ns) / 1e9)
@@ -667,7 +659,7 @@ def run(session_dir: Path, route_id: str, data_dir: Path, target: str, profile: 
       publisher = ReplayFramePublisher(Path(os.environ['SP_REPLAY_CLOCK_PATH']).with_name('frame'), session_dir.name, profile, width, height)
       resources.callback(publisher.close)
     else:
-      from openpilot.starpilot.system.android_auto.hw_encoder import HardwareH264Encoder
+      from openpilot.starpilot.system.starport.hw_encoder import HardwareH264Encoder
       from openpilot.starpilot.replay.export import BITRATE_KBPS
       encoder = HardwareH264Encoder(width, height, bitrate_kbps=BITRATE_KBPS)
       if not encoder.supports_nv12:

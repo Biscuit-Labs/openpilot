@@ -11,6 +11,7 @@ import zlib
 from openpilot.starpilot.ui.layout_preview_renderer import LayoutPreviewRenderer, _Canvas, _DriverMonitorArt, _png_rgba, sample_state
 from openpilot.starpilot.ui.layout_preview_sidebar import SAMPLE_METRICS, metric_rects, render_sidebar
 from openpilot.starpilot.ui.onroad_customization import default_document
+from openpilot.starpilot.ui.onroad_personality import PersonalityWidget
 from openpilot.starpilot.ui.presentation import Profile
 import pyray as rl
 
@@ -58,7 +59,7 @@ class LayoutPreviewRendererTests(unittest.TestCase):
       sidebar.assert_not_called()
 
   def test_native_and_projection_previews_supply_timer_sample(self):
-    from openpilot.starpilot.system.android_auto.projection_layout import default_layout_for_viewport
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport
     from openpilot.starpilot.ui.layout_preview_transport import SCENES
     from openpilot.starpilot.ui.onroad_customization import STOPPED_TIMER_WIDGET
     native = default_document()
@@ -88,7 +89,7 @@ class LayoutPreviewRendererTests(unittest.TestCase):
         renderer.close()
 
   def test_big_and_projection_previews_supply_route_and_timer_samples_but_compact_does_not(self):
-    from openpilot.starpilot.system.android_auto.projection_layout import default_layout_for_viewport
+    from openpilot.starpilot.system.starport.projection_layout import default_layout_for_viewport
     from openpilot.starpilot.ui.onroad_customization import STOPPED_TIMER_WIDGET
     native = default_document()
     native['layouts']['large'][STOPPED_TIMER_WIDGET]['enabled'] = True
@@ -244,7 +245,7 @@ class LayoutPreviewRendererTests(unittest.TestCase):
     canvas = _Canvas.__new__(_Canvas)
     canvas.profile = Profile.COMPACT
     canvas.viewport = None
-    self.enterContext(patch.object(canvas, 'view', NS(compact_hud=NS(_was_cruise_active=False, _set_speed_alpha=NS(x=0.0),
+    self.enterContext(patch.object(canvas, 'view', NS(personality=PersonalityWidget(), compact_hud=NS(_was_cruise_active=False, _set_speed_alpha=NS(x=0.0),
                                    _wheel_alpha=NS(x=0.0), _wheel_y=NS(x=25.0)),
                      torque_bar=NS(_torque_filter=NS(x=0.0), _alpha_filter=NS(x=0.0))), create=True))
     braking = sample_state("braking", default_document())

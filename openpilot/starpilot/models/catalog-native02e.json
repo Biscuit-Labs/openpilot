@@ -1,0 +1,256 @@
+{
+  "artifact_abi": "tinygrad_single_v2_arena",
+  "compiler_revision": "02e698160eed1751738212144a7ea2cfb160b3f1",
+  "generation": "native02e-v1",
+  "models": [
+    {
+      "artifact_chunk_count": 18,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "868b3e775ab92e223a1618e5b9f2690976cbdb61e27516e50a43db96375586b8",
+      "artifact_size": 804719273,
+      "community_favorite": false,
+      "id": "traintrack",
+      "name": "Train Track \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1928x1208. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "3d7f485199fa8532b41b2d1ce3e484718bffb4c17a587a18b86ceee24ebbf5ff",
+      "released": "2026-10-17",
+      "series": "OP Series",
+      "source_bytes": 792467570,
+      "source_sha256": "ceb38c593005b3338aee4ca057d5ad9ee64c58f8fdba0b41641a9d4cc6c36e36",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 18,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "6a9ccfb1d9c6a518435cddc13e990bd1c89bc87f2d3a5591a8e1a69d4cd552e2",
+      "artifact_size": 804719273,
+      "community_favorite": false,
+      "id": "mountaindewv3",
+      "name": "Mountain Dew v3 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "ac3637cb238f9599a43f77144bc332be6930627d77bad098acbcfd6f1d777748",
+      "released": "2026-10-14",
+      "series": "OP Series",
+      "source_bytes": 792542056,
+      "source_sha256": "1cfd2c45353d876b5b257b24d77537de58ab90a44ae595f15b1f64b6ea3fd770",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 18,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "d4bd838f4cfe2465c2ecac3efa32aeeddd9d1a3c0ed80b1987ee87a1a3470358",
+      "artifact_size": 804718917,
+      "community_favorite": false,
+      "id": "mountaindewv2",
+      "name": "Mountain Dew v2 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "5b79ede3cf0809fce8497bb7f8feca86be6f387c68c0e706177ed73068927683",
+      "released": "2026-10-10",
+      "series": "OP Series",
+      "source_bytes": 792430559,
+      "source_sha256": "87fe86ca0813c099efddf9173ba503be2e40ea4c5362c36812a44141f4cb07d4",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 18,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "787b13a040362f4efcfca15bf95f7a36694ba21fb8175d8557ed579ceffde282",
+      "artifact_size": 804719273,
+      "community_favorite": false,
+      "id": "mountaindewv1",
+      "name": "Mountain Dew v1 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "497a0f262de83a911ba4dbb1d63f9ffbf51567e155574e72170f94949cafa88d",
+      "released": "2026-10-08",
+      "series": "OP Series",
+      "source_bytes": 792487890,
+      "source_sha256": "c392ba1aa1b4b89e850366024fa6c1beac1f1fdc3a7182e3c3b0234c55e08eeb",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 18,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "10aa579f2181154996afc04f30337a7b42c7768f92d2bbdc92d8685acbd725ca",
+      "artifact_size": 804718766,
+      "community_favorite": false,
+      "id": "resfit",
+      "name": "ResFit",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "cb84da0893e25cfec8f581c7c043949a0f6a830ab9e4745d2f7ab0e8b9e86d43",
+      "released": "2026-10-06",
+      "series": "OP Series",
+      "source_bytes": 792485215,
+      "source_sha256": "1563b85f6bd00d9e2edf50bdb69646f0d95d5ac0f218d5abe3fe54a13427d71b",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 17,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "d4613485c31cc28ab9b75fc8c14072354586c83e3e799e94682dcf06026b8f80",
+      "artifact_size": 778866789,
+      "community_favorite": false,
+      "id": "cinquev3",
+      "name": "Cinque v3 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "b169cef607dbb650f055ef87ace3c76f43013da3798ea3d3af384ae2b95026e5",
+      "released": "2026-09-18",
+      "series": "OP Series",
+      "source_bytes": 766354845,
+      "source_sha256": "404a18cfd86d29637d20c697dfde245bb47c666ae016730ab674c65f4d1e1aa4",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 3,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "efc9c780a824c798c629776601dc7b26aaa1e1270e048d9f90dd2f164de380a9",
+      "artifact_size": 114218310,
+      "community_favorite": false,
+      "id": "rdf43",
+      "model_lab_eligible": true,
+      "model_size": "small",
+      "name": "Regret Driven Framework V4 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original five-frame capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "0d0ff59d57da106f042ec79636c65dbcd805d4d15c81a79ae9a7551b46dc5ecd",
+      "released": "2026-08-10",
+      "series": "OP Series",
+      "source_bytes": 96636386,
+      "source_sha256": "b9550d192e32769f1fca82b2e2f2fae65e335b9f6fbbda2b455fcc8b2207bef6",
+      "version": "v15"
+    },
+    {
+      "artifact_chunk_count": 17,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "99a1201c2fb56ac9c1a7c473c9ce21c232fdea853d99f25945403c6944402457",
+      "artifact_size": 779944355,
+      "community_favorite": false,
+      "id": "cinque-driving",
+      "name": "Cinque-Driving \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original seeded capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "fb7bbd6b4e7782da385ad69d2318d711b6f4285e61e2ddd29f32a1ee04338c2f",
+      "released": "2026-09-04",
+      "series": "OP Series",
+      "source_bytes": 765950064,
+      "source_sha256": "e8d821733be15ebe9e27498bc27ad8bbbd741980ece37d77f377294010b8ff28",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 38,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "bab306b3d3d5b95982ce1118d61a4b70c3f772dc70af601ef00db09d31ae7b51",
+      "artifact_size": 1774454979,
+      "community_favorite": false,
+      "id": "remove-avgpoolv4",
+      "name": "Remove AvgPool V4 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original seeded capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "5699a8e47257eed96e6ae84cff960e1ec6ce8c6a3511c833992a9ea7ce5cdf86",
+      "released": "2026-08-26",
+      "series": "OP Series",
+      "source_bytes": 1757861459,
+      "source_sha256": "9ef28165590af9be949230a36336e6d578bc656798e3d17c86656a2105460bea",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 38,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "5015b49b8359865c1cf5ab2ab014885ba4f60ec31444bf2b0809c051732b1c51",
+      "artifact_size": 1774454979,
+      "community_favorite": false,
+      "id": "remove-avgpoolv3",
+      "name": "Remove AvgPool V3 \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with original seeded capture/reload checks; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "c4670bc1a9fc873c3fc7e64d44295e6ad9b6fdb375853b7bf973ed77f5a8708f",
+      "released": "2026-08-24",
+      "series": "OP Series",
+      "source_bytes": 1757861459,
+      "source_sha256": "6afb28d58bfa7d7639832db8a61ff9209ef704ce1a9de2cdc20dd9004ec42bec",
+      "uses_external_gpu": true,
+      "version": "v16"
+    },
+    {
+      "artifact_chunk_count": 38,
+      "artifact_format": "tinygrad_single_v2_arena",
+      "artifact_sha256": "be1331c29816297cd51e47d710822170b5b0cb7f465ef02305e5d5a11c4bfb4e",
+      "artifact_size": 1771620282,
+      "community_favorite": false,
+      "id": "rdf-driving",
+      "name": "RDF Driving \ud83d\udc40\ud83d\udce1",
+      "qualification_scope": "Native ONNX compilation with seeded capture/reload checks with source-correct categorical/recurrent validation inputs; exact retained GPU kernels and weights during bounded-guard preparation; fresh final-source guarded CatalogModelState/Parser runner, four seeded frames at 1344x760. No physical acceptance or startup speedup asserted.",
+      "qualification_sha256": "7ecd7e3e0614898d66d304ec2e466eaab47278266f2cd0514f26a63912c312da",
+      "released": "2026-08-09",
+      "series": "OP Series",
+      "source_bytes": 1755025726,
+      "source_sha256": "1699535ee7c25780f052e23279a953ca82b3b0d6d2b124a9811c9e84f05c97e0",
+      "uses_external_gpu": true,
+      "version": "v16"
+    }
+  ],
+  "status": "QUALIFIED_NATIVE_RELEASE",
+  "stock": {
+    "dm_warp_1344x760_tinygrad.pkl": {
+      "artifact_sha256": "095467b3397526455aba3573e2458d960cbe195e23f8f91d46ef5e886074006c",
+      "artifact_size": 1397668,
+      "qualification_scope": "Actual four-frame driver-monitoring ModelState and both camera warps; 88 output arrays and state histories exact per camera against raw native captures. No road acceptance or speedup asserted.",
+      "qualification_sha256": "6d9b4ad05d673a352f152b2b6327bcff6de6dbc76c3c96204fb839b67b920fc0",
+      "source_geometry": {
+        "border_fill": 16,
+        "camera": [
+          1344,
+          760
+        ],
+        "layout": "luma",
+        "nv12": [
+          1408,
+          768,
+          384,
+          2428928
+        ],
+        "transform_device": "NPY",
+        "warp_to": [
+          1440,
+          960
+        ]
+      }
+    },
+    "dm_warp_1928x1208_tinygrad.pkl": {
+      "artifact_sha256": "05021aae07d80fe8ccdd593581398e6432c52d7132384f706c0e2f75d69a7a3b",
+      "artifact_size": 1397620,
+      "qualification_scope": "Actual four-frame driver-monitoring ModelState and both camera warps; 88 output arrays and state histories exact per camera against raw native captures. No road acceptance or speedup asserted.",
+      "qualification_sha256": "6d9b4ad05d673a352f152b2b6327bcff6de6dbc76c3c96204fb839b67b920fc0",
+      "source_geometry": {
+        "border_fill": 16,
+        "camera": [
+          1928,
+          1208
+        ],
+        "layout": "luma",
+        "nv12": [
+          2048,
+          1216,
+          608,
+          4804608
+        ],
+        "transform_device": "NPY",
+        "warp_to": [
+          1440,
+          960
+        ]
+      }
+    },
+    "dmonitoring_model_tinygrad.pkl": {
+      "artifact_sha256": "2dfdf58712f29be92d37f0b6b06d6ae78626831c3b9e7a0c990d40e8ef84b3a2",
+      "artifact_size": 20778338,
+      "qualification_scope": "Actual four-frame driver-monitoring ModelState and both camera warps; 88 output arrays and state histories exact per camera against raw native captures. No road acceptance or speedup asserted.",
+      "qualification_sha256": "6d9b4ad05d673a352f152b2b6327bcff6de6dbc76c3c96204fb839b67b920fc0",
+      "source_bytes": 7844499,
+      "source_sha256": "dee5a294e8afaacc9295ac5d100e00733ecac278e79264b96331e40a3ede1b04"
+    }
+  }
+}

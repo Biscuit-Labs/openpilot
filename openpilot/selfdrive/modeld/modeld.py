@@ -8,8 +8,9 @@ from functools import cached_property
 import os
 os.environ['GMMU'] = '0' # for chestnut fast loading, noop for qcom
 os.environ.setdefault('AM_POWER_LIMIT', '100')
-from openpilot.starpilot.models.runtime_bridge.runtime import prepare as prepare_model_runtime, selected_legacy
+from openpilot.starpilot.models.runtime_bridge.runtime import prepare as prepare_model_runtime, selected_legacy, selected_plan
 prepare_model_runtime('driving')
+MODEL_RUNTIME_PLAN = selected_plan()
 from tinygrad.device import Buffer, Device
 from tinygrad.dtype import DType, dtypes
 from tinygrad.engine.realize import lower_and_compile
@@ -51,7 +52,7 @@ from openpilot.starpilot.models.status import ModelVariant
 from openpilot.starpilot.models.startup import report_load_timeout, wait_for_chestnut_power
 from openpilot.starpilot.models.recovery import STARTUP_FALLBACK_EXIT
 from openpilot.starpilot.navigation.intent import TurnIntent, matching_turn_signal
-from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, BY_ID, DEFAULT_SMALL, DEFAULT_SMALL_SHA256
+from openpilot.starpilot.models.catalog import BUNDLED_CURRENT, DEFAULT_SMALL
 from openpilot.starpilot.models.runner import CatalogModelState, load_verified_model
 from openpilot.starpilot.models import jetlink_adapter
 import uuid
@@ -314,8 +315,8 @@ def main(demo=False):
   # a Jetson, PC or phone on the port looks like a chestnut to cable_connected(): the cable counts with Jetlink off only
   chestnut_available = chestnut_present() or (cable_connected() and not jetlink_adapter.link_on() and not usb_host_connected())
   recovery_small_only = os.getenv("STARPILOT_MODELD_RECOVERY_SMALL_ONLY") == "1"
-  selection = resolve_runtime(chestnut_available=chestnut_available and not recovery_small_only, randomize=not recovery_small_only)
-  requested_model_id = requested_runtime_id(chestnut_available)
+  selection = resolve_runtime(chestnut_available=chestnut_available and not recovery_small_only, plan=MODEL_RUNTIME_PLAN)
+  requested_model_id = requested_runtime_id(chestnut_available, plan=MODEL_RUNTIME_PLAN)
   CHESTNUT = selection.allow_big and selection.big_path is not None
   if CHESTNUT:
     from tinygrad.runtime.support.am import startup_trace
@@ -398,13 +399,12 @@ def main(demo=False):
         return selected, prepared, False
       except Exception:
         cloudlog.exception("selected small model load failed, using shipped RDFv4")
-    from openpilot.starpilot.models.manager import shipped_default
-    path = shipped_default()
+    path = selection.fallback_path
     if path is None:
       raise RuntimeError("Shipped RDFv4 is missing or corrupt")
     fallback, prepared = load_verified_model(cam_w, cam_h,
-                                             path, BY_ID[DEFAULT_SMALL].version, False,
-                                             DEFAULT_SMALL, DEFAULT_SMALL_SHA256, coherent_warp=coherent_warp)
+                                             path, selection.fallback_version, False,
+                                             DEFAULT_SMALL, selection.fallback_sha256, coherent_warp=coherent_warp)
     return fallback, prepared, selection.small_id != DEFAULT_SMALL
 
   # Preload a custom fallback before the GPU worker takes the catalog lock.

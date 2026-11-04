@@ -19,7 +19,6 @@ from opendbc.car.car_helpers import interfaces
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
-from openpilot.selfdrive.controls.lib.latcontrol_angle import STEER_ANGLE_SATURATION_THRESHOLD
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
 from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, ModelActionRamp, get_rack_map, \
@@ -82,7 +81,7 @@ class Controls:
     self.lateral_controller_selection = read_selection(self.params, self.CP)
     self.vehicle_startup_preferences = VehicleStartupPreferences.read(
       self.params, enabled=self.params.get_bool("OpenpilotEnabledToggle"))
-    self.torque_learning_allowed = learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection)
+    manual_effects, manual_status = self._configure_manual_tune()
     self.aol_replay = feature_enabled(self.params, self.CP, 'aol', os.environ)
     self.aol_transition_diagnostic = TransitionDiagnostic() if self.aol_replay and self.CP.brand == 'gm' else None
     self.ordinary_axis_ack_required = axis_policy_for(self.CP).ordinary_axis_ack_required
@@ -93,7 +92,7 @@ class Controls:
                  'driverMonitoringState', 'onroadEvents', 'driverAssistance'] +
                 (['aolAxisState', 'aolSafetyWire'] if self.aol_replay or self.ordinary_axis_ack_required else []))
     optional = list(dict.fromkeys(
-      self.longitudinal_inputs.optional_services + ['deviceState', 'autoSteeringLearning', 'starpilotSteeringTracking', 'pandaStates']
+      self.longitudinal_inputs.optional_services + ['starpilotCarState', 'deviceState', 'autoSteeringLearning', 'starpilotSteeringTracking', 'pandaStates']
     ))
     if optional:
       ignore = set(optional)
@@ -132,11 +131,16 @@ class Controls:
     self.LaC = create_lateral_controller(self.CP, self.CI, DT_CTRL,
       mode=self.lateral_controller_selection.mode, turn_assist=self.vehicle_startup_preferences.turn_assist)
     if isinstance(self.LaC, LatControlTorque):
+      # Only the actual startup owner reads configuration; replay clones stay pure.
+      if manual_effects is not None and manual_effects.profile.context[1] != str(self.LaC.controller_mode):
+        manual_effects, manual_status = None, 'context_changed'
+      self.LaC.manual_flm_effects, self.LaC.manual_flm_status = manual_effects, manual_status
       self.lateral_gain_owner = create_gain_owner(self.params, self.CP, self.LaC)
       cloudlog.info({"event": "torque controller selected", "controller": self.LaC.controller_mode.value,
                      "source": self.lateral_controller_selection.source,
                      "vehicle": self.CP.carFingerprint, "policy": self.LaC.controller_policy,
                      "automaticLearning": self.torque_learning_allowed, "startupParameterSource": "vehicle",
+                     "manualCoordinateStatus": self.LaC.manual_flm_status,
                      "startupTorque": {"factor": self.LaC.torque_params.latAccelFactor,
                                        "offset": self.LaC.torque_params.latAccelOffset,
                                        "friction": self.LaC.torque_params.friction},
@@ -144,10 +148,13 @@ class Controls:
                      "startupPidLimits": [self.LaC.pid.neg_limit, self.LaC.pid.pos_limit]})
 
     from openpilot.starpilot.flm.live_trial_store import load_confirmed_history
-    self.global_learning = GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
+    from openpilot.starpilot.lateral.learning_preferences import read_preference
+    preference = read_preference(self.params, self.CP)
+    self.global_learning = (GlobalRuntime(self.CP, self.CI, self.LaC, confirmed_live_history=load_confirmed_history(self.params))
+                            if preference.valid and preference.enabled else None)
     # Load optional capture and live-trial code before the first control command.
     # Engagement must not compile/import replay and feedback modules in the loop.
-    if self.global_learning.descriptor is not None:
+    if self.global_learning is not None and self.global_learning.descriptor is not None:
       try:
         for module in ('controller_replay', 'physical_input_observation', 'feedback_wire', 'live_trial_wire', 'live_tracking_response'):
           importlib.import_module('openpilot.starpilot.flm.' + module)
@@ -171,6 +178,15 @@ class Controls:
     from openpilot.starpilot.lateral.controller_selection import model_turn_assist_supported
     assist_enabled = self.vehicle_startup_preferences.turn_assist and model_turn_assist_supported(self.CP)
     self.turn_assist_enabled = lambda: assist_enabled
+
+  def _configure_manual_tune(self):
+    manual_effects, manual_status = None, 'not_configured'
+    if self.CP.lateralTuning.which() == 'torque' and str(self.CP.steerControlType) == 'torque':
+      from openpilot.starpilot.flm.manual_coordinates import load as load_manual_coordinates
+      manual_effects, manual_status = load_manual_coordinates(self.CP, self.lateral_controller_selection.mode, self.params)
+    self.torque_learning_allowed = bool(manual_status == 'not_configured' and
+      learning_allowed(self.params, self.CP, selection=self.lateral_controller_selection))
+    return manual_effects, manual_status
 
   def update(self, timeout: int = 15):
     self.sm.update(timeout)
@@ -593,8 +609,10 @@ class Controls:
     if CC.latActive:
       CO = self.sm['carOutput']
       if self.CP.steerControlType == car.CarParams.SteerControlType.angle:
-        self.steer_limited_by_safety = abs(CC.actuators.steeringAngleDeg - CO.actuatorsOutput.steeringAngleDeg) > \
-                                              STEER_ANGLE_SATURATION_THRESHOLD
+        from openpilot.starpilot.car.tesla.coop_saturation import is_angle_steering_limited
+        self.steer_limited_by_safety = is_angle_steering_limited(
+          self.CP, CC.actuators.steeringAngleDeg, CO, self.sm['starpilotCarState'],
+          bool(self.sm.valid['starpilotCarState'] and self.sm.valid['carOutput'] and self.sm.alive['carOutput']), int(self.sm.logMonoTime['carState']))
       else:
         self.steer_limited_by_safety = abs(CC.actuators.torque - CO.actuatorsOutput.torque) > 1e-2
 

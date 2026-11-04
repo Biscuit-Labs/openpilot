@@ -410,8 +410,11 @@ class Car:
     self.learning_car_state_source_ns = 0
     self.learning_applied_evidence = self.learning_previous_applied_evidence = None
     try:
-      from opendbc.car.steering_projection import install_observer
-      self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
+      from openpilot.starpilot.lateral.learning_preferences import read_preference
+      preference = read_preference(self.params, self.CP)
+      if preference.valid and preference.enabled:
+        from opendbc.car.steering_projection import install_observer
+        self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
     except Exception:
       pass  # Optional learning setup cannot stop native startup.
     self.aol_transport_feedback = TransportPauseFeedback(self.CP) if self.aol_replay else None
@@ -1106,6 +1109,13 @@ class Car:
       companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
       companion.starpilotCarState.lateralAuthorityUnavailable = bool(steering_authority.latched)
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+    if self.CP.brand == 'tesla':
+      info = getattr(self.CI.CC, 'steering_limit_info', None)
+      if info:
+        if companion is None:
+          companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
+        companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+        companion.starpilotCarState.steeringLimitInfo = info
     if getattr(self, 'learning_applied_evidence', None) is not None:
       try:
         from openpilot.starpilot.flm.evidence_hooks import applied_message
@@ -1131,6 +1141,9 @@ class Car:
     if self.CP.brand == 'mazda':
       from openpilot.starpilot.car.mazda.dashboard import compose
       companion = compose(self.CP, self.CI.CS, CS, companion, car_state_stamp=int(cs_send.logMonoTime))
+    elif self.CP.brand == 'hyundai':
+      from openpilot.starpilot.car.hyundai.dashboard import compose as hyundai_compose
+      companion = hyundai_compose(self.CP, self.CI.CS, CS, companion, car_state_stamp=int(cs_send.logMonoTime))
     if self.v_cruise_helper.toyota is not None:
       if companion is None:
         companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
@@ -1232,7 +1245,7 @@ class Car:
   def radar_publish(self, RD):
     if RD is not None:
       tracks_msg = messaging.new_message('radarTracks')
-      tracks_msg.valid = not any(RD.errors.to_dict().values())
+      tracks_msg.valid = not RD.errors.canError
       tracks_msg.radarTracks = RD
       self.pm.send('radarTracks', tracks_msg)
 
@@ -1553,9 +1566,10 @@ class Car:
     from opendbc.car.hyundai.torque_ev_startup import TorqueEVStartup, required
     from opendbc.car.hyundai.ecu_startup import Outcome
     owner = getattr(getattr(self, 'vehicle_startup', None), 'owner', None)
-    return (isinstance(owner, TorqueEVStartup) and owner.outcome in (Outcome.PENDING, Outcome.SENT_UNCONFIRMED) and
+    from opendbc.car.hyundai.generic_hda2_startup import GenericHDA2Startup, carnival_long
+    return (isinstance(owner, (TorqueEVStartup, GenericHDA2Startup)) and owner.outcome in (Outcome.PENDING, Outcome.SENT_UNCONFIRMED) and
             owner.ready and owner.published and owner.ci is self.CI and not owner.closed and
-            required(self.CP))
+            (required(self.CP) or (isinstance(owner, GenericHDA2Startup) and carnival_long(self.CP))))
 
   def mixed_startup_keepalive(self):
     from opendbc.car.hyundai.blended_longitudinal import BlendedStartup
@@ -1618,7 +1632,11 @@ class Car:
     if getattr(self.CI.CC, "bolt_cc_profile", False):
       self.CI.CC.bolt_cc_metric = self.is_metric
 
-    if (initialize_only and self.mixed_startup_keepalive() and self.vehicle_startup.owner.pending_target):
+    from opendbc.car.hyundai.generic_hda2_startup import GenericHDA2Startup
+    from opendbc.car.hyundai.ecu_startup import Outcome
+    pending_carnival = (isinstance(self.vehicle_startup.owner, GenericHDA2Startup) and
+                        self.vehicle_startup.owner.outcome is Outcome.PENDING)
+    if initialize_only and (pending_carnival or (self.mixed_startup_keepalive() and self.vehicle_startup.owner.pending_target)):
       # Fresh disabled controls alone are insufficient: finish the host's
       # selfdriveInitializing phase before suppressing factory ADAS output.
       return
@@ -1635,7 +1653,7 @@ class Car:
       from opendbc.car.hyundai.ev6_startup import EV6Startup
       from opendbc.car.hyundai.ecu_startup import Outcome
       classic = self.vehicle_startup.owner
-      if isinstance(classic, (G90Startup, TorqueEVStartup, EV6Startup)) and classic.outcome is Outcome.PENDING:
+      if isinstance(classic, (G90Startup, TorqueEVStartup, EV6Startup, GenericHDA2Startup)) and classic.outcome is Outcome.PENDING:
         now = time.monotonic_ns()
         source = int(self.sm.logMonoTime['carControl'])
         receipt = int(self.sm.recv_time['carControl'] * 1e9)

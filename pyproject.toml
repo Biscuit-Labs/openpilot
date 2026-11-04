@@ -190,6 +190,12 @@ unresolved-attribute = "ignore"  # many from capnp and Cython modules
 include = ["openpilot/starpilot/galaxy_bluetooth/bridge/server.py"]
 rules = { unresolved-reference = "ignore", invalid-syntax-in-forward-annotation = "ignore" }
 
+[[tool.ty.overrides]]
+# native02e runs on its frozen tinygrad (tinygrad_model_runtime/native02e), whose UPat takes tag=;
+# ty resolves tinygrad_repo instead. The file is hash-pinned by native-policy.json, so it cannot change.
+include = ["openpilot/starpilot/models/runtime_bridge/native_guards.py"]
+rules = { unknown-argument = "ignore" }
+
 [tool.uv]
 python-preference = "only-managed"
 default-groups = ["standalone"]

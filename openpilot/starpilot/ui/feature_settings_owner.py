@@ -54,6 +54,7 @@ from openpilot.starpilot.ui.conditional_feature import BUTTON_PREFIX, Conditiona
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.wheel_feature import WheelFeature, PREFIX as WHEEL_PREFIX
 from openpilot.starpilot.longitudinal.output_max import KEY as OUTPUT_MAX_KEY
+from openpilot.starpilot.ui.tesla_coop_feature import TeslaCoopFeature
 from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS as TESLA_SCREEN_KEYS
 from openpilot.starpilot.ui.night_star_feature import NightStarFeature, KEYS as NIGHT_STAR_KEYS
 from openpilot.starpilot.ui.ford_bluepilot_feature import FordBluePilotFeature, KEYS as FORD_BLUEPILOT_KEYS
@@ -167,6 +168,7 @@ class FeatureSettingsOwner:
     self.long_profiles = LongProfileFeature(self)
     self.tesla_screen = TeslaScreenFeature(self)
     self.night_star = NightStarFeature(self)
+    self.tesla_coop = TeslaCoopFeature(self)
     from openpilot.starpilot.ui.gm_cancel_remap_feature import GmCancelRemapFeature
     self.gm_cancel_remap = GmCancelRemapFeature(self)
 
@@ -850,7 +852,7 @@ class FeatureSettingsOwner:
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
-          self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or
+          self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or self.tesla_coop.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
           self.panda_wake.capability() is not None or preap_radar_capability(self.vehicle_params()) is not None):
@@ -893,6 +895,7 @@ class FeatureSettingsOwner:
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
       rows.extend(self.tesla_screen.rows(parked))
+      rows.extend(self.tesla_coop.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
 
       rows.extend(self.preap_radar.rows())
@@ -1032,6 +1035,11 @@ class FeatureSettingsOwner:
       title = "BluePilot Controller Options"
       rows.extend(FordBluePilotFeature(self).rows(parked, options=True))
       rows.extend(FordClusterFeature(self).rows(parked))
+    elif page == FeaturePage.TUNING:
+      title = "Manual steering tune"
+      capability = self._capability("torque")
+      rows.extend(self.torque.manual_rows(capability, parked and self.authority("torque") and
+                                         self.authority("parked_preferences") and capability is not None))
     elif page == FeaturePage.TORQUE:
       title = "Steering and Torque"
       rows.extend(FordBluePilotFeature(self).rows(parked))
@@ -1179,10 +1187,10 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
                                  reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
       bosch_a_supported = bosch_a_vehicle_supported(self.vehicle_params())
-      for bosch_a_key, bosch_a_label, bosch_a_reason in BOSCH_A_ROWS:
-        bosch_a_enabled, _, _ = self._value(bosch_a_key)
-        rows.append(self._bool_row(bosch_a_key, bosch_a_label, self.authority("preferences") and
-                                   (bosch_a_supported or bosch_a_enabled == "1"), reason=bosch_a_reason))
+      for ba_key, ba_label, ba_reason in BOSCH_A_ROWS:
+        ba_on, _, _ = self._value(ba_key)
+        rows.append(self._bool_row(ba_key, ba_label, self.authority("preferences") and
+                                   (bosch_a_supported or ba_on == "1"), reason=ba_reason))
       allowed = configurable and system_long
       force_enabled, _, _ = self._value("ForceStops")
       rows.append(self._bool_row("ForceStops", "Force Stop", allowed or
@@ -1330,6 +1338,8 @@ class FeatureSettingsOwner:
                     row.key.startswith('conditional:') and not row.key.startswith(BUTTON_PREFIX) else fingerprint)
             for row in rows]
     subtitle = (
+        "Parked changes apply after the next drive starts. These are explicit manual overrides, separate from Auto Learn."
+        if page == FeaturePage.TUNING else
         "Configure features supported by this vehicle. Restart requirements are shown with each setting."
         if page == FeaturePage.VEHICLE else
         "Configure automatic Chill and Experimental switching."
@@ -1392,6 +1402,8 @@ class FeatureSettingsOwner:
       return self._apply_pedal_setup(request)
     if key in PREAP_RADAR_KEYS:
       return self.preap_radar.apply(request)
+    if key == "TeslaCoopSteering":
+      return self.tesla_coop.apply(request)
     if key in TESLA_SCREEN_KEYS:
       return self.tesla_screen.apply(request)
     if key in NIGHT_STAR_KEYS:

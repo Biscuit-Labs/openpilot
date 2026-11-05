@@ -519,7 +519,10 @@ CALIBRATION_PROVENANCE = {
     "r6": "firmware: ref = 32 x its 0x18F rate word (0x1C668 / 0x1D300) x 0.4812 (the build); the word measured at 7.8 per deg/s on routes b8/c7/cc/d2",
     "load": "measured: the owner's routes 000000c6 / c7 / cc / d2 (a 2019), rebuilt through the law from the sent 0xE4; the MMR takes it",
     "trims": "measured: closed-loop replay of routes cc / d2 (P x0.7 above 50 mph, a 15 deg/s friction knee at speed)",
-    "cmd_delay": "measured: plan_timing on this controller, routes cc / d2: on time at 5-12 m/s (+0.04 / +0.03 s), so the default stands; route 35 all turns 5-12 m/s +0.40 s late vs the plan (re-check if the model changes)",
+    "cmd_delay": (
+      "measured: plan_timing on this controller, routes cc / d2: on time at 5-12 m/s (+0.04 / +0.03 s), "
+      "so the default stands; route 35 all turns 5-12 m/s +0.40 s late vs the plan (re-check if the model changes)"
+    ),
     "model_delay": "measured: route 00000035 (plan_timing 5-12 m/s +0.40 s; action on-time 0.22 s at 15-25 m/s)",
     "rack": "measured: VSA yaw (GPS-checked scale), routes 000000b8 / c6 / c7 / cc / d2 (a 2019; the MMR takes it), through its road-measured linear map",
   },

@@ -85,6 +85,22 @@ def test_arrival_time_uses_remaining_route_duration():
   assert arrival_time(18 * 60, datetime(2026, 10, 7, 15, 42)) == '4:00 PM'
 
 
+def test_arrival_time_and_clock_use_the_saved_phone_timezone(monkeypatch, tmp_path):
+  from datetime import UTC
+  from openpilot.starpilot import local_timezone
+  from openpilot.starpilot.ui.onroad import clock_text
+  monkeypatch.setattr(local_timezone, '_root', lambda: tmp_path)
+  monkeypatch.setattr(local_timezone, '_cache', None)
+  assert local_timezone.store_timezone('America/Los_Angeles')
+  # Issue 53: the device clock is UTC 03:05 while the phone says 7:05 PM Pacific the day before.
+  device = datetime(2026, 11, 6, 3, 5, tzinfo=UTC)
+  assert arrival_time(0, device) == '3:05 AM'
+  phone = device.astimezone(local_timezone.local_zone())
+  assert arrival_time(0, phone) == '7:05 PM'
+  assert clock_text(phone) == '7:05 PM'
+  assert clock_text(phone, use_24_hour=True) == '19:05'
+
+
 @pytest.mark.parametrize('profile', [Profile.COMPACT, Profile.LARGE])
 def test_tap_collapses_and_swipe_never_toggles(profile):
   card, observed = NavigationCard(Mock(profile=profile)), state()

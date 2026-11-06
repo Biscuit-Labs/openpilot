@@ -26,6 +26,7 @@ from openpilot.starpilot.galaxy.remote import default_remote_pairing, gateway_co
 from openpilot.starpilot.galaxy.crash_reports import CrashChanged, CrashMissing, CrashReports, CrashUnavailable
 from openpilot.starpilot.galaxy.device_name import DeviceName
 from openpilot.starpilot.galaxy.device_state import DeviceStateSource
+from openpilot.starpilot.local_timezone import store_timezone
 from openpilot.starpilot.galaxy.recording_library import RecordingLibrary
 from openpilot.starpilot.galaxy.drive_history import DriveHistory, DriveHistoryUnavailable, SegmentInUse, SegmentMissing, recording_details
 from openpilot.starpilot.galaxy.drive_stats import DriveStatsOwner
@@ -1237,6 +1238,8 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
             self.json(503, {'error': 'Driving history is unavailable'})
         else:
           if self.require_session():
+            if query:
+              store_timezone(query['timezone'][0])
             self.json(200, result)
       elif path == '/api/drive-state/status':
         if self.require_session():

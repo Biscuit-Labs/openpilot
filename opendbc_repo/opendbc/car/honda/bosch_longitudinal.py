@@ -5,6 +5,7 @@ import numpy as np
 from opendbc.car import ACCELERATION_DUE_TO_GRAVITY, DT_CTRL, structs
 from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS
 from opendbc.car.honda.brake_onset import BrakeOnsetCompensation
+from opendbc.car.honda.bosch_low_speed_brake import LowSpeedBrakeAssist
 from opendbc.car.honda.bosch_gas_learner import CivicGasLearner, LEARN_VERSION, gas_lookup_accel
 from opendbc.car.honda.values import CAR, HondaFlags
 
@@ -24,6 +25,11 @@ BOSCH_BRAKE_FORCE_RELEASE = -0.02
 #     escape (about 0.2 per minute, each shortening a hold by 0.04-0.4 s).
 #   BOSCH_A_RELEASE_GAS_START / _RAMP_S: after a release the gas starts at most at 35 and reaches the lookup over 1 s,
 #     instead of the 60 cap. Gas on the release frame 60 -> 35; mean over the first second 121 -> 81.
+#   BOSCH_A_LAUNCH_GAS_RAMP_S: a release straight out of stopping (a launch from a stop, not a stop-and-go brake cycle)
+#     ramps over 0.5 s instead. Route 0000007c--0ea998a750 16:59 (owner bookmark, "didn't want to move, I tapped the
+#     gas"): openpilot released and sent gas 36 -> 232 over 0.8 s with no motion; clean launches on 7c/72/75/76 take
+#     0.9-1.7 s from release to motion. Replay cannot model the car's standstill release, so the gain is unmeasured:
+#     owner-approved road test 2026-11-03. The brake-cycling releases above keep the 1 s ramp.
 # Stopping still forces the request on, and a long-control drop still clears it, exactly as before.
 # Runs on every car with the Bosch-A radar harness (bosch_a_harness), owner 2026-10-24: the CR-V 5G is static only.
 BOSCH_A_BRAKE_FORCE_ON = -0.20
@@ -31,6 +37,7 @@ BOSCH_A_BRAKE_MIN_HOLD_S = 1.5
 BOSCH_A_BRAKE_HOLD_ESCAPE = 0.2
 BOSCH_A_RELEASE_GAS_START = 35.0
 BOSCH_A_RELEASE_GAS_RAMP_S = 1.0
+BOSCH_A_LAUNCH_GAS_RAMP_S = 0.5
 
 CLASSIC_BOSCH_CARS = frozenset((
   CAR.HONDA_NBOX_2G,
@@ -82,12 +89,16 @@ class BoschABrakeEdge:
     self.braking = False
     self.hold_s = 0.0
     self.release_s = math.inf
+    self.stopping = False
+    self.ramp_s = BOSCH_A_RELEASE_GAS_RAMP_S
 
   def update(self, gas_pedal_force: float, stopping: bool, long_active: bool) -> bool:
     if not long_active:
       self.reset()
       return False
     was_braking = self.braking
+    was_stopping = self.stopping
+    self.stopping = stopping
     if stopping:
       self.braking = True
     elif self.braking:
@@ -99,14 +110,18 @@ class BoschABrakeEdge:
       self.hold_s = self.hold_s + self.dt if was_braking else 0.0
       self.release_s = math.inf
     else:
-      self.release_s = 0.0 if was_braking else self.release_s + self.dt
+      if was_braking:
+        self.release_s = 0.0
+        self.ramp_s = BOSCH_A_LAUNCH_GAS_RAMP_S if was_stopping else BOSCH_A_RELEASE_GAS_RAMP_S
+      else:
+        self.release_s += self.dt
     return self.braking
 
   def limit_gas(self, gas: float) -> float:
-    """Gas after a brake release rises from BOSCH_A_RELEASE_GAS_START to the lookup over BOSCH_A_RELEASE_GAS_RAMP_S."""
-    if self.braking or self.release_s >= BOSCH_A_RELEASE_GAS_RAMP_S or gas <= BOSCH_A_RELEASE_GAS_START:
+    """Gas after a brake release rises from BOSCH_A_RELEASE_GAS_START to the lookup over ramp_s (shorter for a launch)."""
+    if self.braking or self.release_s >= self.ramp_s or gas <= BOSCH_A_RELEASE_GAS_START:
       return gas
-    return BOSCH_A_RELEASE_GAS_START + (gas - BOSCH_A_RELEASE_GAS_START) * self.release_s / BOSCH_A_RELEASE_GAS_RAMP_S
+    return BOSCH_A_RELEASE_GAS_START + (gas - BOSCH_A_RELEASE_GAS_START) * self.release_s / self.ramp_s
 
 
 def get_honda_bosch_wind_brake_mps2(v_ego: float) -> float:
@@ -143,6 +158,7 @@ class BoschLongitudinal:
     bosch_a = bosch_a_harness(cp)
     self.brake_onset = BrakeOnsetCompensation(2 * DT_CTRL) if bosch_a else None
     self.brake_edge = BoschABrakeEdge(2 * DT_CTRL) if bosch_a else None
+    self.low_speed_brake = LowSpeedBrakeAssist(2 * DT_CTRL) if bosch_a else None
     self.set_factors(1.0, 1.0)
 
   def set_factors(self, gas, wind):
@@ -167,10 +183,18 @@ class BoschLongitudinal:
     wind_brake_mps2 = get_honda_bosch_wind_brake_mps2(CS.out.vEgo)
     min_gas = self.params.BOSCH_GAS_LOOKUP_BP[0]
     self.accel = float(np.clip(accel, self.params.BOSCH_ACCEL_MIN, self.params.BOSCH_ACCEL_MAX))
+    target = self.accel
     if self.brake_onset is not None:
       self.accel = self.brake_onset.update(self.accel, active=bool(
         CC.longActive and actuators.longControlState == LongCtrlState.pid and
         not CS.out.gasPressed and not CS.out.brakePressed))
+    if self.low_speed_brake is not None:
+      lcs = actuators.longControlState
+      self.accel = self.low_speed_brake.update(target, self.accel, CS.out.aEgo, CS.out.vEgo,
+        active=bool(CC.longActive and lcs in (LongCtrlState.pid, LongCtrlState.stopping) and
+                    not CS.out.gasPressed and not CS.out.brakePressed),
+        stopping=lcs == LongCtrlState.stopping)
+      self.accel = float(np.clip(self.accel, self.params.BOSCH_ACCEL_MIN, self.params.BOSCH_ACCEL_MAX))
     if self.civic_learner is not None:
       return self._update_civic(CC, CS, hill_brake, wind_brake_mps2, min_gas)
     gas_pedal_force = self.accel + hill_brake

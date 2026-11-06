@@ -31,7 +31,7 @@ def test_store_valid_invalid_and_unchanged(zone_store):
   assert local_timezone.store_timezone("America/Los_Angeles")
   assert path.stat().st_mtime_ns == mtime
   for bad in ("", "Not/AZone", "../etc/passwd", "x" * 129, None, 5, b"UTC", "UTC\n\x00"):
-    assert local_timezone.store_timezone(bad) is False
+    assert local_timezone.store_timezone(bad) is False  # ty: ignore[invalid-argument-type]
   assert path.read_text() == "America/Los_Angeles"
 
 

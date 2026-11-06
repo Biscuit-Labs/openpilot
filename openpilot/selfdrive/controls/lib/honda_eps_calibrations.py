@@ -386,6 +386,10 @@ RDX_TJB_A220_LOAD = ColumnLoadModel(k0=-11.19, k1=-0.1363, c=-2.479, friction=-2
 # windows at 0.002-0.006), and P alone (x0.6: 1.10, but tracking 0.40 deg).
 RDX_TJB_A220_P_SCALE = (1.0, 1.0, 0.7)
 RDX_TJB_A220_FRICTION_WIDTH_V = (20.0, 15.0)
+# Measured on 412ed2539bfc2c42/00000035--c07fa20f79 (night-star7): plan_timing all turns 5-12 m/s +0.40 s late vs the
+# plan; eps_report action on-time 0.22 s at 15-25 m/s (542 ms late at 9-15 m/s on sparse data, same band as plan_timing).
+# Closed-loop replay on this route: rdx_tjb_a220 trims 1-2 Hz 0.96 vs measured 0.97 at 9-20 m/s — no trim change.
+RDX_TJB_A220_LAT_DELAY_SCHEDULE = ((3.5, 7.0, 12.0, 20.0, 30.0), (0.15, 0.40, 0.40, 0.22, 0.30))
 ACURA_RDX_TJB_A220 = EpsFirmwareCalibration(
   name="rdx_tjb_a220", e4_per_output=4096.0,
   r5_key_bp=tuple(round(a * _RDX_A) for a in (0, 128, 256, 384, 512, 640, 768, 896, 1024)),
@@ -396,6 +400,7 @@ ACURA_RDX_TJB_A220 = EpsFirmwareCalibration(
   r6_per_deg_s=RDX_TJB_A220_R6_CENTRE, r6_angle_bp=R6_GAIN_BP, r6_angle_gain=RDX_TJB_A220_R6_GAIN,
   load=RDX_TJB_A220_LOAD, p_scale=RDX_TJB_A220_P_SCALE, i_scale=CRV_TLA_A040_I_SCALE,
   rack=RDX_TJB_A220_RACK, friction_width_v=RDX_TJB_A220_FRICTION_WIDTH_V,
+  lat_delay_schedule=RDX_TJB_A220_LAT_DELAY_SCHEDULE,
 )
 
 # normalize_honda_eps_fw(EPS fwVersion) -> (fingerprint, profile). TGG-A020 is a separate application from the A120 (its RWD updates only A010/A020)
@@ -514,8 +519,8 @@ CALIBRATION_PROVENANCE = {
     "r6": "firmware: ref = 32 x its 0x18F rate word (0x1C668 / 0x1D300) x 0.4812 (the build); the word measured at 7.8 per deg/s on routes b8/c7/cc/d2",
     "load": "measured: the owner's routes 000000c6 / c7 / cc / d2 (a 2019), rebuilt through the law from the sent 0xE4; the MMR takes it",
     "trims": "measured: closed-loop replay of routes cc / d2 (P x0.7 above 50 mph, a 15 deg/s friction knee at speed)",
-    "cmd_delay": "measured: plan_timing on this controller, routes cc / d2: on time at 5-12 m/s (+0.04 / +0.03 s), so the default stands",
-    "model_delay": "default: the Clarity's schedule",
+    "cmd_delay": "measured: plan_timing, cc/d2 on time 5-12 m/s (+0.04/+0.03 s); r35 +0.40 s late 5-12 m/s (re-check on model change)",
+    "model_delay": "measured: route 00000035 (plan_timing 5-12 m/s +0.40 s; action on-time 0.22 s at 15-25 m/s)",
     "rack": "measured: VSA yaw (GPS-checked scale), routes 000000b8 / c6 / c7 / cc / d2 (a 2019; the MMR takes it), through its road-measured linear map",
   },
   "crv_tla_a220": {

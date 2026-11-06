@@ -24,8 +24,7 @@ from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_A
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
-from openpilot.starpilot.longitudinal.bosch_a_toggles import (KEYS as BOSCH_A_KEYS, ROWS as BOSCH_A_ROWS,
-                                                               unavailable_reason as bosch_a_unavailable_reason,
+from openpilot.starpilot.longitudinal.bosch_a_toggles import (KEYS as BOSCH_A_KEYS, settings_rows as bosch_a_settings_rows,
                                                                vehicle_supported as bosch_a_vehicle_supported)
 
 from openpilot.starpilot.longitudinal.profile_document import (
@@ -1187,13 +1186,8 @@ class FeatureSettingsOwner:
       title = "Long Planner"
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
                                  reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
-      bosch_a_cp = self.vehicle_params()
-      bosch_a_supported = bosch_a_vehicle_supported(bosch_a_cp)
-      bosch_a_block = bosch_a_unavailable_reason(bosch_a_cp, bosch_a_supported)
-      for bosch_a_key, bosch_a_label, bosch_a_reason in BOSCH_A_ROWS:
-        bosch_a_enabled, _, _ = self._value(bosch_a_key)
-        rows.append(self._bool_row(bosch_a_key, bosch_a_label, self.authority("preferences") and
-                                   (bosch_a_supported or bosch_a_enabled == "1"), reason=bosch_a_reason + bosch_a_block))
+      for ba_key, ba_label, ba_editable, ba_reason in bosch_a_settings_rows(self.vehicle_params(), self._value, self.authority("preferences")):
+        rows.append(self._bool_row(ba_key, ba_label, ba_editable, reason=ba_reason))
       allowed = configurable and system_long
       force_enabled, _, _ = self._value("ForceStops")
       rows.append(self._bool_row("ForceStops", "Force Stop", allowed or

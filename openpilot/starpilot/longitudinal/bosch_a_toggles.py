@@ -83,3 +83,14 @@ def unavailable_reason(CP, supported: bool) -> str:
   except Exception:
     pass
   return ""
+
+
+def settings_rows(CP, value, can_edit: bool):
+  """(key, label, editable, reason) for each Bosch-A settings row. value(key) returns (current, ...)."""
+  supported = vehicle_supported(CP)
+  block = unavailable_reason(CP, supported)
+  rows = []
+  for key, label, reason in ROWS:
+    enabled = value(key)[0] == "1"
+    rows.append((key, label, can_edit and (supported or enabled), reason + block))
+  return rows

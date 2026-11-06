@@ -60,6 +60,8 @@ class SetSpeedAssist:
     self.clear_t = 0. if lead_seen else self.clear_t + self.dt
 
     md = sm['modelV2']
+    if hasattr(md, 'as_reader'):  # reading an unset list on a builder would write into the caller's message
+      md = md.as_reader()
     v_ego = float(sm['carState'].vEgo)
     vel = np.asarray(md.velocity.x, dtype=float)
     yaw_rate = np.asarray(md.orientationRate.z, dtype=float)

@@ -68,3 +68,14 @@ def test_any_lead_drops_lift_and_restarts_hold():
   assert run(a, sm(gas=1.0, lead=True), 0.0, 0.5) == 0.0
   a.update(sm(gas=1.0), 0.0, 0.5, False)  # lead gone: no lift until the hold passes
   assert a.update(sm(gas=1.0), 0.0, 0.5, False) == 0.0
+
+
+def test_lift_tapers_to_zero_at_set_speed():
+  # o313d on the stock planner: a_cruise still +0.2 at set speed carried the lifted car 1 m/s past it
+  a = assist()
+  far = [a.update(sm(gas=1.0), 0.0, 1.5, False, v_cruise=35.) for _ in range(200)][-1]
+  assert 1.49 < far <= 1.5
+  near = [a.update(sm(gas=1.0), 0.0, 1.5, False, v_cruise=25.3) for _ in range(100)][-1]
+  assert abs(near - 0.3) < 1e-6
+  for v_cruise in (25., 24., float('nan')):
+    assert [a.update(sm(gas=1.0), 0.0, 1.5, False, v_cruise=v_cruise) for _ in range(100)][-1] == 0.0

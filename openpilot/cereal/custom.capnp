@@ -214,6 +214,7 @@ struct StarPilotCarState @0xf35cc4560bbf6ec2 {
   fordLearningEvidence @35 :FordLearningEvidence;
   learningApplication @36 :LearningApplication;
   feedbackPublication @37 :FeedbackPublication;
+  steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;
   toyotaCruise @38 :ToyotaCruise;
 
   struct ToyotaCruise {
@@ -229,8 +230,8 @@ struct StarPilotCarState @0xf35cc4560bbf6ec2 {
 
   # Honda Bosch-A: the F0 STATUS nibble of each point of one radarTracks message (7 confirmed; 9 on route 34's
   # phantom lead). car.capnp's RadarPoint is upstream-owned, so card carries it here. Empty for other radars.
-  radarPointStatus @39 :List(RadarPointStatus);
-  radarTracksMonoTime @40 :UInt64;  # logMonoTime of that radarTracks message; 0 = no radar point status
+  radarPointStatus @40 :List(RadarPointStatus);  # @39 is upstream steeringLimitInfo
+  radarTracksMonoTime @41 :UInt64;  # logMonoTime of that radarTracks message; 0 = no radar point status
 
   struct RadarPointStatus {
     trackId @0 :UInt64;

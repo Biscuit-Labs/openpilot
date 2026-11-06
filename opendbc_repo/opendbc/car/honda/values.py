@@ -83,6 +83,8 @@ class CarControllerParams:
         eps_map = ([0, 3840], [0, 3840])   # each image's E4 3840 clamp (the Civic Bosch C020/C120/TGG alike)
       elif CP.carFingerprint in (CAR.HONDA_CRV_5G, CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR):
         eps_map = ([0, 4096], [0, 4096])
+      elif CP.carFingerprint == CAR.HONDA_RIDGELINE:
+        eps_map = ([0, 4096], [0, 4096])   # rev b5's target saturates by E4 3732: past 4096 it would only wind up
       elif CP.carFingerprint == CAR.HONDA_CIVIC_BOSCH_DIESEL:
         eps_map = ([0, 4096], [0, 4096])   # its EPS image has not been read
       elif CP.carFingerprint == CAR.HONDA_CIVIC_2022:
@@ -145,6 +147,8 @@ class HondaFlags(IntFlag):
   # measured on the road: the RDX's TJB-A220 image has no angle table (see steer_ratio.py); vfn uses 1048576, which
   # 7.0 gives HYBRID_ALT_BRAKEHOLD
   VGR_RDX_TJB_A220 = 2097152
+  # the Ridgeline's T6Z-A110 rack is constant-ratio and its image has no angle table (see steer_ratio.py)
+  VGR_RIDGELINE_T6Z_A110 = 4194304
 
 
 # Car button codes
@@ -532,6 +536,9 @@ MODIFIED_EPS_FW = {
   CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00',),
   CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00',),  # PTM; stock A220 accepts every RDX 3G image as a source
   CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00',),
+  # PTM rev b5 only: it reports the hybrid part number (dash, comma). The earlier builds, including the PTM2045 one,
+  # report 39990,T6Z,A110 and are not calibrated, so they stay dashcam.
+  CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00',),
 }
 
 MANUAL_TRANS_CARS = frozenset((CAR.HONDA_ACCORD, CAR.HONDA_CIVIC_2022))

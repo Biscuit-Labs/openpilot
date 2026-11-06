@@ -239,6 +239,12 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.HONDA_PILOT:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.38], [0.11]]
 
+    elif candidate == CAR.HONDA_RIDGELINE and eps_modified:
+      # 39990-T6Z,A110 PTM rev b5: its target, P and fades are folded to the Clarity's percent of full scale at every
+      # E4 (E4 4096 per unit), so the Clarity's gains carry over. LatControlHondaEps steers it
+      # (honda_eps_calibrations RIDGELINE_T6Z_A110).
+      _modified_eps_tune(ret)
+
     elif candidate == CAR.HONDA_RIDGELINE:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.38], [0.11]]
 

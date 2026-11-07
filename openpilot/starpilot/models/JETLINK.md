@@ -23,8 +23,8 @@ that StarPilot has switched to it. Set up parked, with both devices online.
 The host program is the upstream **Jetlink** application, developed by Zeph
 Leggett / ZoomPilot. Its download identifiers and commands keep their upstream
 names; installing the host does not require installing ZoomPilot on the comma.
-The bundled client uses Jetlink protocol 3 (package 0.8.7). A different host
-release still needs a successful compatible handshake and device validation.
+The bundled client is Jetlink v0.9.0. A different host release still needs a
+successful compatible handshake and device validation.
 
 ### Jetson and Linux PC
 
@@ -75,6 +75,11 @@ the link stops or stalls while engaged, StarPilot stays engaged on the local Sma
 model and shows **Big Model Lost**; be ready to take control as behavior changes.
 Jetlink reconnects by itself and switches back at the next full disengagement. Set
 Jetlink to **Off** while parked to stop using the remote connection.
+
+In **Active Big**, **Jetlink app's choice** hands model selection to the host.
+An already prepared host engine can reconnect without the online model index
+when the comma has its matching saved identity or the host supplies it in the
+handshake.
 
 With Jetlink on, the USB-C port belongs to its host: a downloaded Chestnut pick is
 used only when a Chestnut is detected, never because a cable is plugged in. When

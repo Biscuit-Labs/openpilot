@@ -48,7 +48,7 @@ HONDA_BOSCH_A_GROSS_DISTANCE_M = 25.0
 #   KEEP_Y_MAX: in-lane bound in the radar frame (ego-centred). First set to 1.5; Job's camera stills of the census
 #   events at |yRel| 1.44-1.5 (2026-11-06) showed two next-lane cars kept (7b i5143 box truck right lane, 71 i16009
 #   left lane) and three real in-lane leads, so |yRel| cannot separate them near 1.5. 1.2 drops all five back to the
-#   old behaviour and still holds the route-9e track for ~1 s (its yRel reached -1.06 at -5.36 s, -1.45 at -5.0 s).
+#   old behavior and still holds the route-9e track for ~1 s (its yRel reached -1.06 at -5.36 s, -1.45 at -5.0 s).
 #   KEEP_VREL_MAX: closing bound; 0.0 m/s means the track must be closing, not holding or separating.
 #   KEEP_VLEAD_MIN: the kept track must not itself be moving toward us. Job's census of all 46 keep events over
 #   pool14 + r99 + r9b (2026-11-06, replay + camera stills): the only two with vEgo+vRel < -1 were cross traffic seen

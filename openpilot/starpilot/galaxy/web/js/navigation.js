@@ -80,6 +80,14 @@ export function routePath(points) {
   return projected.map(([x, y], index) => `${index ? "L" : "M"}${(200 + (x - left - width / 2) * zoom).toFixed(2)},${(110 + (y - top - height / 2) * zoom).toFixed(2)}`).join(" ")
 }
 
+// The comma shows the ETA in the phone's zone; omit the header when the browser cannot name one.
+export function timezoneHeaders(headers = {}) {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    return typeof zone === "string" && zone ? { ...headers, "X-Galaxy-Timezone": zone } : headers
+  } catch { return headers }
+}
+
 export class NavigationClient {
   constructor({ publish, unauthorized = () => {}, fetcher = (...args) => fetch(...args),
                 later = (fn, ms) => setTimeout(fn, ms), cancelTimer = (timer) => clearTimeout(timer) }) {
@@ -101,7 +109,7 @@ export class NavigationClient {
   stop() {
     if (this.searchId && this.data) {
       this.fetcher("./api/navigation/action", { method: "POST", credentials: "same-origin", cache: "no-store",
-        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "cancelSearch",
+        headers: timezoneHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ action: "cancelSearch",
           revision: this.data.revision, searchId: this.searchId }) }).catch(() => {})
     }
     this.searchId = null
@@ -169,7 +177,7 @@ export class NavigationClient {
     const timer = this.later(() => controller.abort(), 8000)
     try {
       const response = await this.fetcher("./api/navigation/search", { method: "POST", credentials: "same-origin", cache: "no-store",
-        signal: controller.signal, headers: { "Content-Type": "application/json" },
+        signal: controller.signal, headers: timezoneHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ query: text, searchId: this.autocompleteId, clientId: this.clientId, autocomplete: true }) })
       const payload = await response.json().catch(() => null)
       if (sequence !== this.suggestSequence || !this.active) return []
@@ -222,7 +230,7 @@ export class NavigationClient {
       const query = operation === "status" && this.data?.routeKey ? `?routeKey=${this.data.routeKey}` : ""
       const response = await this.fetcher(`./api/navigation/${operation}${query}`, {
         credentials: "same-origin", cache: "no-store", signal: controller.signal,
-        ...(body === null ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+        ...(body === null ? { headers: timezoneHeaders() } : { method: "POST", headers: timezoneHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) }),
       })
       if (!this.active || generation !== this.generation) return null
       const payload = await response.json()

@@ -654,6 +654,12 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       self.json(401, {'error': 'Sign in to Galaxy'})
       return False
 
+    def remember_client_timezone(self):
+      # Navigation pages send the phone's zone so the comma's ETA shows local time; store_timezone validates and never raises.
+      zone = self.headers.get('X-Galaxy-Timezone')
+      if zone:
+        store_timezone(zone)
+
     def settings_session(self):
       token = self.session_token()
       with session_lock:
@@ -1032,6 +1038,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
       elif path == '/api/navigation/status':
         if not self.require_session():
           return
+        self.remember_client_timezone()
         # A poll that already holds the drawn route sends its key and skips the route lines.
         try:
           route_key = parse_qs(urlsplit(self.path).query, max_num_fields=1).get('routeKey', [''])[0]
@@ -1894,6 +1901,7 @@ def make_server(*, port=8082, host='127.0.0.1', monitor=None, owner=None, crashe
         if identity is None:
           self.json(401, {'error': 'Sign in to Galaxy'})
           return
+        self.remember_client_timezone()
         try:
           if type(payload) is not dict:
             raise ValidationError('Invalid navigation request')

@@ -2,12 +2,13 @@
 import json
 import logging
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 
 from jetlink.comma import gadget
 from jetlink.openpilot.interface import Keys
-from jetlink.openpilot.link import open_link
+from jetlink.openpilot.link import Link, open_link
 from jetlink.openpilot.models import Models
 from jetlink.registry.index import DEFAULT_BIG_MODEL_REF, NetworkError
 from openpilot.starpilot.models.jetlink_adapter import adapter
@@ -48,10 +49,11 @@ def join(models, hello):
     pass
 
   client = SimpleNamespace(hello=lambda **kwargs: hello, rebind=ignore, ensure_engine=ensure_engine)
-  link = SimpleNamespace(open=lambda: client, note_server=ignore, close=ignore, log=models.op.log)
+  link = Link(models.op.log)
   parts = SimpleNamespace(models=models, log=models.op.log, spec=SimpleNamespace(ready_spec=lambda: None, store=ignore),
                           progress=SimpleNamespace(report=ignore, report_with_eta=ignore))
-  return open_link(parts, link)[1]
+  with patch.object(link, "open", return_value=client):
+    return open_link(parts, link)[1]
 
 
 @pytest.fixture
@@ -104,7 +106,9 @@ def test_a_picker_that_uses_clear_for_default_still_sends_default(comma):
 
   op.remove(op.keys.big_model)
 
-  assert Models(op).hello_pick()["ref"] == DEFAULT_BIG_MODEL_REF
+  pick = Models(op).hello_pick()
+  assert pick is not None
+  assert pick["ref"] == DEFAULT_BIG_MODEL_REF
 
 
 def test_metadata_for_a_different_hash_does_not_name_the_engine(comma, offline_index):

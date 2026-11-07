@@ -391,7 +391,7 @@ MODEL_DROP_MAX_MPS = 1.5     # m/s the camera lead's v may drop in the window an
 # 7b s8 -3.69, 80 s6 -8.81, 80 s19 -1.06; adjacent-lane truck 8a s2 -2.92; 8a s11 (disengaged, lead steady) -0.09.
 # 0.3 m sits between a2 (+0.50) and the closest real slowdown, 80 s19 (-1.06). A magnitude gate on radar-vs-camera
 # range split was tried first and rejected: 7b s23 split -8.3 m is deeper than a2's -3.4 m. Not firing falls back to
-# the old behaviour (the radar drop is published unbounded), so the gate only narrows the bound.
+# the old behavior (the radar drop is published unbounded), so the gate only narrows the bound.
 MODEL_RANGE_SHRINK_MAX_M = 0.3  # m the camera lead's x may shrink over DROP_WINDOW_S and still call the radar drop a glitch
 AGREE_M = 4.0                # m; radar dRel vs (model x - RADAR_TO_CAMERA) agreement needed at the window start
 MODEL_PROB_MIN = 0.9         # camera lead confidence needed to trust it over the radar

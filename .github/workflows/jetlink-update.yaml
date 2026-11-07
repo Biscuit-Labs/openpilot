@@ -1,0 +1,182 @@
+name: jetlink update
+
+# Checks zoompilot/jetlink three times a week (releases come in bursts) and, when its latest release is newer than the
+# vendored jetlink_repo/, opens a pull request into Honda-PTM-Testing that re-vendors it with
+# tools/ci/jetlink_vendor_update.py. It never merges anything. An open update pull request for an older release is
+# closed with a comment pointing at the new one, so bursts of releases do not pile up.
+#
+# Pull requests opened with GITHUB_TOKEN do not start other workflows (tests, safety, ...). To get the normal CI on
+# them, add a PAT or GitHub App token as the repository secret JETLINK_UPDATE_TOKEN; it is used when present. Without
+# it, close and reopen the pull request (or push to its branch by hand) to start CI.
+#
+# GitHub only runs `schedule` and offers `workflow_dispatch` for the copy of this file on the repository's default branch.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1,4,6" # Monday, Thursday and Saturday at 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: jetlink-update
+  cancel-in-progress: false
+
+env:
+  BASE_BRANCH: Honda-PTM-Testing
+  UPSTREAM: zoompilot/jetlink
+
+jobs:
+  jetlink_update:
+    name: jetlink update
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: github.repository == 'Biscuit-Labs/openpilot'
+    env:
+      GH_TOKEN: ${{ secrets.JETLINK_UPDATE_TOKEN || github.token }}
+    steps:
+    - uses: actions/checkout@v7
+      with:
+        ref: ${{ env.BASE_BRANCH }}
+        token: ${{ secrets.JETLINK_UPDATE_TOKEN || github.token }}
+
+    - name: Find the latest upstream release
+      id: check
+      run: |
+        release=$(gh release view --repo "$UPSTREAM" --json tagName,isPrerelease,isDraft)
+        tag=$(jq -r .tagName <<<"$release")
+        # the tag is upstream data that becomes a branch name and a commit message: accept only vMAJOR.MINOR.PATCH
+        if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::unexpected upstream tag name; expected vMAJOR.MINOR.PATCH"
+          exit 1
+        fi
+        if [ "$(jq -r '.isPrerelease or .isDraft' <<<"$release")" != "false" ]; then
+          echo "Latest release $tag is a prerelease or draft; nothing to do."
+          echo "proceed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        current=$(sed -n "s/^__version__ = '\(.*\)'$/\1/p" jetlink_repo/jetlink/__init__.py)
+        echo "upstream latest: $tag, vendored: v$current"
+        if [ -z "$current" ]; then
+          echo "::error::cannot read __version__ from jetlink_repo/jetlink/__init__.py"
+          exit 1
+        fi
+        newest=$(printf '%s\n%s\n' "$tag" "v$current" | sort -V | tail -n 1)
+        if [ "$tag" = "v$current" ] || [ "$newest" != "$tag" ]; then
+          echo "Vendored v$current is already at or ahead of $tag; nothing to do."
+          echo "proceed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        branch="jetlink-update/$tag"
+        if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+          echo "Branch $branch already exists (an update PR is open or was left behind); nothing to do."
+          echo "proceed=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        {
+          echo "proceed=true"
+          echo "tag=$tag"
+          echo "branch=$branch"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Clone upstream at the release tag
+      if: steps.check.outputs.proceed == 'true'
+      id: upstream
+      env:
+        TAG: ${{ steps.check.outputs.tag }}
+      run: |
+        git clone --quiet "https://github.com/$UPSTREAM.git" "$RUNNER_TEMP/jetlink-upstream"
+        git -C "$RUNNER_TEMP/jetlink-upstream" checkout --quiet --detach "refs/tags/$TAG"
+        echo "sha10=$(git -C "$RUNNER_TEMP/jetlink-upstream" rev-parse --short=10 "$TAG^{commit}")" >> "$GITHUB_OUTPUT"
+
+    - name: Re-vendor jetlink_repo
+      if: steps.check.outputs.proceed == 'true'
+      id: vendor
+      env:
+        TAG: ${{ steps.check.outputs.tag }}
+      run: |
+        python3 tools/ci/jetlink_vendor_update.py "$RUNNER_TEMP/jetlink-upstream" "$TAG" \
+          --summary "$RUNNER_TEMP/summary.md" --github-output "$GITHUB_OUTPUT"
+
+    # The Jetlink tests of this repo import the full openpilot environment, which is too heavy for a scheduled job, so
+    # the pull request's normal CI runs them. Only a byte-compile runs here (the repo's ruff job covers openpilot/ only,
+    # not jetlink_repo/). The result goes into the pull request body.
+    - name: Cheap check (byte-compile)
+      if: steps.check.outputs.proceed == 'true'
+      id: checks
+      run: |
+        {
+          echo "## Checks run by the workflow"
+          echo
+          if python3 -m compileall -q jetlink_repo > "$RUNNER_TEMP/compile.log" 2>&1; then
+            echo "- python3 -m compileall jetlink_repo: pass"
+          else
+            echo "- python3 -m compileall jetlink_repo: **FAIL**"
+            cat "$RUNNER_TEMP/compile.log"
+          fi
+          echo "- Jetlink tests: not run here; they run in this pull request's CI."
+        } > "$RUNNER_TEMP/checks.md"
+        cat "$RUNNER_TEMP/checks.md"
+        find jetlink_repo -name __pycache__ -type d -prune -exec rm -rf {} +
+
+    - name: Commit, push and open the pull request
+      if: steps.check.outputs.proceed == 'true'
+      env:
+        TAG: ${{ steps.check.outputs.tag }}
+        OLD_TAG: ${{ steps.vendor.outputs.old_tag }}
+        BRANCH: ${{ steps.check.outputs.branch }}
+        SHA10: ${{ steps.upstream.outputs.sha10 }}
+        NEEDS_REVIEW: ${{ steps.vendor.outputs.needs_review }}
+        API_CHANGED: ${{ steps.vendor.outputs.api_changed }}
+        CONFLICTS: ${{ steps.vendor.outputs.conflicts }}
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git checkout -b "$BRANCH"
+        git add -A jetlink_repo openpilot/starpilot/models/JETLINK.md
+        if git diff --cached --quiet; then
+          echo "::warning::the update changed no files; no pull request opened"
+          exit 0
+        fi
+        git commit --quiet \
+          -m "$(date -u +%F) jetlink_repo: $TAG (from $UPSTREAM tag $TAG, $SHA10)" \
+          -m "Re-vendored from $OLD_TAG by the jetlink update workflow. Fork patches were 3-way merged (see the pull request body)."
+        git push --quiet origin "$BRANCH"
+
+        {
+          echo "Automatic re-vendor of [$UPSTREAM $TAG](https://github.com/$UPSTREAM/releases/tag/$TAG) ($SHA10), opened by the \`jetlink update\` workflow. It is not merged automatically."
+          echo
+          if [ "$NEEDS_REVIEW" = "true" ]; then
+            echo "> **NEEDS REVIEW**: upstream API changed: $API_CHANGED; fork patch conflicts: $CONFLICTS."
+            echo
+          fi
+          cat "$RUNNER_TEMP/summary.md"
+          echo
+          cat "$RUNNER_TEMP/checks.md"
+          echo
+          echo "\`prebuilt.json\` is not refreshed here; it is refreshed once per promotion (docs/BRANCH_WORKFLOW.md)."
+          echo "If CI did not start on this pull request, it was opened with \`GITHUB_TOKEN\`: close and reopen it."
+        } > "$RUNNER_TEMP/body.md"
+
+        pr_url=$(gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
+          --title "jetlink_repo: $TAG (from $UPSTREAM)" --body-file "$RUNNER_TEMP/body.md")
+        echo "Opened $pr_url"
+        pr_number=${pr_url##*/}
+
+        if [ "$NEEDS_REVIEW" = "true" ]; then
+          gh label create needs-review --color d93f0b --description "Needs a human look before merging" 2>/dev/null || true
+          gh pr edit "$pr_number" --add-label needs-review \
+            || echo "::warning::could not add the needs-review label; the pull request body carries the warning"
+        fi
+
+        # Releases come in bursts: close update pull requests for older releases, pointing at this one.
+        gh pr list --base "$BASE_BRANCH" --state open --json number,headRefName \
+          --jq '.[] | select(.headRefName | startswith("jetlink-update/")) | "\(.number) \(.headRefName)"' |
+        while read -r number head; do
+          if [ "$number" != "$pr_number" ]; then
+            gh pr close "$number" --delete-branch --comment "Superseded by #$pr_number ($TAG)." \
+              || echo "::warning::could not close superseded pull request #$number ($head)"
+          fi
+        done

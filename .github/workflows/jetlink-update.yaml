@@ -11,10 +11,19 @@ name: jetlink update
 #
 # GitHub only runs `schedule` and offers `workflow_dispatch` for the copy of this file on the repository's default branch.
 
+#
+# Trial mode: while this file lives only on the jetlink-autoupdate-test branch, a push to that branch runs it and the
+# pull request targets that branch, not Honda-PTM-Testing. Nothing reaches the release branches from the trial.
+
 on:
   schedule:
     - cron: "17 9 * * 1,4,6" # Monday, Thursday and Saturday at 09:17 UTC
   workflow_dispatch:
+  push:
+    branches: [jetlink-autoupdate-test]
+    paths:
+      - .github/workflows/jetlink-update.yaml
+      - tools/ci/jetlink_vendor_update.py
 
 permissions:
   contents: write
@@ -25,7 +34,8 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE_BRANCH: Honda-PTM-Testing
+  # a trial run from a push targets the pushed branch; schedule and manual runs target Honda-PTM-Testing
+  BASE_BRANCH: ${{ github.event_name == 'push' && github.ref_name || 'Honda-PTM-Testing' }}
   UPSTREAM: zoompilot/jetlink
 
 jobs:
@@ -160,8 +170,11 @@ jobs:
           echo "If CI did not start on this pull request, it was opened with \`GITHUB_TOKEN\`: close and reopen it."
         } > "$RUNNER_TEMP/body.md"
 
-        pr_url=$(gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
-          --title "jetlink_repo: $TAG (from $UPSTREAM)" --body-file "$RUNNER_TEMP/body.md")
+        if ! pr_url=$(gh pr create --base "$BASE_BRANCH" --head "$BRANCH" \
+          --title "jetlink_repo: $TAG (from $UPSTREAM)" --body-file "$RUNNER_TEMP/body.md"); then
+          echo "::error::could not open the pull request. GITHUB_TOKEN can open one only when the repository allows Actions to create pull requests; otherwise add the JETLINK_UPDATE_TOKEN secret. Branch $BRANCH was pushed: delete it before re-running."
+          exit 1
+        fi
         echo "Opened $pr_url"
         pr_number=${pr_url##*/}
 

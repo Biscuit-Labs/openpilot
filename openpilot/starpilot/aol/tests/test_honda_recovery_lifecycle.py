@@ -97,7 +97,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
 
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
                          pedal=False, host_scenario=None, serialized=False, override=False, refault=False, brake_override=None,
-                         brake_race=False):
+                         brake_race=False, cancel=False):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -185,6 +185,8 @@ class TestHondaCurrentCaller(unittest.TestCase):
       controls_published, controls_latest, driven_new = {}, {}, {}
       base = time.monotonic_ns() + 100_000_000
       def braking(tick):   # brake_override: the brake is held through the override, moving or stopped
+        if cancel:   # CANCEL ends long at tick 50 instead of the brake; lateral must stay with the AOL latch
+          return brake_override is not None and 70 <= tick < 100
         if brake_race:   # Card's parser first sees the brake two ticks after the panda does
           return 52 <= tick < 57 or brake_override is not None and 70 <= tick < 100
         return 50 <= tick < 55 or brake_override is not None and 70 <= tick < 100
@@ -209,7 +211,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
             sd.aol_settings = read_settings(saved)
           # SET press/release is the real first ordinary native grant, preceding engaged HB.
           incoming = stream.frames(
-            cruise_button=3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
+            cruise_button=3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 2 if cancel and 50 <= tick < 53 else 0,
             cruise=int(21 <= tick < (52 if brake_race else 50) or reengage),
             brake=braking(tick),
             eps=6 if eps_fault(tick) else 0,

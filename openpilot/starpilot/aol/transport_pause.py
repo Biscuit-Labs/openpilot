@@ -293,6 +293,7 @@ class TransportPauseFeedback:
     self.longitudinal_cancel_ns = 0
     self.last_cancel_source_ns = 0
     self.honda_brake_ns = 0
+    self.honda_native_first_ns = 0
     self.gm_withdrawal_ns = 0
     self.retention_qualified = False
     self.retention_pending = False
@@ -778,6 +779,17 @@ class TransportPauseFeedback:
     from opendbc.car.structs import car
 
     source_ns = self.honda_brake_ns or (brake_source_ns if cs.brakePressed else 0)
+    # Night Star: the panda's brake can reach pandad's native read before Card's CAN batch. A LONG-only drop
+    # with controls_allowed already false waits AXIS_MAX_AGE_NS from that first read for the brake edge.
+    native_first = not source_ns and not cs.brakePressed
+    if native_first and latched and self.session and not self.failed and qualified(cp, marked_only=True):
+      first = independent_lateral_health(sm, cp, cs, self.session, now_ns)
+      if (first is not None and not first.longitudinalAllowed and first.pandaInventory and
+          not any(p.controlsAllowed for p in first.pandaInventory)):
+        self.honda_native_first_ns = self.honda_native_first_ns or int(first.observedMonoTime)
+        source_ns = self.honda_native_first_ns
+      elif first is not None and first.longitudinalAllowed:
+        self.honda_native_first_ns = 0
     if (not qualified(cp, marked_only=True) or not latched or self.failed or self.paused or self.pending_event or
       not self.session or str(axis.sessionId) != self.session or
       not self.healthy_feedback_ns or not 0 <= now_ns - self.healthy_feedback_ns <= AXIS_MAX_AGE_NS or
@@ -801,7 +813,8 @@ class TransportPauseFeedback:
         not native.requestedLongitudinal or native.observedMonoTime < self.healthy_native_ns or
         (native.pandaSerial, tuple(p.hardwareSerial for p in native.pandaInventory)) != self.healthy_inventory):
       return None
-    self.honda_brake_ns = source_ns
+    if not native_first:
+      self.honda_brake_ns = source_ns
     return native
 
   def _longitudinal_cancel_current(self, sm, cp, cs, axis, now_ns, *, latched, cancel_source_ns, withdrawal_required=True) -> SafetyState | None:
@@ -1444,6 +1457,14 @@ class TransportPauseFeedback:
         if retain_eps_recovery(self, sm, cp, cs, axis, now_ns, latched=latched, producer=intent_producer_session):
           self.sequence, self.signature = int(axis.sequence), signature
           return False
+      # Night Star: ahead of the generic host paths, so a held Honda brake keeps its own baseline fresh
+      brake_native = (self._honda_brake_lateral_current(sm, cp, cs, axis, now_ns,
+        latched=latched, brake_source_ns=brake_source_ns) if current and continuity else None)
+      if brake_native is not None:
+        self.healthy_feedback_ns = stamp
+        self.healthy_native_ns = int(brake_native.observedMonoTime)
+        self.sequence, self.signature = int(axis.sequence), signature
+        return False
       if current and continuity and self._ordinary_warning_intent_current(sm, cp, cs, axis, stamp, now_ns,
           latched=latched, producer=intent_producer_session):
         self.ordinary_warning_qualified = any(event.softDisable for event in sm['onroadEvents'])
@@ -1519,13 +1540,6 @@ class TransportPauseFeedback:
           self.lateral_native_ns = int(gas_native.observedMonoTime)
           self.sequence, self.signature = int(axis.sequence), signature
           return False
-      brake_native = (self._honda_brake_lateral_current(sm, cp, cs, axis, now_ns,
-        latched=latched, brake_source_ns=brake_source_ns) if current and continuity else None)
-      if brake_native is not None:
-        self.healthy_feedback_ns = stamp
-        self.healthy_native_ns = int(brake_native.observedMonoTime)
-        self.sequence, self.signature = int(axis.sequence), signature
-        return False
       if current and continuity and (gm_withdrawal_source_ns or self.gm_withdrawal_ns):
         from openpilot.starpilot.car.gm.aol import retained_physical_longitudinal_intent
         gm_native = retained_physical_longitudinal_intent(self, sm, cp, cs, axis, now_ns,
@@ -1661,7 +1675,7 @@ class TransportPauseFeedback:
         if not latched or native is not None and not native.requestedLongitudinal:
           self.gm_withdrawal_ns = 0
         if native is not None and not native.requestedLongitudinal:
-          self.honda_brake_ns = 0
+          self.honda_brake_ns = self.honda_native_first_ns = 0
         if (not latched or native is not None and not native.requestedLongitudinal or
             self.longitudinal_cancel_ns and now_ns - self.longitudinal_cancel_ns > SAFETY_MAX_AGE_NS):
           self.longitudinal_cancel_ns = 0

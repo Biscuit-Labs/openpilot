@@ -900,22 +900,32 @@ class Car:
     return received_ns
 
   def aol_honda_brake_source(self, CS, now_ns: int) -> int:
+    """A driver's longitudinal withdrawal on a stock-AOL Honda: the brake, or a CANCEL press.
+
+    Both end only longitudinal; the AOL latch keeps lateral (the panda keeps the host's lateral request on CANCEL).
+    """
     observation = getattr(self, '_aol_can_observation', None)
-    if (not CS.brakePressed or not qualified_honda_stock_aol(self.CP, marked_only=True) or
+    cancel = any(e.type == structs.CarState.ButtonEvent.Type.cancel and e.pressed for e in CS.buttonEvents)
+    if (not (CS.brakePressed or cancel) or not qualified_honda_stock_aol(self.CP, marked_only=True) or
         observation is None or observation[0] is not CS):
       return 0
     from opendbc.car import Bus
-    from opendbc.car.honda.values import HondaFlags
+    from opendbc.car.honda.values import CruiseButtons, HondaFlags
     parser = self.CI.can_parsers[Bus.pt]
-    message = 'BRAKE_MODULE' if self.CP.flags & HondaFlags.BOSCH_ALT_BRAKE else 'POWERTRAIN_DATA'
-    signals = parser.vl.get(message, {})
-    # Match the real parser's applied-brake or two-sample switch decision.
-    brake = bool(signals.get('BRAKE_PRESSED', 0) or message == 'POWERTRAIN_DATA' and
-                 signals.get('BRAKE_SWITCH', 0) and self.CI.CS.brake_switch_active)
-    stamp = int(parser.ts_nanos.get(message, {}).get('BRAKE_PRESSED', 0))
+    if CS.brakePressed:
+      message = 'BRAKE_MODULE' if self.CP.flags & HondaFlags.BOSCH_ALT_BRAKE else 'POWERTRAIN_DATA'
+      signals = parser.vl.get(message, {})
+      # Match the real parser's applied-brake or two-sample switch decision.
+      withdrawn = bool(signals.get('BRAKE_PRESSED', 0) or message == 'POWERTRAIN_DATA' and
+                       signals.get('BRAKE_SWITCH', 0) and self.CI.CS.brake_switch_active)
+      stamp = int(parser.ts_nanos.get(message, {}).get('BRAKE_PRESSED', 0))
+    else:
+      message = 'SCM_BUTTONS'
+      withdrawn = int(parser.vl.get(message, {}).get('CRUISE_BUTTONS', 0)) == CruiseButtons.CANCEL
+      stamp = int(parser.ts_nanos.get(message, {}).get('CRUISE_BUTTONS', 0))
     _, received_ns, can_source_ns, boot_ns = observation
     # CANParser/CAN batch use BOOTTIME; retain the original MONOTONIC receipt.
-    if (not brake or not 0 < received_ns <= now_ns or now_ns - received_ns > 30_000_000 or
+    if (not withdrawn or not 0 < received_ns <= now_ns or now_ns - received_ns > 30_000_000 or
         not 0 < stamp <= can_source_ns <= boot_ns or boot_ns - stamp > 30_000_000 or
         can_source_ns - stamp > 30_000_000):
       return 0
@@ -1149,6 +1159,10 @@ class Car:
         companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
       self.v_cruise_helper.toyota.publish(companion.starpilotCarState.toyotaCruise)
+    if companion is not None and getattr(self, 'radar_point_status', None) is not None:
+      # radard reads the latest starpilotCarState: every one card sends carries the latest radar point statuses
+      from openpilot.starpilot.car.honda import radar_point_status
+      radar_point_status.write(companion.starpilotCarState, *self.radar_point_status)
     self.car_gps_publisher.update(self.CI.CS, self.pm, companion)
     self.pm.send('carState', cs_send)
     if getattr(self, 'learning_stamp_observer', None) is not None:
@@ -1248,6 +1262,13 @@ class Car:
       tracks_msg.valid = not RD.errors.canError
       tracks_msg.radarTracks = RD
       self.pm.send('radarTracks', tracks_msg)
+      statuses = getattr(getattr(self, 'RI', None), 'point_statuses', None)
+      if statuses is not None:
+        from openpilot.starpilot.car.honda import radar_point_status
+        self.radar_point_status = (int(tracks_msg.logMonoTime), dict(statuses))
+        status_msg = messaging.new_message('starpilotCarState', valid=bool(tracks_msg.valid))
+        radar_point_status.write(status_msg.starpilotCarState, *self.radar_point_status)
+        self.pm.send('starpilotCarState', status_msg)
 
   def publish_traffic_receipt(self, cs_send):
     traffic_receipt = getattr(self, 'traffic_receipt', None)

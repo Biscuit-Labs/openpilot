@@ -193,7 +193,9 @@ class LaneRuntimeTests(unittest.TestCase):
 
           with mock.patch.dict(os.environ, {'REPLAY': '0'}), \
                mock.patch('openpilot.selfdrive.controls.controlsd.time.monotonic_ns', return_value=now), \
+               mock.patch('openpilot.cereal.messaging.time.monotonic', return_value=now / 1e9), \
                mock.patch.object(controls, 'update', side_effect=receive) as refresh:
+            # A real sm.update(0) (the AOL combined refresh) times `alive` with messaging's clock; keep it on `now`.
             command, _ = controls.state_control()
           refresh.assert_called_once_with(0)
           if queued == 'fresh':

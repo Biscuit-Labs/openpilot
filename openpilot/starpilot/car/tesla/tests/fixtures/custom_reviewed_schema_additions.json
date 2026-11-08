@@ -17,8 +17,8 @@
         "discriminantOffset": 0
       },
       "new_storage": {
-        "dataWordCount": 3,
-        "pointerCount": 7,
+        "dataWordCount": 4,
+        "pointerCount": 8,
         "preferredListEncoding": "inlineComposite",
         "isGroup": false,
         "discriminantCount": 0,
@@ -83,6 +83,48 @@
           "discriminantValue": 65535,
           "ordinal": {
             "explicit": 39
+          }
+        },
+        {
+          "slot": {
+            "offset": 7,
+            "type": {
+              "list": {
+                "elementType": {
+                  "struct": {
+                    "typeId": 10798184186878151150
+                  }
+                }
+              }
+            },
+            "defaultValue": {
+              "schemaValueHex": "000000000400000000000000020001000e0000000000000000000000000000000000000000000000"
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "radarPointStatus",
+          "codeOrder": 40,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 40
+          }
+        },
+        {
+          "slot": {
+            "offset": 3,
+            "type": {
+              "uint64": null
+            },
+            "defaultValue": {
+              "uint64": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "radarTracksMonoTime",
+          "codeOrder": 41,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 41
           }
         }
       ]
@@ -725,50 +767,6 @@
         }
       ]
     },
-    "0xa042ddb70aba3ea9": {
-      "after_name": "AolAxisState.LaneChangeStatusWire",
-      "kind": "struct",
-      "old_field_count": 12,
-      "old_storage": {
-        "dataWordCount": 6,
-        "pointerCount": 1,
-        "preferredListEncoding": "inlineComposite",
-        "isGroup": false,
-        "discriminantCount": 0,
-        "discriminantOffset": 0
-      },
-      "new_storage": {
-        "dataWordCount": 6,
-        "pointerCount": 1,
-        "preferredListEncoding": "inlineComposite",
-        "isGroup": false,
-        "discriminantCount": 0,
-        "discriminantOffset": 0
-      },
-      "added_fields": [
-        {
-          "slot": {
-            "offset": 22,
-            "type": {
-              "enum": {
-                "typeId": 10271713016511566991
-              }
-            },
-            "defaultValue": {
-              "enum": 0
-            },
-            "hadExplicitDefault": false
-          },
-          "name": "turnDirection",
-          "codeOrder": 12,
-          "discriminantValue": 65535,
-          "ordinal": {
-            "explicit": 12
-          }
-        }
-      ],
-      "night_star_note": "Night Star port: turnDirection @12, the turn desire modeld gave the model frame"
-    },
     "0xa4f1eb3323f5f582": {
       "kind": "struct",
       "before_name": "MapdOut",
@@ -878,6 +876,50 @@
           "codeOrder": 12
         }
       ]
+    },
+    "0xa042ddb70aba3ea9": {
+      "after_name": "AolAxisState.LaneChangeStatusWire",
+      "kind": "struct",
+      "old_field_count": 12,
+      "old_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 1,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "new_storage": {
+        "dataWordCount": 6,
+        "pointerCount": 1,
+        "preferredListEncoding": "inlineComposite",
+        "isGroup": false,
+        "discriminantCount": 0,
+        "discriminantOffset": 0
+      },
+      "added_fields": [
+        {
+          "slot": {
+            "offset": 22,
+            "type": {
+              "enum": {
+                "typeId": 10271713016511566991
+              }
+            },
+            "defaultValue": {
+              "enum": 0
+            },
+            "hadExplicitDefault": false
+          },
+          "name": "turnDirection",
+          "codeOrder": 12,
+          "discriminantValue": 65535,
+          "ordinal": {
+            "explicit": 12
+          }
+        }
+      ],
+      "night_star_note": "Night Star port: turnDirection @12, the turn desire modeld gave the model frame"
     }
   },
   "published_addition_commits": {

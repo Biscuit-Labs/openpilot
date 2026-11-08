@@ -4,9 +4,14 @@ import socket
 from typing import NoReturn
 
 import openpilot.cereal.messaging as messaging
+from openpilot.cereal.services import SERVICE_LIST
 from openpilot.common.logging_extra import SwagLogFileFormatter
 from openpilot.common.hardware.hw import Paths
 from openpilot.common.swaglog import SWAGLOG_MAX_SIZE, cloudlog, get_file_handler
+
+# msgq aborts the sending process on a message over a third of its queue, so a
+# record past this is written to the log file but not published
+MAX_PUBLISH_SIZE = min(SERVICE_LIST[s].queue_size for s in ("logMessage", "errorLogMessage")) // 3 - 1024
 
 
 def main() -> NoReturn:
@@ -42,8 +47,8 @@ def main() -> NoReturn:
       if level >= log_level:
         log_handler.emit(record)
 
-      if len(record) > 2*1024*1024:
-        print("WARNING: log too big to publish", len(record))
+      if n - 1 > MAX_PUBLISH_SIZE:  # record is buf[1:n]
+        print("WARNING: log too big to publish", n - 1)
         print(record[:100])
         continue
 

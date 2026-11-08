@@ -143,7 +143,8 @@ def test_additive_steering_limits_preserve_defaults_and_survive_incumbent_relay(
   ('toyotaCruise @38 :ToyotaCruise;', 'toyotaCruise @38 :StarPilotCarControl.SteeringLimitInfo;'),
   ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;', 'steeringLimitInfo @39 :StarPilotCarState.Gps;'),
   ('steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo;',
-   'steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo; unreviewed @40 :Bool;'),
+   # @40/@41 are the Honda radar point status fields; the next free ordinal is @42
+   'steeringLimitInfo @39 :StarPilotCarControl.SteeringLimitInfo; unreviewed @42 :Bool;'),
 ])
 def test_reviewed_steering_addition_does_not_allow_other_schema_changes(historical, tmp_path, before, after):
   source = Path(CEREAL_PATH, 'custom.capnp').read_text()

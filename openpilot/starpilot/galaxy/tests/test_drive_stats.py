@@ -544,7 +544,9 @@ class DriveStatsTest(unittest.TestCase):
     owner._failures['abc'] = {'signature': signature, 'analysisVersion': drive_stats.ANALYSIS_VERSION, 'attempts': 5,
                               'firstAt': boot_clock, 'retryAt': boot_clock + 3600,
                               'reason': 'Route has no logged or named wall time'}
-    owner._run()
+    # The runner's own systemd build date would otherwise set min_date(), possibly after the test clock.
+    with mock.patch.object(drive_stats, 'min_date', return_value=datetime(2025, 2, 21)):
+      owner._run()
     self.assertNotIn('abc', owner._failures)
     self.assertTrue(owner._records['abc']['complete'])
 

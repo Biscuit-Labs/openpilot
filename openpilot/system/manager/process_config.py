@@ -4,7 +4,6 @@ import platform
 
 from opendbc.car.structs import car
 from openpilot.common.params import Params
-from openpilot.common.time_helpers import system_time_valid
 from openpilot.common.hardware import PC, COMMA_HARDWARE
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 from openpilot.starpilot.maps.shadow_lifecycle import MapdShadowProcess
@@ -55,9 +54,7 @@ def not_long_maneuver(started: bool, params: Params, CP: car.CarParams) -> bool:
   return started and not params.get_bool("LongitudinalManeuverMode")
 
 def qcomgps(started: bool, params: Params, CP: car.CarParams) -> bool:
-  # Offroad too while the clock is still the OS build date after a cold boot: timed takes the time from the first
-  # satellite the modem decodes, so starting at boot instead of onroad gets it sooner.
-  return (started or not system_time_valid()) and not ublox_available()
+  return started and not ublox_available()
 
 def always_run(started: bool, params: Params, CP: car.CarParams) -> bool:
   return True

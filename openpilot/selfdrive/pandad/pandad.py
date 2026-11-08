@@ -103,11 +103,6 @@ def main() -> None:
       for s in Panda.list():
         with Panda(s) as p:
           health = p.health()
-          if p.is_internal():
-            # read before the reset below: an uptime longer than the comma's boot time means the panda kept power while the comma was off
-            cloudlog.event("pandad.internal_panda_before_reset", panda_uptime=health["uptime"],
-                           boot_time=round(time.clock_gettime(time.CLOCK_BOOTTIME), 1), voltage=health["voltage"],
-                           ignition_line=health["ignition_line"], power_save_enabled=health["power_save_enabled"])
           if p.is_internal() and health["heartbeat_lost"]:
             Params().put_bool("PandaHeartbeatLost", True, block=True)
             cloudlog.event("heartbeat lost", deviceState=health)

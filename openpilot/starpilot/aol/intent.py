@@ -198,6 +198,12 @@ class AolCardIntent:
         self._withdraw_full_engagement()
       if self.allowed_latch:
         self.pause_lateral = False
+    elif action == AOL_TOGGLE and self.settings.enabled and self.explicit_latch:
+      # A configured steering toggle on an explicit-latch owner (Honda stock AOL) toggles its latch directly.
+      self._record_latch_clear('configured_toggle')
+      self.allowed_latch = not self.allowed_latch
+      if self.allowed_latch:
+        self.pause_lateral = False
     elif action == PAUSE_LATERAL:
       self.pause_lateral = not self.pause_lateral
       if self.pause_lateral:

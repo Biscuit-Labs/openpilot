@@ -7,7 +7,7 @@ from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.stock_aol import CLASSIC_BOSCH, NIDEC, RADARLESS, qualified, temporary_restriction, native_observation
 from opendbc.car.honda.values import CAR, HondaFlags
-from openpilot.starpilot.aol.intent import AolSettings, AOL_TOGGLE
+from openpilot.starpilot.aol.intent import AolSettings, AOL_TOGGLE, independent_axis_requested
 from openpilot.starpilot.car.honda.aol import policy_for, create_intent, native_accepts_cp
 
 
@@ -23,6 +23,15 @@ def final_cp(identity, alpha=False, release=False, *, hybrid=False):
   if hybrid:
     fingerprint[pt][0x184] = 8
   return CarInterface.get_params(identity, fingerprint, [], alpha, release, False)
+
+
+def rdx_ptm_cp(candidate, alpha):
+  """A 3G RDX on the TJB-A220 modified-EPS PTM image."""
+  fingerprint = gen_empty_fingerprint()
+  fingerprint[1][0x1A3] = 8
+  firmware = [structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1, subAddress=0,
+                                     fwVersion=b'39990-TJB,A220\x00\x00', brand='honda')]
+  return CarInterface.get_params(candidate, fingerprint, firmware, alpha, False, False)
 
 
 @pytest.mark.parametrize("identity", IDENTITIES)
@@ -532,3 +541,53 @@ def test_actual_card_ack_loss_requires_current_requested_same_identity(changed):
     assert result == (0, False, False)
   if changed in ("cold", "session", "panda", "cp", "manual_off"):
     assert host._honda_aol_acknowledgment is None
+
+
+@pytest.mark.parametrize("candidate,alpha", ((CAR.ACURA_RDX_3G, True), (CAR.ACURA_RDX_3G, False), (CAR.ACURA_RDX_3G_MMR, False)))
+def test_rdx_tjb_steering_toggles_admission_and_explicit_latch(candidate, alpha):
+  """The TJB RDX's steering toggles: the master admits AOL, and a configured 'Toggle AOL' works on its explicit latch.
+
+  A saved toggle alone does not admit (the master stays the admission gate, matching card's startup policy); with the
+  master On, the card-side admission produces the marked safety word, and the explicit-latch owner toggles on AOL_TOGGLE.
+  """
+  cp = rdx_ptm_cp(candidate, alpha)
+  assert cp.flags & HondaFlags.EPS_MODIFIED
+  assert not cp.dashcamOnly
+  policy = policy_for(cp)
+  assert policy.intent_supported and policy.settings_supported and policy.explicit_latch
+  include_aux = policy.intent_supported and not policy.explicit_latch
+  assert not independent_axis_requested(AolSettings(False, 5.0, AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0)),
+                                        include_auxiliary=include_aux)
+  assert independent_axis_requested(AolSettings(True, 5.0, 0, 0, (0, 0, 0), (0, 0, 0)), include_auxiliary=include_aux)
+  # the card-side admission the master On produces at startup
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  assert qualified(cp, marked_only=True)
+  assert policy_for(cp).runtime_supported
+  # a configured 'Toggle AOL' toggles the RDX's explicit latch (the syncs dropped this branch)
+  intent = create_intent(cp, AolSettings(True, 5.0, 0, 0, (AOL_TOGGLE, 0, 0), (0, 0, 0)))
+  assert intent.explicit_latch and not intent.allowed_latch
+  intent._perform(AOL_TOGGLE)
+  assert intent.allowed_latch
+  intent._perform(AOL_TOGGLE)
+  assert not intent.allowed_latch
+
+
+@pytest.mark.parametrize("candidate,alpha", ((CAR.ACURA_RDX_3G, True), (CAR.ACURA_RDX_3G, False)))
+def test_rdx_tjb_physical_lkas_toggle_arms_and_disarms(candidate, alpha):
+  """With the master On, the TJB non-MMR RDX's LKAS steering toggle arms on a press and drops the latch on the next."""
+  cp = rdx_ptm_cp(candidate, alpha)
+  policy = policy_for(cp)
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  settings = AolSettings(True, 5.0, AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0))
+  intent = create_intent(cp, settings)
+  assert intent.explicit_latch
+  intent.update(state(), now_ns=10)
+  intent.update(state(True), now_ns=20)
+  intent.update(state(False), now_ns=30)
+  assert intent.allowed_latch
+  intent.update(state(), now_ns=40)
+  intent.update(state(True), now_ns=50)
+  intent.update(state(False), now_ns=60)
+  assert not intent.allowed_latch and intent.pause_lateral

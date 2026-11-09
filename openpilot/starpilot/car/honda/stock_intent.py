@@ -16,15 +16,17 @@ class HondaStockCardIntent(AolCardIntent):
     self.cancel_ticks = 0
     self.auto_main = settings.lkas_action != AOL_TOGGLE and settings.main_action != AOL_TOGGLE
 
-  def cancel_action(self, action):
+  def cancel_action(self, action, now_ns=0):
     if action == AOL_TOGGLE and self.settings.enabled:
       self.allowed_latch = not self.allowed_latch
       if self.allowed_latch:
         self.pause_lateral = False
+        self._last_latch_edge_ns = now_ns
     else:
-      self._perform(action)
+      self._perform(action, now_ns)
 
   def update(self, CS, **kwargs):
+    now = kwargs.get('now_ns', 0)
     state = CS
     events = []
     for event in CS.buttonEvents:
@@ -34,7 +36,7 @@ class HondaStockCardIntent(AolCardIntent):
           self.cancel_ticks = 0
         else:
           if self.cancel_held and 0 < self.cancel_ticks < CRUISE_LONG_PRESS:
-            self.cancel_action(self.settings.cancel_actions[0])
+            self.cancel_action(self.settings.cancel_actions[0], now)
           self.cancel_held = False
           self.cancel_ticks = 0
       elif event.type in (ButtonType.mainCruise, ButtonType.lkas):
@@ -42,7 +44,7 @@ class HondaStockCardIntent(AolCardIntent):
         if action == AOL_TOGGLE:
           events.append(structs.CarState.ButtonEvent(**event.to_dict()))
         elif event.pressed:
-          self._perform(action)
+          self._perform(action, now)
       else:
         events.append(structs.CarState.ButtonEvent(**event.to_dict()))
     available = bool(CS.cruiseState.available)
@@ -74,6 +76,6 @@ class HondaStockCardIntent(AolCardIntent):
     if self.cancel_held:
       self.cancel_ticks += 1
       if self.cancel_ticks == CRUISE_LONG_PRESS:
-        self.cancel_action(self.settings.cancel_actions[1])
+        self.cancel_action(self.settings.cancel_actions[1], now)
       elif self.cancel_ticks == CRUISE_LONG_PRESS * 5:
-        self.cancel_action(self.settings.cancel_actions[2])
+        self.cancel_action(self.settings.cancel_actions[2], now)

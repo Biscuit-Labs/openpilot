@@ -158,6 +158,7 @@ class AolCardIntent:
     self._lkas_held = False
     self._fault_inhibit = False
     self._last_latch_edge_ns = 0
+    self._standard_enabled_prev = False
     self.physical_arm_ns = 0
     self._native_rejection_ns = 0
     self._engagement_source_ns = 0
@@ -190,7 +191,7 @@ class AolCardIntent:
       from openpilot.common.swaglog import cloudlog
       cloudlog.event("aol.latchClear", reason=reason, count=self.latch_clear_count)
 
-  def _perform(self, action: int) -> None:
+  def _perform(self, action: int, now_ns: int = 0) -> None:
     if action == AOL_TOGGLE and self.settings.enabled and not self.explicit_latch:
       self._record_latch_clear('configured_toggle')
       self.allowed_latch = not self.allowed_latch
@@ -204,6 +205,7 @@ class AolCardIntent:
       self.allowed_latch = not self.allowed_latch
       if self.allowed_latch:
         self.pause_lateral = False
+        self._last_latch_edge_ns = now_ns
     elif action == PAUSE_LATERAL:
       self.pause_lateral = not self.pause_lateral
       if self.pause_lateral:
@@ -267,6 +269,8 @@ class AolCardIntent:
 
   def update(self, CS, *, consumed_buttons: frozenset[int] = frozenset(), fault_active: bool | None = None,
              now_ns: int = 0, native_rejection_ns: int = 0, standard_enabled: bool = False) -> None:
+    standard_edge = standard_enabled and not self._standard_enabled_prev
+    self._standard_enabled_prev = standard_enabled
     if self.explicit_latch and self._native_rejection_ns < native_rejection_ns <= now_ns:
       self._native_rejection_ns = native_rejection_ns
       if self._last_latch_edge_ns < native_rejection_ns <= now_ns:
@@ -337,12 +341,12 @@ class AolCardIntent:
         if button == int(ButtonType.mainCruise):
           if (independent_buttons and event.pressed and not self._main_held and
               button not in consumed_buttons and self.settings.enabled and not CS.accFaulted and not self._fault_inhibit):
-            self._perform(self.main_action if not main_managed else 0)
+            self._perform(self.main_action if not main_managed else 0, now_ns)
           self._main_held = bool(event.pressed)
         elif button == int(ButtonType.lkas):
           if (independent_buttons and event.pressed and not self._lkas_held and
               button not in consumed_buttons and self.settings.enabled and not CS.accFaulted and not self._fault_inhibit):
-            self._perform(self.lkas_action if not lkas_managed else 0)
+            self._perform(self.lkas_action if not lkas_managed else 0, now_ns)
           self._lkas_held = bool(event.pressed)
         elif button == int(ButtonType.cancel) and event.pressed:
           cancel_pressed = True
@@ -363,7 +367,12 @@ class AolCardIntent:
       elif not previously_held and gesture_held and self.settings.enabled and not CS.accFaulted and not self._fault_inhibit:
         # The physical gesture owns lateral intent even while ordinary cruise
         # is engaged. Dropping only the AOL latch leaves standard steering on.
-        lateral_engaged = not self.pause_lateral and (self.allowed_latch or standard_enabled)
+        # A button explicitly configured as Toggle AOL toggles the AOL latch
+        # itself while ordinary steering is steadily engaged; only the frame
+        # ordinary steering switches on keeps the gesture's blocking role.
+        pressed_managed = bool((self._lkas_held and lkas_managed) or (self._main_held and main_managed))
+        engaged_standard = standard_enabled and (not pressed_managed or standard_edge)
+        lateral_engaged = not self.pause_lateral and (self.allowed_latch or engaged_standard)
         if lateral_engaged:
           self._record_latch_clear('physical_toggle')
         self.allowed_latch = not lateral_engaged
@@ -380,9 +389,9 @@ class AolCardIntent:
       if button == int(ButtonType.gapAdjustCruise) and not self._distance_neutral_seen:
         continue
       if button == int(ButtonType.lkas) and event.pressed:
-        self._perform(self.lkas_action)
+        self._perform(self.lkas_action, now_ns)
       elif button == int(ButtonType.mainCruise) and event.pressed:
-        self._perform(self.main_action)
+        self._perform(self.main_action, now_ns)
       elif button in self._held:
         if event.pressed:
           self._held[button] = True
@@ -391,7 +400,7 @@ class AolCardIntent:
           ticks = self._timers[button]
           actions = self.settings.distance_actions if button == int(ButtonType.gapAdjustCruise) else self.settings.cancel_actions
           if 0 < ticks < CRUISE_LONG_PRESS:
-            self._perform(actions[0])
+            self._perform(actions[0], now_ns)
           self._held[button] = False
           self._timers[button] = 0
     for button, held in self._held.items():
@@ -399,9 +408,9 @@ class AolCardIntent:
         self._timers[button] += 1
         actions = self.settings.distance_actions if button == int(ButtonType.gapAdjustCruise) else self.settings.cancel_actions
         if self._timers[button] == CRUISE_LONG_PRESS:
-          self._perform(actions[1])
+          self._perform(actions[1], now_ns)
         elif self._timers[button] == CRUISE_LONG_PRESS * 5:
-          self._perform(actions[2])
+          self._perform(actions[2], now_ns)
 
   def observe_calibration(self, CS, *, events=None, standard_enabled: bool = False) -> None:
     if self.explicit_latch:

@@ -591,3 +591,67 @@ def test_rdx_tjb_physical_lkas_toggle_arms_and_disarms(candidate, alpha):
   intent.update(state(True), now_ns=50)
   intent.update(state(False), now_ns=60)
   assert not intent.allowed_latch and intent.pause_lateral
+
+
+@pytest.mark.parametrize("candidate,alpha", ((CAR.ACURA_RDX_3G, True), (CAR.ACURA_RDX_3G, False)))
+def test_rdx_tjb_lkas_toggle_arms_while_standard_steering_engaged(candidate, alpha):
+  """With the master On and ordinary steering steadily engaged, the LKAS Toggle AOL still arms on a press."""
+  cp = rdx_ptm_cp(candidate, alpha)
+  policy = policy_for(cp)
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  settings = AolSettings(True, 5.0, AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0))
+  intent = create_intent(cp, settings)
+  assert intent.explicit_latch
+  intent.update(state(), now_ns=10, standard_enabled=True)
+  intent.update(state(True), now_ns=20, standard_enabled=True)
+  intent.update(state(False), now_ns=30, standard_enabled=True)
+  assert intent.allowed_latch and not intent.pause_lateral
+  intent.update(state(), now_ns=40, standard_enabled=True)
+  intent.update(state(True), now_ns=50, standard_enabled=True)
+  intent.update(state(False), now_ns=60, standard_enabled=True)
+  assert not intent.allowed_latch and intent.pause_lateral
+
+
+def test_rdx_tjb_lkas_toggle_press_on_standard_edge_stays_blocking():
+  """A managed press on the exact frame standard steering switches on blocks arming (existing manual-gesture rule)."""
+  cp = rdx_ptm_cp(CAR.ACURA_RDX_3G, True)
+  policy = policy_for(cp)
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  settings = AolSettings(True, 5.0, AOL_TOGGLE, 0, (0, 0, 0), (0, 0, 0))
+  intent = create_intent(cp, settings)
+  intent.update(state(), now_ns=10, standard_enabled=False)
+  intent.update(state(True), now_ns=20, standard_enabled=True)   # standard steering switches on this frame
+  assert not intent.allowed_latch
+  intent.update(state(False), now_ns=30, standard_enabled=True)
+  assert not intent.allowed_latch
+  intent.update(state(), now_ns=40, standard_enabled=True)
+  intent.update(state(True), now_ns=50, standard_enabled=True)   # now steadily engaged: toggle arms
+  intent.update(state(False), now_ns=60, standard_enabled=True)
+  assert intent.allowed_latch
+
+
+@pytest.mark.parametrize("candidate,alpha", ((CAR.ACURA_RDX_3G, True), (CAR.ACURA_RDX_3G, False)))
+def test_rdx_tjb_distance_toggle_arm_shields_older_native_rejection(candidate, alpha):
+  """The distance 'Toggle AOL' arm carries its own latch edge: pre-arm native samples cannot clear it."""
+  cp = rdx_ptm_cp(candidate, alpha)
+  policy = policy_for(cp)
+  cp.safetyConfigs[-1].safetyParam |= policy.safety_param_addition
+  cp.alternativeExperience |= policy.alternative_experience_addition
+  settings = AolSettings(True, 5.0, 0, 0, (AOL_TOGGLE, 0, 0), (0, 0, 0))
+  intent = create_intent(cp, settings)
+  assert intent.explicit_latch
+  intent.update(state(), now_ns=10)
+  press = structs.CarState(**state().to_dict())
+  press.buttonEvents = [structs.CarState.ButtonEvent(type="gapAdjustCruise", pressed=True)]
+  intent.update(press.as_reader(), now_ns=20)
+  intent.update(state(), now_ns=30)
+  release = structs.CarState(**state().to_dict())
+  release.buttonEvents = [structs.CarState.ButtonEvent(type="gapAdjustCruise", pressed=False)]
+  intent.update(release.as_reader(), now_ns=40)
+  assert intent.allowed_latch and intent._last_latch_edge_ns == 40
+  intent.update(state(), now_ns=50, native_rejection_ns=35)
+  assert intent.allowed_latch, 'A native sample observed before the arm must not clear the fresh latch'
+  intent.update(state(), now_ns=60, native_rejection_ns=45)
+  assert not intent.allowed_latch

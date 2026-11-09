@@ -375,10 +375,17 @@ def test_lateral_delay_follows_the_measured_execution_delay(v, delay):
   assert _clarity_lat_delay(v) == pytest.approx(delay)
 
 
+@pytest.mark.parametrize("v, delay", [(3.5, 0.15), (7.0, 0.08), (12.0, 0.05), (16.0, 0.075), (20.0, 0.10), (30.0, 0.30)])
+def test_clarity_tells_the_model_its_road_measured_schedule(v, delay):
+  CP = _params(CLARITY_MODIFIED_FW)
+  assert honda_eps.scheduled_lateral_delay(honda_eps.lateral_delay_schedule(CP), v) == pytest.approx(delay)
+
+
 def test_every_vehicle_tells_the_model_the_measured_schedule():
   # the Clarity's measured schedule is every car's until a measurement on that car says otherwise: the TEG and the
   # C020 have their own, and the same cars take theirs (the A030 the TEG's; the C120 and the TGG the C020's)
-  own = {"civic_teg_a010": eps_cal.CIVIC_TEG_A010_LAT_DELAY_SCHEDULE, "civic_tba_a030": eps_cal.CIVIC_TEG_A010_LAT_DELAY_SCHEDULE,
+  own = {"clarity_trw_a020": eps_cal.CLARITY_TRW_A020_ROAD_LAT_DELAY_SCHEDULE,
+         "civic_teg_a010": eps_cal.CIVIC_TEG_A010_LAT_DELAY_SCHEDULE, "civic_tba_a030": eps_cal.CIVIC_TEG_A010_LAT_DELAY_SCHEDULE,
          "civic_tba_c020": eps_cal.CIVIC_TBA_C020_LAT_DELAY_SCHEDULE, "civic_tba_c120": eps_cal.CIVIC_TBA_C020_LAT_DELAY_SCHEDULE,
          "civic_tgg_a120": eps_cal.CIVIC_TBA_C020_LAT_DELAY_SCHEDULE, "rdx_tjb_a220": eps_cal.RDX_TJB_A220_LAT_DELAY_SCHEDULE}
   for _, cal in eps_cal.EPS_FIRMWARE_CALIBRATIONS.values():

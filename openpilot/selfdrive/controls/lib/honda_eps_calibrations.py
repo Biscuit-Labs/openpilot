@@ -7,7 +7,7 @@ from opendbc.car.honda.steer_ratio import (
   HONDA_VGR_CIVIC_TBA_C020, HONDA_VGR_CIVIC_TBA_C120, HONDA_VGR_CLARITY_TRW_A020, HONDA_VGR_CRV_TLA_A040,
   HONDA_VGR_INSIGHT_TXM_A040, HONDA_VGR_INVERSE_BY_PROFILE, HONDA_VGR_RDX_TJB_A220,
 )
-from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import CLARITY_TRW_A020_LAT_DELAY_SCHEDULE, ColumnLoadModel, \
+from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import ColumnLoadModel, \
   EpsFirmwareCalibration, R6_GAIN_BP, computed_r6
 from openpilot.selfdrive.controls.lib.honda_eps_rack_map import CIVIC_TBA_C020_RACK, CIVIC_TEG_A010_RACK, CIVIC_TGG_A120_RACK, \
   CLARITY_TRW_A020_RACK, CRV_TLA_A040_RACK, INSIGHT_TXM_A040_RACK, RDX_TJB_A220_RACK, RIDGELINE_T6Z_A110_RACK
@@ -95,6 +95,13 @@ CIVIC_TEG_A010_R6_CENTRE, CIVIC_TEG_A010_R6_BP, CIVIC_TEG_A010_R6_GAIN = CIVIC_T
 INSIGHT_TXM_A040_R6_CENTRE, _, INSIGHT_TXM_A040_R6_GAIN = computed_r6(HONDA_VGR_INSIGHT_TXM_A040)
 CRV_TLA_A040_R6_CENTRE, _, CRV_TLA_A040_R6_GAIN = computed_r6(HONDA_VGR_CRV_TLA_A040)
 
+# The Clarity's own model-delay schedule (2026-11-09), shorter than the fleet default in the 12-20 m/s band. On 16
+# daytime painted bends (Light-speed 2, an action head that follows action_t about 1:1 there) the camera paint, mapped
+# along the VSA-dead-reckoned path, put the car 0.05-0.15 s ahead of the road and 0.4-0.85 m inside the lane centre at
+# the apex, with the action leading the road by the action_t it was given (0.30-0.35 s). So the told delay ran
+# 0.05-0.15 s longer than the car takes: 12 m/s 0.10 -> 0.05, 20 m/s 0.20 -> 0.10. Crawl and highway are unchanged.
+CLARITY_TRW_A020_ROAD_LAT_DELAY_SCHEDULE = ((3.5, 7.0, 12.0, 20.0, 30.0), (0.15, 0.08, 0.05, 0.10, 0.30))
+
 # Clarity 39990-TRW-A020, the P-minus-5 build (07-28, bin sha256 92cde599; P117..265 D737 KFF45 NoR6L2 Tracker3200
 # Norm1650), the Clarity standard: what routes 352/353 and the whole replay validation ran on, and the parent of the
 # A280-flat build owners move to (which edits only the A280 cells, so every table here holds). The older ClarityMax
@@ -112,7 +119,7 @@ CLARITY_TRW_A020 = EpsFirmwareCalibration(
   load=CLARITY_TRW_A020_LOAD, p_scale=CLARITY_TRW_A020_P_SCALE, i_scale=CLARITY_TRW_A020_I_SCALE,
   r5_per_key=18.04,
   cmd_delay_s=0.20, cmd_delay_highway_s=0.10,  # measured
-  lat_delay_schedule=CLARITY_TRW_A020_LAT_DELAY_SCHEDULE,  # measured
+  lat_delay_schedule=CLARITY_TRW_A020_ROAD_LAT_DELAY_SCHEDULE,  # measured against the painted road
   rack=CLARITY_TRW_A020_RACK,
 )
 

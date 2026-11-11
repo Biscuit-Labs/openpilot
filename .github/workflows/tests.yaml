@@ -167,6 +167,30 @@ jobs:
     - name: Building openpilot
       run: scons
 
+  native_build:
+    name: native build
+    # Compiles openpilot once per run. The test jobs below restore this scons cache before their own `scons`,
+    # which then copies outputs instead of compiling them: about 5 runner-minutes saved per job.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v7
+    - run: ./tools/op.sh setup
+    - name: Build openpilot
+      run: scons
+    - name: Pack the scons cache
+      run: tar -C /tmp -cf - scons_cache | zstd -T0 -3 -o "$RUNNER_TEMP/scons-cache.tar.zst"
+    - name: Share it with this run's test jobs
+      uses: actions/upload-artifact@v4
+      with:
+        name: native-build-cache-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/scons-cache.tar.zst
+        retention-days: 1
+        compression-level: 0
+        if-no-files-found: error
+
   static_analysis:
     name: static analysis
     runs-on: ${{
@@ -184,6 +208,9 @@ jobs:
 
   unit_tests:
     name: unit tests
+    needs: native_build
+    # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
+    if: ${{ !cancelled() }}
     runs-on: ${{
       (github.repository == 'commaai/openpilot') &&
       ((github.event_name != 'pull_request') ||
@@ -209,6 +236,8 @@ jobs:
       run: go mod download
     - run: ./tools/op.sh setup
       id: setup
+    - name: Restore the native build
+      uses: ./.github/workflows/restore-native-build
     - name: Build openpilot
       id: build
       run: scons
@@ -271,6 +300,7 @@ jobs:
 
   custom_pytest:
     name: custom pytest (${{ matrix.shard }})
+    needs: native_build
     if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
@@ -299,6 +329,8 @@ jobs:
       run: go mod download
     - run: ./tools/op.sh setup
       id: setup
+    - name: Restore the native build
+      uses: ./.github/workflows/restore-native-build
     - name: Build openpilot
       id: build
       run: scons
@@ -346,6 +378,9 @@ jobs:
 
   aol_lifecycles:
     name: AOL lifecycles (${{ matrix.shard }})
+    needs: native_build
+    # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -359,6 +394,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - run: ./tools/op.sh setup
+    - name: Restore the native build
+      uses: ./.github/workflows/restore-native-build
     - name: Build native host dependencies
       run: scons
     - name: Gate every assigned lifecycle module serially
@@ -423,6 +460,9 @@ jobs:
 
   vehicle_contracts:
     name: vehicle contracts (${{ matrix.suite }})
+    needs: native_build
+    # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -436,6 +476,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - run: ./tools/op.sh setup
+    - name: Restore the native build
+      uses: ./.github/workflows/restore-native-build
     - name: Build native host dependencies
       run: scons
     - name: Run explicit vehicle suite and record every result
@@ -458,6 +500,9 @@ jobs:
 
   safety_release_contracts:
     name: RELEASE vehicle contracts (${{ matrix.shard }})
+    needs: native_build
+    # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -471,6 +516,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - run: ./tools/op.sh setup
+    - name: Restore the native build
+      uses: ./.github/workflows/restore-native-build
     - name: Build native host dependencies
       run: scons
     - name: Run every assigned RELEASE target serially
@@ -578,6 +625,9 @@ jobs:
 
   process_replay:
     name: process replay
+    needs: native_build
+    # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
+    if: ${{ !cancelled() }}
     # Runs on Testing PRs too: it is cheap (~9 runner-min) and shows when a car or controls change shifts behaviour.
     runs-on: ${{
       (github.repository == 'commaai/openpilot') &&
@@ -588,6 +638,8 @@ jobs:
     steps:
     - uses: actions/checkout@v7
     - run: ./tools/op.sh setup
+    - name: Restore the native build
+      uses: ./.github/workflows/restore-native-build
     - name: Build openpilot
       run: scons
     - name: Run replay
@@ -658,7 +710,8 @@ jobs:
 
   create_ui_report:
     name: Create UI Report
-    if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
+    needs: native_build
+    if: ${{ !cancelled() && !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
     runs-on: ${{
       (github.repository == 'commaai/openpilot') &&
       ((github.event_name != 'pull_request') ||
@@ -668,6 +721,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: ./tools/op.sh setup
+      - name: Restore the native build
+        uses: ./.github/workflows/restore-native-build
       - name: Build openpilot
         run: scons
       - name: Create UI Report

@@ -203,17 +203,17 @@ def test_hold_mode_still_lifts_aleadk_while_holding():
   assert out['aLeadK'] >= -0.4
 
 
-def test_toggle_parsing_defaults_to_va(tmp_path):
+def test_toggle_parsing_defaults_to_hold(tmp_path):
   from openpilot.starpilot.longitudinal.bosch_a_toggles import CAMERA_CAP_HOLD_KEY, read_camera_cap_hold
 
   class P:
     def get_param_path(self, key):
       return str(tmp_path / key)
 
-  assert read_camera_cap_hold(P()) is False             # missing
-  for raw, expected in ((b'1', True), (b'0', False), (b'', False), (b'true', False), (b'1\n', False), (b'\xff', False),
-                        (b'1' * 9, False)):
+  assert read_camera_cap_hold(P()) is True              # missing: D+E default
+  for raw, expected in ((b'1', True), (b'0', False), (b'', True), (b'true', True), (b'0\n', True), (b'\xff', True),
+                        (b'0' * 9, True)):
     (tmp_path / CAMERA_CAP_HOLD_KEY).write_bytes(raw)
     assert read_camera_cap_hold(P()) is expected, raw
-  assert read_camera_cap_hold(None) is False
-  assert read_camera_cap_hold(object()) is False
+  assert read_camera_cap_hold(None) is True
+  assert read_camera_cap_hold(object()) is True

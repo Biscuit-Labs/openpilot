@@ -50,9 +50,9 @@ DESCRIPTIONS = {
   'BoschAHumanFollowing': ('Follows the driving model\u2019s predicted path for the car ahead instead of a straight-line guess, and ' +
                            'eases acceleration at low set speeds and near the set speed. It works with either planner and acts ' +
                            'only on Bosch-A Hondas (classic and alt-radar) with openpilot longitudinal.'),
-  'BoschACameraCapHold': ('Off is VA. On adds a 1 s tapered hold to the far-lead camera cap. It never brakes harder than VA, ' +
+  'BoschACameraCapHold': ('On (default) adds a 1 s tapered hold to the far-lead camera cap. It never brakes harder than VA, ' +
                           'softens real far slowdowns by up to about 0.4 m/s\u00b2 for up to about 2 s (replay evidence only), and ' +
-                          'cuts more residual phantoms. It acts only on verified Bosch-A Hondas with a radar.'),
+                          'cuts more residual phantoms. Off is VA, the cap without the hold. It acts only on verified Bosch-A Hondas with a radar.'),
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
   'ReverseCruise': 'Swaps the Toyota short-press and held-press cruise-speed increments.',

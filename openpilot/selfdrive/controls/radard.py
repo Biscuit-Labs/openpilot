@@ -211,7 +211,7 @@ class RadarD:
       try:
         camera_cap_hold = read_camera_cap_hold(Params())  # latched for the life of radard (C-012)
       except Exception:
-        camera_cap_hold = False
+        camera_cap_hold = True  # D+E is the default
       self.honda_bosch_a = BoschALeadPolicy(camera_cap_hold=camera_cap_hold)
     if self.honda_bosch_a is not None:
       from opendbc.car.honda.bosch_a_radar import BOSCH_A_FREQ_HZ  # the measured sweep rate (14.35 Hz), not a round 15

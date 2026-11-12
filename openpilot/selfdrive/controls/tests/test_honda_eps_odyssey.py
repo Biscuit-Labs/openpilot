@@ -71,9 +71,11 @@ def test_its_geometry_is_the_spec_constant_ratio_rack():
   assert CAL.r6_angle_gain is not None and set(CAL.r6_angle_gain) == {1.0}
   r0 = spec.spec_r0(spec.ODYSSEY_2018_SPEC, (linear, physical))
   assert r0 == pytest.approx(1.149 * 14.35, rel=1e-6)
+  assert CAL.rack is not None
   assert CAL.rack.ratio_v[0] == pytest.approx(r0, abs=0.01) and CAL.rack.slip_factor < 0.0
   CP = _params(PTM_FW, CAR.HONDA_ODYSSEY)
   rack_map = honda_eps.get_rack_map(CP, CAL)
+  assert rack_map is not None
   for v in (3.0, 15.0, 30.0):
     for angle in (-530.0, -200.0, -10.0, 4.0, 90.0, 500.0):
       assert rack_map.angle_from_curvature(rack_map.curvature_from_angle(angle, v, 0.01), v, 0.01) == pytest.approx(angle, abs=1e-3)

@@ -251,7 +251,9 @@ def stop_eased_target(prev: float, target: float, floor: float | None, dt: float
 # the car and is not modelled. The gate is tuned on three events; replay only, not driven, not yet scored on the corpus.
 # Frame counts are planner frames at 20 Hz.
 NEED_FLOOR_ENABLED = True       # switch; read at construction so a replay harness can set it before building the planner
-NEED_FLOOR_MULT = 1.15          # floor = -max(MULT * need, MIN); 1.3 gave -1.91, 0.9 gave -1.39 on seg 10. 1.15 (Peter 2026-11-11, replay only): seg 10 -1.75 (hold-only -2.23, 1.0 -1.52); seg 5 / seg 18 stops unchanged; ep1046 REAL -2.30 -> -2.72; 15 of 1141 episodes >0.05 deeper, onsets unchanged
+# 1.3 gave -1.91, 0.9 gave -1.39 on seg 10. 1.15 (Peter 2026-11-11, replay only): seg 10 -1.75 (hold-only -2.23, 1.0 -1.52); seg 5 / seg 18 stops unchanged;
+# ep1046 REAL -2.30 -> -2.72; 15 of 1141 episodes >0.05 deeper, onsets unchanged
+NEED_FLOOR_MULT = 1.15          # floor = -max(MULT * need, MIN)
 NEED_FLOOR_MIN = 0.8            # m/s^2; the shallowest the floor may be
 NEED_FLOOR_HEADWAY_S = 1.0      # s; need's gap target = vLead * this + STOP_M
 NEED_FLOOR_STOP_M = 6.0         # m

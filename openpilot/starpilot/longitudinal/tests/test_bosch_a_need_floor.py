@@ -26,7 +26,7 @@ def nf(p, ld, target, v_ego=25.0, ld2=None, reset_state=False):
 
 # steady closing moving lead: v_ego 25, vRel -3 (vLead 22), d 80: need = 9 / (2 * (80 - 28)) = 0.0865 -> floor -0.8
 def steady(**kw):
-  d = dict(d=80.0, v_rel=-3.0, a=0.0)
+  d = {'d': 80.0, 'v_rel': -3.0, 'a': 0.0}
   d.update(kw)
   return lead(**d)
 
@@ -189,7 +189,7 @@ def test_reset_state_clears_and_passes_through(monkeypatch):
 
 
 def test_disabled_or_inactive_passes_through(monkeypatch):
-  for kw in (dict(enabled=False), dict(active=False)):
+  for kw in ({'enabled': False}, {'active': False}):
     p = make(monkeypatch, **kw)
     assert p._need_floor is None
     assert run(p, steady(), 30) == -2.0
@@ -200,57 +200,75 @@ def ref_d(sticky, ld, ve, a_, emergency, MULT=None):
   MULT = hb.NEED_FLOOR_MULT if MULT is None else MULT
   """ld: list of dicts (id, radar, d, v, a) for present leads; mirrors replay_bd.py sg_w for ARM == 'D'."""
   if ld:
-    l = min(ld, key=lambda x: x['d']); vr = l['v']; d = l['d']
-    vl = ve + vr; need = max(0.0, vr * vr if vr < 0 else 0.0) / (2.0 * max(d - (max(vl, 0.0) * 1.0 + 6.0), 5.0))
+    l = min(ld, key=lambda x: x['d'])
+    vr = l['v']
+    d = l['d']
+    vl = ve + vr
+    need = max(0.0, vr * vr if vr < 0 else 0.0) / (2.0 * max(d - (max(vl, 0.0) * 1.0 + 6.0), 5.0))
     ttc = d / -vr if vr < -0.1 else float('inf')
     closing = vr < 0
     lid = (l['id'], l['radar'])
-    if closing: sticky['quiet'] = 0
-    else: sticky['quiet'] += 1
+    if closing:
+      sticky['quiet'] = 0
+    else:
+      sticky['quiet'] += 1
     if sticky['off'] and (sticky['quiet'] >= 20 or (sticky['id'] is not None and lid != sticky['id'] and sticky['d'] is not None and d > sticky['d'])):
       sticky['off'] = False
-    sticky['id'] = lid; sticky['d'] = d
+    sticky['id'] = lid
+    sticky['d'] = d
     rel_now = closing and (ttc <= 3.0 or need >= 2.0)
-    if rel_now or emergency: sticky['off'] = True
-    al = float(l.get('a', 0.0)); cond = vl >= 5.0 and al > -1.0
-    if sticky.get('gid') != lid or not cond: sticky['gcnt'] = 0
-    else: sticky['gcnt'] = sticky.get('gcnt', 0) + 1
-    sticky['gid'] = lid; gate_ok = sticky['gcnt'] >= 10
+    if rel_now or emergency:
+      sticky['off'] = True
+    al = float(l.get('a', 0.0))
+    cond = vl >= 5.0 and al > -1.0
+    if sticky.get('gid') != lid or not cond:
+      sticky['gcnt'] = 0
+    else:
+      sticky['gcnt'] = sticky.get('gcnt', 0) + 1
+    sticky['gid'] = lid
+    gate_ok = sticky['gcnt'] >= 10
     if gate_ok and closing and not sticky['off'] and ve >= 5.0 and d >= 15.0 and ttc > 3.0 and need < 2.0:
       fl = -max(MULT * need, 0.8)
-      if a_ < fl: a_ = fl
+      if a_ < fl:
+        a_ = fl
   else:
-    sticky['quiet'] += 1; sticky['gcnt'] = 0
-    if sticky['off'] and sticky['quiet'] >= 20: sticky['off'] = False
+    sticky['quiet'] += 1
+    sticky['gcnt'] = 0
+    if sticky['off'] and sticky['quiet'] >= 20:
+      sticky['off'] = False
   return a_
 
 
 def test_parity_with_reference_random_walk(monkeypatch):
   rng = random.Random(20261111)
   p = make(monkeypatch)
-  sticky = dict(off=False, quiet=0, id=None, d=None)
+  sticky = {'off': False, 'quiet': 0, 'id': None, 'd': None}
   N = 60000
-  tracks = [dict(id=1, d=70.0, v=-2.0, a=0.0, radar=1), dict(id=2, d=110.0, v=1.0, a=0.0, radar=1)]
+  tracks = [{'id': 1, 'd': 70.0, 'v': -2.0, 'a': 0.0, 'radar': 1}, {'id': 2, 'd': 110.0, 'v': 1.0, 'a': 0.0, 'radar': 1}]
   v_ego = 22.0
   emergency = False
   mismatches = binding = 0
-  for i in range(N):
+  for _i in range(N):
     v_ego = min(35.0, max(0.0, v_ego + rng.gauss(0, 0.05)))
     for t in tracks:
       t['v'] = min(6.0, max(-25.0, t['v'] + rng.gauss(0, 0.15) - 0.01 * t['v']))
       t['a'] = min(2.0, max(-4.0, t['a'] + rng.gauss(0, 0.2) - 0.05 * t['a']))
       t['d'] = max(1.0, t['d'] + t['v'] * 0.05)
       if rng.random() < 0.01:  # track swap: new id, new range
-        t['id'] += 10 + rng.randrange(5); t['d'] = rng.uniform(10.0, 140.0); t['v'] = rng.uniform(-8.0, 3.0)
+        t['id'] += 10 + rng.randrange(5)
+        t['d'] = rng.uniform(10.0, 140.0)
+        t['v'] = rng.uniform(-8.0, 3.0)
         t['radar'] = int(rng.random() < 0.8)
       if t['d'] < 6.0 or t['d'] > 160.0:
         t['d'] = rng.uniform(40.0, 120.0)
     present = [rng.random() > 0.01 for _ in tracks]
-    if rng.random() < 0.002: present = [False, False]
-    leads = [lead(t['d'], t['v'], t['a'], t['id'], bool(t['radar']), pr) for t, pr in zip(tracks, present)]
-    ref_leads = [dict(id=t['id'], radar=t['radar'], d=round(t['d'], 2), v=round(t['v'], 2), a=round(t['a'], 3))
-                 for t, pr in zip(tracks, present) if pr]
-    if rng.random() < 0.003: emergency = not emergency
+    if rng.random() < 0.002:
+      present = [False, False]
+    leads = [lead(t['d'], t['v'], t['a'], t['id'], bool(t['radar']), pr) for t, pr in zip(tracks, present, strict=False)]
+    ref_leads = [{'id': t['id'], 'radar': t['radar'], 'd': round(t['d'], 2), 'v': round(t['v'], 2), 'a': round(t['a'], 3)}
+                 for t, pr in zip(tracks, present, strict=False) if pr]
+    if rng.random() < 0.003:
+      emergency = not emergency
     target = rng.choice([-3.0, -2.0, -1.5, -0.9, -0.5, 0.0, 0.4]) if rng.random() < 0.3 else rng.uniform(-3.0, 0.5)
     p.emergency = emergency
     got = p.need_floor(lead_one=leads[0], lead_two=leads[1], target=target, v_ego=v_ego, reset_state=False)

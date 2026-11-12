@@ -146,9 +146,10 @@ class DriveStatsTest(unittest.TestCase):
 
   def test_complete_aggregation_week_models_and_exclusion_persist(self):
     owner = self.owner()
-    owner._start()
+    # Before the scan starts: the worker can finish before a snapshot taken right after _start().
     initial = owner.snapshot()
     self.assertEqual(initial['totals']['drives'], 0)
+    owner._start()
     result = self.completed(owner)
     self.assertEqual(result['totals']['distanceMeters'], 1000)
     self.assertEqual(result['totals']['engagedSeconds'], 30)

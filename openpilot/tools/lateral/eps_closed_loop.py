@@ -34,17 +34,13 @@ from opendbc.car.honda.steer_ratio import HONDA_VGR_INVERSE_BY_PROFILE
 from openpilot.cereal import log
 from openpilot.selfdrive.controls.lib import honda_eps_calibrations as C
 from openpilot.selfdrive.controls.lib import honda_eps_firmware_ff as F
+from openpilot.selfdrive.controls.lib.honda_eps_column_plant import DT, OPEN_LOOP_FRAMES, Plant, band, open_loop_window
 from openpilot.selfdrive.controls.lib.honda_eps_rack_map import HondaEpsRackMap
 
 MPH = 0.44704
 # interface.py, every modified-EPS Honda
 KP = ([0., 25 * MPH - 1e-3, 25 * MPH, 50 * MPH], [0.018, 0.024, 0.048, 0.060])
 KI = ([0., 25 * MPH - 1e-3, 25 * MPH, 50 * MPH], [0.006, 0.008, 0.016, 0.020])
-DT, SUB = 0.01, 20  # 100 Hz controller, 2 kHz plant
-TRACKER_TAU = 0.0195  # s, tracker-1 at its Route-A / P-minus-5 setting (KB TRACKER1_TIMING.md)
-# The Ridgeline's rate feedback filter instead: the 7/8 IIR in its 4 kHz motor task (1.9 ms) and the c6/c8 IIR in its 1 kHz
-# control task (6.6 ms), FUN_0002e2b6 / FUN_00035fc8
-TRACKER_TAU_BY_CALIBRATION = {"ridgeline_t6z_a110": 0.0085}
 
 
 def seg(p):
@@ -103,33 +99,6 @@ def read_route(pattern, rack=None):
   return d
 
 
-class Plant:
-  def __init__(self, cal, j, sensor_delay):
-    self.cal, self.L, self.j = cal, cal.load, j
-    self.trk = (DT / SUB) / (TRACKER_TAU_BY_CALIBRATION.get(cal.name, TRACKER_TAU) + DT / SUB)
-    self.nd = int(round(sensor_delay / DT))
-    self.reset(0.0, 0.0)
-
-  def reset(self, th, thd):
-    self.th, self.thd = th, thd
-    self.ref = F.firmware_r6(thd, th, self.cal)
-    self.hist = deque([th] * self.nd)
-
-  def frame(self, e4, v, roll):
-    cal, L, h = self.cal, self.L, DT / SUB
-    r5 = F.r5_from_output(-e4 / cal.e4_per_output, v, cal)
-    kp = F.firmware_kp(r5, cal)
-    g = 1.0 if cal.r6_angle_bp is None else float(np.interp(abs(self.th), cal.r6_angle_bp, cal.r6_angle_gain))
-    k_ang, bias = L.k0 + L.k1 * v * v, L.bias + L.kroll * roll * v * v
-    for _ in range(SUB):
-      self.ref += self.trk * (max(min(cal.r6_per_deg_s * g * self.thd, F.R6_CLAMP), -F.R6_CLAMP) - self.ref)
-      fw = F.firmware_law(r5, self.ref, kp, cal)
-      self.thd += h * (fw - k_ang * self.th - L.c * self.thd - bias - L.friction * math.tanh(self.thd / 2.0)) / self.j
-      self.th += h * self.thd
-    self.hist.append(self.th)
-    return self.hist.popleft()
-
-
 def windows(d, min_len):
   ok = (d['lat'] > .5) & (d['pr'] < .5) & (d['v'] > 3.0) & np.isfinite(d['des']) & (np.abs(d['tq']) < 600)
   out, s = [], None
@@ -141,13 +110,6 @@ def windows(d, min_len):
         out.append((s, k))
       s = None
   return out
-
-
-def band(x, lo, hi):
-  X = np.fft.rfft(x - x.mean())
-  f = np.fft.rfftfreq(len(x), DT)
-  X[(f < lo) | (f > hi)] = 0
-  return np.fft.irfft(X, len(x))
 
 
 def closed_loop(d, wins, cal, plant, cmd_lag):
@@ -180,17 +142,15 @@ def loop_gain(d, angle, wins, vlo, vhi, lo=1.0, hi=2.0, warm=200):
   return math.sqrt(num / den), float(np.sqrt(np.mean(np.concatenate(err) ** 2)))
 
 
-def open_loop(d, plant, cmd_lag, vlo, vhi, n=2000):
+def open_loop(d, plant, cmd_lag, vlo, vhi, n=OPEN_LOOP_FRAMES):
   gains, corrs = [], []
   for s, e in windows(d, n):
     for a in range(s, e - n, n):
       if not (vlo <= d['v'][a:a + n].mean() < vhi):
         continue
-      plant.reset(float(d['angle'][a]), float(d['rate'][a]))
-      y = np.array([plant.frame(d['e4'][k - cmd_lag], d['v'][k], d['roll'][k]) for k in range(a, a + n)])
-      yb, mb = band(y, 0.6, 2.5), band(d['angle'][a:a + n], 0.6, 2.5)
-      gains.append(np.std(yb) / max(np.std(mb), 1e-6))
-      corrs.append(np.corrcoef(yb, mb)[0, 1])
+      g, c = open_loop_window(plant, d['e4'][a - cmd_lag:a + n - cmd_lag], d['v'][a:a + n], d['roll'][a:a + n], d['angle'][a:a + n], d['rate'][a])
+      gains.append(g)
+      corrs.append(c)
   return len(gains), (float(np.median(gains)) if gains else float('nan')), (float(np.median(corrs)) if corrs else float('nan'))
 
 

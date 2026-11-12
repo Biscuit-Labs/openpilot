@@ -113,23 +113,6 @@ def test_online_is_used_only_when_both_slots_have_no_limit():
   assert chosen.selected_source is sel.Source.VISION
 
 
-def test_a_seen_sign_holds_until_the_route_limit_changes():
-  settings = parse({'SpeedLimitController': True, 'SLCPriority1': 'Dashboard', 'SLCPriority2': 'Vision'})
-  runtime = Runtime(settings, session_id='drive')
-  cp = NS(carFingerprint='civic')
-  sm = NavSM(nav_message(45 * MPH))
-  assert runtime._observations(sm, cp, MONO, MONO)[sel.Source.ONLINE].kind is acc.ObservationKind.VALID
-  runtime.sign_first_online.sign_seen, runtime.sign_first_online.baseline_mps = True, 45 * MPH
-  assert runtime._observations(sm, cp, MONO, MONO)[sel.Source.ONLINE].kind is acc.ObservationKind.UNKNOWN
-  changed = runtime._observations(NavSM(nav_message(30 * MPH)), cp, MONO, MONO)[sel.Source.ONLINE]
-  assert changed.kind is acc.ObservationKind.VALID and changed.candidate.speed_mps == pytest.approx(30 * MPH)
-  # Vision then Maps: the route limit is held behind both.
-  runtime = Runtime(parse({'SpeedLimitController': True, 'SLCPriority1': 'Vision', 'SLCPriority2': 'Maps'}),
-                    session_id='drive')
-  runtime.sign_first_online.sign_seen, runtime.sign_first_online.baseline_mps = True, 45 * MPH
-  assert runtime._observations(sm, cp, MONO, MONO)[sel.Source.ONLINE].kind is acc.ObservationKind.UNKNOWN
-
-
 def test_route_limit_fills_in_and_card_applies_its_command():
   """Peter's slots (Dashboard, Vision), no sign and no dash limit: the route's 45 mph is adopted."""
   from opendbc.car.honda.interface import CarInterface

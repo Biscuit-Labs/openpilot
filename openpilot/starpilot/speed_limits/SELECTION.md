@@ -63,7 +63,5 @@ limit of the segment the car is matched to as `starpilotNavigation.speedLimit`
 0. `navigation_observation.py` turns that into the online observation: absent when
 not guiding, stale past 3 s, unknown at 0. `online_fallback` is now on, so the
 route limit is used only when neither priority slot has an eligible limit, and
-the sign shows "NAV". When Vision is in a slot, the route limit is held behind a
-sign seen this drive until the route's limit changes from its value at the sign
-(the same `SignFirst` rule as the map). Evidence: static tests only
+the sign shows "NAV". Evidence: static tests only
 (`tests/test_navigation_limit.py`); not yet replayed on a navigated drive.

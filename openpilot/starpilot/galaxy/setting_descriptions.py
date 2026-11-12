@@ -9,6 +9,8 @@ from openpilot.starpilot.ui.feature_settings_state import SLC_OFFSET_KEYS
 DESCRIPTIONS = {
   'DisengageOnAccelerator': 'When enabled, pressing the accelerator pedal will disengage openpilot.',
   'ReduceMotion': 'Reduces interface animations for a steadier display.',
+  'RadarPoints': ('Draws a dot on the road view for every point the radar reports, on vehicles whose radar is read. ' +
+                  'Display only; it does not change how the car drives.'),
   'IsMetric': 'On displays speed and distance in kilometers; Off uses miles. Saved speed-limit offsets keep their physical values.',
   'IsRhdDetected': 'Sets the initial steering-wheel side used by driver monitoring. Applies next drive; automatic side detection continues.',
   'lane_change:turn_signal_guidance': 'Uses your turn signal to help the model choose a turning path at intersections.',

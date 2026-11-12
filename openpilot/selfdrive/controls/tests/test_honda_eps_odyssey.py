@@ -68,7 +68,7 @@ def test_kp_is_the_clarity_rule_on_thrs_own_knots():
 def test_its_geometry_is_the_spec_constant_ratio_rack():
   linear, physical = sr.HONDA_VGR_INVERSE_BY_PROFILE[sr.HONDA_VGR_ODYSSEY_THR_A020]
   assert list(linear) == list(physical)
-  assert set(CAL.r6_angle_gain) == {1.0}
+  assert CAL.r6_angle_gain is not None and set(CAL.r6_angle_gain) == {1.0}
   r0 = spec.spec_r0(spec.ODYSSEY_2018_SPEC, (linear, physical))
   assert r0 == pytest.approx(1.149 * 14.35, rel=1e-6)
   assert CAL.rack.ratio_v[0] == pytest.approx(r0, abs=0.01) and CAL.rack.slip_factor < 0.0

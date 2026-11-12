@@ -183,6 +183,7 @@ def test_settings_row_saves_only_while_parked_and_keeps_the_layout(tmp_path, pro
   assert row().value == "On"
   assert not owner.apply(request)  # the source it was made from is gone
   request = row_change(row(), -1)
+  assert request is not None
   parked = False
   assert not owner.apply(request) and not row().available
   parked = True

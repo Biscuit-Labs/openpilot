@@ -31,6 +31,8 @@ DESCRIPTIONS = {
   'LaneCenterOffset': 'Moves the lane-centering target left or right of the detected lane center.',
   'LaneCenteringE2EAuthority': 'Lets a confident driving-model path reduce lane-centering correction when the model path differs from the lane center.',
   'LaneCenteringStrength': 'Sets the strength of lane-centering correction. 100% is normal; higher values strengthen it.',
+  'Blendful': ('Adds a gentle nudge toward lane center on top of the driving model steering, stronger when lane lines are clear. ' +
+               'Yields around obstacles. Not available with the Default model, and turns Lane Centering off.'),
   'PauseLateralSpeed': 'Pauses steering assistance below this speed. Zero disables the speed-based pause.',
   'PauseLateralOnSignal': 'Limits the low-speed steering pause to times when a turn signal is on.',
   'LateralResumeDelay': 'Waits before resuming steering after signaling ends, if speed fell below half the steering-pause threshold.',
@@ -50,6 +52,9 @@ DESCRIPTIONS = {
   'BoschAHumanFollowing': ('Follows the driving model\u2019s predicted path for the car ahead instead of a straight-line guess, and ' +
                            'eases acceleration at low set speeds and near the set speed. It works with either planner and acts ' +
                            'only on Bosch-A Hondas (classic and alt-radar) with openpilot longitudinal.'),
+  'BoschACameraCapHold': ('On (default) adds a 1 s tapered hold to the far-lead camera cap. It never brakes harder than VA, ' +
+                          'softens real far slowdowns by up to about 0.4 m/s\u00b2 for up to about 2 s (replay evidence only), and ' +
+                          'cuts more residual phantoms. Off is VA, the cap without the hold. It acts only on verified Bosch-A Hondas with a radar.'),
   'CustomCruise': 'Sets how much a short cruise-button press changes the set speed.',
   'CustomCruiseLong': 'Sets how much holding a cruise button changes the set speed.',
   'ReverseCruise': 'Swaps the Toyota short-press and held-press cruise-speed increments.',
@@ -184,6 +189,7 @@ INITIALIZATION = {
   'UseStarPilotLongitudinalPlanner': 'Applies when the planner next starts: each choice runs a different planner process with its own subscriptions and state.',
   'BoschAStockBrakeFeel': 'Applies on the next drive: the planner reads this setting once when it starts.',
   'BoschAHumanFollowing': 'Applies on the next drive: the planner reads this setting once when it starts.',
+  'BoschACameraCapHold': 'Applies on the next drive: radard reads this setting once when it starts.',
   'TurnAssist': ('Applies when driving processes next start: the selected torque controller creates its ' +
     'low-speed feedback controller and filter state at initialization.'),
   'ToyotaRadarMode': 'Chooses the supported Toyota front radar configuration, including the optional ARS510 retrofit.',

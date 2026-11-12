@@ -85,6 +85,18 @@ jobs:
           bash -n "$script"
         done
 
+  params_registry:
+    name: params registry
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@v7
+    # The committed aarch64 libparams_c.so must hold every key in params_keys.h with the same type and default.
+    # A pull request that adds a key without rebuilding it crashes on the device with UnknownKeyName (#80, #82).
+    - name: Check committed params binary against params_keys.h
+      run: python3 tools/laptop_device_build/validate_params_registry.py .
+
   build_release:
     name: build release
     runs-on: ubuntu-24.04-arm

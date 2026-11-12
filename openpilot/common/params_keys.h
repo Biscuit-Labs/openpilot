@@ -403,6 +403,10 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // fixed by design; no settings UI
+    // Shadow car learner (selfdrive/controls/honda_eps_learnerd.py): it measures and publishes, nothing reads it back
+    {"HondaEpsLearner", {PERSISTENT, BOOL, "0"}},
+    {"HondaEpsLearnerReset", {PERSISTENT, BOOL, "0"}},  // set to start the learner over; the daemon clears it
+    {"HondaEpsLearnerResult", {PERSISTENT, JSON}},  // per part: state, reason, frozen value or candidate (logged in initData)
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
     {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "1"}},  // on unless set off (vfn seeded it on at first start)
     {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.01"}},

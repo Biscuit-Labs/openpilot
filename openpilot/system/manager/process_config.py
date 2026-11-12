@@ -78,6 +78,12 @@ def steering_learning(started: bool, params: Params, CP: car.CarParams) -> bool:
   preference = read_preference(params, CP)
   return preference.valid and preference.enabled
 
+def honda_eps_learner(started: bool, params: Params, CP: car.CarParams) -> bool:
+  if not started or CP.brand != "honda":
+    return False
+  from openpilot.selfdrive.controls.honda_eps_learnerd import should_run
+  return should_run(params, CP)
+
 def vision_slc_development(started: bool, params: Params, CP: car.CarParams) -> bool:
   from openpilot.starpilot.feature_runtime import enabled as feature_enabled
   return started and feature_enabled(params, CP, 'slc', os.environ) and feature_enabled(params, CP, 'vision', os.environ)
@@ -191,6 +197,7 @@ procs = [
   PythonProcess("pandad", "openpilot.selfdrive.pandad.pandad", always_run),
   PythonProcess("paramsd", "openpilot.selfdrive.locationd.paramsd", only_onroad),
   PythonProcess("lagd", "openpilot.selfdrive.locationd.lagd", only_onroad),
+  PythonProcess("honda_eps_learnerd", "openpilot.selfdrive.controls.honda_eps_learnerd", honda_eps_learner),
   PythonProcess("ubloxd", "openpilot.system.ubloxd.ubloxd", ublox, enabled=COMMA_HARDWARE),
   PythonProcess("pigeond", "openpilot.system.ubloxd.pigeond", ublox, enabled=COMMA_HARDWARE),
   PythonProcess("plannerd", "openpilot.selfdrive.controls.plannerd", not_long_maneuver),

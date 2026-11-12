@@ -3,6 +3,8 @@
 
 Target: the firmware's own output, in the counts the feedforward works in, taken from the EPS telemetry where the car
 has a telemetry build, or rebuilt from the sent 0xE4 through the calibration's firmware law where it has none.
+The on-device learner (selfdrive/controls/lib/honda_eps_car_learner.py) runs this recipe from the same target and
+regressors, with the driver's torque as one more regressor in place of the tight torque cap.
 Frames: engaged, not pressed, moving (v > 1 m/s), and inside the driver-torque range where the firmware does not
 yield (the scale word >= 240 on the Clarity; a |steeringTorque| cap elsewhere), so resting-hand turns are kept.
 Regressors: k0*th + k1*th*v^2 + c*thd + fr*tanh(thd/2) + j*thdd + bias + kroll*roll*v^2, with th the offset-corrected
@@ -27,8 +29,8 @@ import numpy as np
 import zstandard as zstd
 
 from openpilot.cereal import log
-from openpilot.selfdrive.controls.lib import honda_eps_firmware_ff as eps_ff
 from openpilot.selfdrive.controls.lib import honda_eps_calibrations as eps_cal
+from openpilot.selfdrive.controls.lib.honda_eps_car_learner import firmware_target, load_regressors
 
 NAMES = ('k0', 'k1', 'c', 'friction', 'j', 'bias', 'kroll')
 s16 = lambda b, i: struct.unpack('>h', b[i:i + 2])[0]  # noqa: E731
@@ -86,8 +88,7 @@ def target(d, source, cal):
   if source != 'e4':
     return d['y'], d['fresh'] > 0.5
   # rebuild: what the firmware law gives for the command it was sent, at the rate and angle the wheel had
-  y = np.array([eps_ff.firmware_output(eps_ff.r5_from_output(-e4 / cal.e4_per_output, v, cal), r, cal, a)
-                for e4, v, r, a in zip(d['e4'], d['v'], d['rate'], d['ang'], strict=True)])
+  y = firmware_target(d['e4'], d['v'], d['rate'], d['ang'], cal)
   return y, np.ones(len(y), bool)
 
 
@@ -101,7 +102,7 @@ def rows(d, y, ok, source, max_torque, shift):
   idx = idx[(idx + shift < len(m)) & (idx > 5)]
   th, thd, thdd = d['ang'][idx + shift], rate[idx + shift], acc[idx + shift]
   v, ro = d['v'][idx + shift], d['roll'][idx + shift]
-  X = np.column_stack([th, th * v ** 2, thd, np.tanh(thd / 2.0), thdd, np.ones_like(th), ro * v ** 2])
+  X = load_regressors(th, thd, thdd, v, ro)
   good = np.all(np.isfinite(X), 1)
   return X[good], y[idx][good]
 

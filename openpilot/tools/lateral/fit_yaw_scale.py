@@ -4,7 +4,9 @@
 Pairs of GPS fixes 10-40 s apart, both on a straight (|yaw| <= ~0.25 deg/s over 2 s), so GPS bearing lag and
 sideslip cancel at the ends; the heading change between them is fitted against the integral of the raw counts.
 The zero is the mean count at standstill on each drive. Fits one scale plus a clockwise (right-turn) correction
-ramped in over RIGHT_LOSS_BP counts, the form opendbc/car/honda/yaw_rate.py decodes with.
+ramped in over RIGHT_LOSS_BP counts, the form opendbc/car/honda/yaw_rate.py decodes with. That two-term fit moves with
+the zero (0.2 counts took the CR-V A040 from 0.2421 + 0.44 to 0.2487 + 0.14), so the same fit with a zero term is
+printed next to it.
 
   fit_yaw_scale.py --bus 1 '<route dir>/rlog*' ['<another route>' ...]
 """
@@ -18,8 +20,7 @@ import zstandard as zstd
 
 from openpilot.cereal import log
 from opendbc.car.honda.yaw_rate import RIGHT_LOSS_BP
-
-GPS_LAG = 0.4  # s, GPS bearing behind the car
+from openpilot.selfdrive.controls.lib.honda_eps_car_learner import GPS_LAG, YAW_PAIR_S, straight_pairs
 
 
 def seg(p):
@@ -62,21 +63,11 @@ def pairs(Y, G, V):
   smooth = np.convolve(k, np.ones(200) / 200, 'same')
   gs = G[(G[:, 2] > 5) & (G[:, 3] < 3)]
   gs = gs[np.abs(np.interp(gs[:, 0] - GPS_LAG, t, smooth)) <= 1.0]
-  rows = []
-  for i in range(len(gs)):
-    for j in range(i + 1, len(gs)):
-      T = gs[j, 0] - gs[i, 0]
-      if T < 10:
-        continue
-      if T > 40:
-        break
-      ends = [gs[i, 0] - GPS_LAG, gs[j, 0] - GPS_LAG]
-      dk, dr = np.diff(np.interp(ends, t, ck))[0], np.diff(np.interp(ends, t, cr))[0]
-      dh = gs[j, 1] - gs[i, 1]
-      dh += 360 * np.round((0.245 * dk - dh) / 360)
-      if abs(dh) >= 30:
-        rows.append((dh, dk, dr))
-  return zero, np.array(rows)
+  ends = gs[:, 0] - GPS_LAG
+  fixes = list(zip(ends, gs[:, 1], np.interp(ends, t, ck), np.interp(ends, t, cr), strict=True))
+  first = np.searchsorted(ends, ends - YAW_PAIR_S[1])
+  rows = [r for j, fix in enumerate(fixes) for r in straight_pairs(fixes[first[j]:j], fix, 0.245)]
+  return zero, np.array(rows).reshape(-1, 4)
 
 
 def main():
@@ -99,11 +90,15 @@ def main():
   R = np.vstack(allr)
   one = np.linalg.lstsq(R[:, 1:2], R[:, 0], rcond=None)[0]
   two = np.linalg.lstsq(R[:, 1:3], R[:, 0], rcond=None)[0]
+  three = np.linalg.lstsq(R[:, 1:4], R[:, 0], rcond=None)[0]
   def rms(c, A):
     return np.sqrt(np.mean((R[:, 0] - A @ c) ** 2))
   right, left = R[:, 0] > 0, R[:, 0] < 0
   print(f'\n{len(R)} pairs: one scale {one[0]:.4f} (rms {rms(one, R[:, 1:2]):.2f} deg); ' +
         f'scale {two[0]:.4f} + clockwise {two[1]:.3f} deg/s (rms {rms(two, R[:, 1:3]):.2f} deg)')
+  # a zero error is a heading drift per second of pair; fitted with the others, the answer no longer moves with it
+  print(f'  with a zero term: scale {three[0]:.4f} + clockwise {three[1]:.3f} deg/s, zero error {three[2] / three[0]:+.3f} counts ' +
+        f'(rms {rms(three, R[:, 1:4]):.2f} deg): the on-device learner fits this form')
   for name, m in (('right-dominant', right), ('left-dominant', left)):
     if m.sum() >= 10:
       print(f'  {name}: scale {np.linalg.lstsq(R[m, 1:2], R[m, 0], rcond=None)[0][0]:.4f} ({m.sum()} pairs)')

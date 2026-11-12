@@ -23,8 +23,9 @@ from openpilot.cereal import log
 from opendbc.car.honda.steer_ratio import HONDA_VGR_INVERSE_BY_PROFILE
 from opendbc.car.honda.values import CAR
 from opendbc.car.honda.yaw_rate import RIGHT_LOSS_BP
+from openpilot.selfdrive.controls.lib.honda_eps_car_learner import RackMapFit, rack_samples
+from openpilot.selfdrive.controls.lib.honda_eps_rack_map import GRAVITY
 
-G = 9.81
 LATERAL_COMMON = os.path.join(os.path.dirname(__file__), '..', '..', 'selfdrive', 'controls', 'lib', 'honda_lateral_common.py')
 
 
@@ -39,11 +40,6 @@ def road_curves():
       except Exception:
         pass
   return env.get('HONDA_SR_CURVE_BY_FP', {})
-
-
-WHEEL_TO_YAW_LAG = ([3.75, 7.0, 12.0, 20.0, 30.0], [0.08, 0.06, 0.06, 0.08, 0.10])  # s, measured on the Clarity
-EDGES = [3, 10, 20, 45, 70, 100, 150, 200, 260, 350, 450]   # |wheel angle| bands, deg
-VB = [2.5, 5, 7, 9, 12, 15, 20, 25, 40]                     # speed bands, m/s
 
 
 def seg(p):
@@ -81,88 +77,16 @@ def samples(d, scale, right):
   counts = d['y'] - zero
   ramp = np.clip((counts - RIGHT_LOSS_BP[0]) / (RIGHT_LOSS_BP[1] - RIGHT_LOSS_BP[0]), 0.0, 1.0)
   yaw = -np.radians(counts * scale + right * ramp)            # clockwise-positive decode -> left-positive like the wheel
-  k = np.convolve(yaw, np.ones(10) / 10, 'same') / np.maximum(v, 0.1)
-  angle = np.interp(t - np.interp(v, *WHEEL_TO_YAW_LAG), t, d['angle'] - d['off'])
-  m = ok & (v > 2.5) & (np.abs(d['a']) < 2) & (np.abs(d['rate']) < 120) & (np.abs(angle) >= 3) & (np.sign(k) == np.sign(angle))
-  idx = np.flatnonzero(m)[::5]
+  idx, angle, k = rack_samples(t, v, d['a'], d['rate'], d['angle'] - d['off'], np.where(ok, yaw, np.nan), d['roll'])
   return zero, np.c_[v[idx], angle[idx], k[idx], d['roll'][idx]]
 
 
-class Fit:
-  def __init__(self, vgr_inverse, wheelbase):
-    self.lin_bp, self.phy_bp = (np.asarray(x, float) for x in vgr_inverse)
-    self.L = wheelbase
-
-  def to_lin(self, phys):
-    return np.sign(phys) * np.interp(np.abs(phys), self.phy_bp, self.lin_bp)
-
-  def y(self, D, sf):
-    v, th, k, ro = D.T
-    return np.radians(self.to_lin(th)) / (self.L * (k * (1 - sf * v ** 2) - G * sf * ro))
-
-  def cells(self, D, sf):
-    v, th = D[:, 0], D[:, 1]
-    y = self.y(D, sf)
-    A, out = np.abs(th), {}
-    for bi, (a0, a1) in enumerate(zip(EDGES[:-1], EDGES[1:], strict=True)):
-      for vi, (v0, v1) in enumerate(zip(VB[:-1], VB[1:], strict=True)):
-        m = (A >= a0) & (A < a1) & (v >= v0) & (v < v1) & (y > 5) & (y < 40)
-        lft, rgt = m & (th > 0), m & (th < 0)
-        if lft.sum() >= 40 and rgt.sum() >= 40:
-          out[(bi, vi)] = (0.5 * (np.median(y[lft]) + np.median(y[rgt])), min(lft.sum(), rgt.sum()))
-    return out
-
-  def spread(self, D, sf):
-    c = self.cells(D, sf)
-    err = w = 0.0
-    for b in range(len(EDGES) - 1):
-      cs = [(val, n) for (bi, _), (val, n) in c.items() if bi == b]
-      if len(cs) < 2:
-        continue
-      vals, ns = np.array([x[0] for x in cs]), np.sqrt([x[1] for x in cs])
-      mu = np.average(vals, weights=ns)
-      err += np.sum(ns * (vals / mu - 1) ** 2)
-      w += ns.sum()
-    return err / w if w else float('nan')
-
-  def fit_sf(self, D):
-    sfs = np.arange(-0.0012, 0.0002, 0.00005)
-    sp = [self.spread(D, s) for s in sfs]
-    i = int(np.argmin(sp))
-    if 0 < i < len(sfs) - 1:
-      a, b, _ = np.polyfit(sfs[i - 1:i + 2], sp[i - 1:i + 2], 2)
-      return round(float(-b / (2 * a)), 5)
-    return round(float(sfs[i]), 5)
-
-  def table(self, D, sf):
-    th, y = D[:, 1], self.y(D, sf)
-    bp, val, n = [], [], []
-    for a0, a1 in zip(EDGES[:-1], EDGES[1:], strict=True):
-      m = (np.abs(th) >= a0) & (np.abs(th) < a1) & (y > 5) & (y < 40)
-      lft, rgt = m & (th > 0), m & (th < 0)
-      if lft.sum() > 60 and rgt.sum() > 60:
-        bp.append(float(np.median(np.abs(th[m]))))
-        val.append(0.5 * (np.median(y[lft]) + np.median(y[rgt])))
-        n.append(int(m.sum()))
-    # a rack's effective ratio cannot rise off centre: pool upward violations (as the road curves were built)
-    val = list(val)
-    for i in range(1, len(val)):
-      if val[i] > val[i - 1]:
-        val[i] = val[i - 1] = (val[i] * n[i] + val[i - 1] * n[i - 1]) / (n[i] + n[i - 1])
-        for j in range(i - 1, 0, -1):
-          if val[j] > val[j - 1]:
-            val[j] = val[j - 1] = (val[j] + val[j - 1]) / 2
-    return bp, val, n
-
-  def predict_map(self, D, sf, bp, val):
-    v, th, k, ro = D.T
-    R = np.interp(np.abs(th), bp, val)
-    return (np.radians(self.to_lin(th)) / (R * self.L) + G * sf * ro) / (1 - sf * v ** 2)
-
+class Fit(RackMapFit):
+  """The learner's fit (it is the same code on the device), plus the road curve it is scored against here."""
   def predict_curve(self, D, curve, sf_vm=-0.00061):
     v, th, k, ro = D.T
     sr = np.interp(np.abs(th), *curve)
-    return (np.radians(th) / (sr * self.L) + G * sf_vm * ro) / (1 - sf_vm * v ** 2)
+    return (np.radians(th) / (sr * self.L) + GRAVITY * sf_vm * ro) / (1 - sf_vm * v ** 2)
 
 
 def score(D, pred, label):

@@ -296,6 +296,7 @@ CRV_TLA_A040 = EpsFirmwareCalibration(
   kp_key_bp=tuple(round(k * 4096 / 3840) for k in CLARITY_TRW_A020_P_KEYS), kp_v=P_ROW_PMINUS5,
   r6_per_deg_s=CRV_TLA_A040_R6_CENTRE, r6_angle_bp=R6_GAIN_BP, r6_angle_gain=CRV_TLA_A040_R6_GAIN,
   load=CRV_TLA_A040_LOAD, p_scale=CRV_TLA_A040_P_SCALE, i_scale=CRV_TLA_A040_I_SCALE,
+  cmd_delay_s=0.18,  # measured
   rack=CRV_TLA_A040_RACK,
 )
 # CR-V 5G 39990-TLA-A220 (2020+), the CORRECTED PTM build of 2026-10-16, revision b (payload sha256 a62337a9, RWD 2c992997;
@@ -593,7 +594,7 @@ CALIBRATION_PROVENANCE = {
     "r6": "firmware: computed from its A table; the owner's telemetry fit (route 82bb) agrees at centre",
     "load": "measured: the owner's telemetry route 82bb",
     "trims": "measured: the owner drives it untrimmed",
-    "cmd_delay": "default (the owner's LatControlPID drive ran 0.08 s late: re-check on this controller)",
+    "cmd_delay": "measured: plan_timing 5-12 m/s on 7 routes (02/03/04/05/0a/0b/15) 0.07 s early with 0.12 s (Nov 7/12 0.11-0.15); highway unmeasured",
     "model_delay": "default: the Clarity's schedule",
     "rack": "measured: VSA yaw (GPS-checked scale), routes 00000003 / 04 / 05 on rev b; spec shape past 173 deg",
   },

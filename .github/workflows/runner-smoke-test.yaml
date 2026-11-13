@@ -22,5 +22,13 @@ jobs:
           echo "which git : $(command -v git)"
           git --version
           echo "exec-path : $(git --exec-path)"
+      - name: Toolchain check
+        run: |
+          echo "gcc   : $(gcc --version 2>&1 | head -1)"
+          echo "g++   : $(g++ --version 2>&1 | head -1)"
+          echo "make  : $(make --version 2>&1 | head -1)"
+          echo "go    : $(go version 2>&1)"
+          echo "uv    : $(uv --version 2>&1)"
+          echo "scons : $(scons --version 2>&1 | sed -n 2p)"
       - name: Checkout (proves actions/checkout works with local git)
         uses: actions/checkout@v7

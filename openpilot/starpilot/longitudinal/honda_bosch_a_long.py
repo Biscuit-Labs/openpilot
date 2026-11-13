@@ -14,7 +14,8 @@ Contents:
   takeover hold, lead-stop law (<= 20 s) and the emergency latch.
 - Stop ease (planner side): the brake eases toward about -0.5 m/s^2 at the stop when there is room.
 - Need floor (2026-11-11, NEED_FLOOR_ENABLED, on; replay only): need_floor() raises a braking target to -max(need, 0.8)
-  for a steady closing moving lead, after smooth and stop gap; called from longitudinal_planner.py only.
+  for a steady closing moving lead, after smooth and stop gap; called from longitudinal_planner.py only. It acts only at
+  a gap of at least 1.5 s of headway (NEED_FLOOR_MIN_GAP_ENABLED, on; static tests, replay on a different stack pending).
 
 The planner calls `step()` once per cycle, after every other target owner and before the final clip. Every limit
 here only shapes how a brake builds or lets off; the emergency latch passes the planner's target through untouched,
@@ -266,6 +267,12 @@ NEED_FLOOR_GATE_V_LEAD = 5.0    # m/s; lead must be moving (stopped leads at 5:3
 NEED_FLOOR_GATE_A_LEAD = -1.0   # m/s^2; lead's aLeadK must be above this (not itself braking hard)
 NEED_FLOOR_GATE_FRAMES = 10     # consecutive frames of the gate on one (track id, radar flag): 0.5 s
 NEED_FLOOR_QUIET_FRAMES = 20    # frames with no lead closing before the sticky-off clears: 1.0 s
+# Min-gap gate. Owner 2026-11-11 (via Bob), scorecard ep645, route 000000ae seg 81: gap 22 m at 16.0 m/s (1.37 s), closing 2.2 m/s;
+# floor -0.80 vs hold -1.19, owner wants the floor not to soften a lead this close. Evidence level: static tests + replay on a
+# different stack pending; Peter turned it on on his car 2026-11-12. No Param: this module switch is read at construction (like
+# NEED_FLOOR_ENABLED) so a replay harness can set it before building the planner.
+NEED_FLOOR_MIN_GAP_ENABLED = True
+NEED_FLOOR_MIN_GAP_S = 1.5      # s; with the gate on the floor applies only at d >= v_ego * this (evaluated every frame, not sticky)
 
 
 class NeedFloor:
@@ -282,7 +289,10 @@ class NeedFloor:
   count 0, sticky clears at QUIET_FRAMES. Called after bosch_a_stop_gap.step in longitudinal_planner.py only; it is not
   in starpilot/longitudinal/upstream/planner.py. Parity target: the ARM 'D' block of replay_bd.py (Job's scorecard
   harness), including its rounding of the lead fields (d and vRel to 0.01, aLeadK to 0.001). Replay only."""
-  def __init__(self):
+  def __init__(self, min_gap: bool = False):
+    """`min_gap` (NEED_FLOOR_MIN_GAP_ENABLED, passed by HondaBoschALongEnhancement): also require d >= v_ego *
+    NEED_FLOOR_MIN_GAP_S, re-evaluated every frame; it never touches gate_count, off or quiet."""
+    self.min_gap = min_gap is True
     self.reset()
 
   def reset(self):
@@ -332,7 +342,8 @@ class NeedFloor:
       self.gate_count += 1
     self.gate_id = lid
     if (self.gate_count >= NEED_FLOOR_GATE_FRAMES and closing and not self.off and v_ego >= NEED_FLOOR_MIN_V_EGO and
-        d >= NEED_FLOOR_MIN_D and ttc > NEED_FLOOR_RELEASE_TTC_S and need < NEED_FLOOR_RELEASE_NEED):
+        d >= NEED_FLOOR_MIN_D and ttc > NEED_FLOOR_RELEASE_TTC_S and need < NEED_FLOOR_RELEASE_NEED and
+        (not self.min_gap or d >= v_ego * NEED_FLOOR_MIN_GAP_S)):
       floor = -max(NEED_FLOOR_MULT * need, NEED_FLOOR_MIN)
       if a < floor:
         a = floor
@@ -351,7 +362,7 @@ class HondaBoschALongEnhancement:
     # Implausible-drop bound (D-041/D-042; owner bookmark route a2 seg 50, 2026-11-07): same gate as the other active
     # checks in this module (Bosch-A supported, radar available); default ON, no toggle.
     self.drop_bound = ImplausibleDropBound() if active else None
-    self._need_floor = NeedFloor() if self.stock_feel and NEED_FLOOR_ENABLED else None
+    self._need_floor = NeedFloor(min_gap=NEED_FLOOR_MIN_GAP_ENABLED) if self.stock_feel and NEED_FLOOR_ENABLED else None
     self.dt = dt
     self.reset()
 

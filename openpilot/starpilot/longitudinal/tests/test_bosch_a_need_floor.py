@@ -14,9 +14,11 @@ def lead(d, v_rel, a=0.0, tid=1, radar=True, present=True):
   return SimpleNamespace(present=present, radar=radar, radarTrackId=tid, dRel=d, vRel=v_rel, aLeadK=a)
 
 
-def make(monkeypatch, enabled=True, active=True):
+def make(monkeypatch, enabled=True, active=True, min_gap=False):
+  # min_gap is the module switch NEED_FLOOR_MIN_GAP_ENABLED (shipped True); the older tests below assume no gate
   monkeypatch.setattr(hb, 'active_for', lambda CP: active)
   monkeypatch.setattr(hb, 'NEED_FLOOR_ENABLED', enabled)
+  monkeypatch.setattr(hb, 'NEED_FLOOR_MIN_GAP_ENABLED', min_gap)
   return hb.HondaBoschALongEnhancement(SimpleNamespace(radarUnavailable=False), 0.05, stock_brake_feel=True)
 
 
@@ -280,3 +282,50 @@ def test_parity_with_reference_random_walk(monkeypatch):
   print(f'parity frames {N}, floor binding {binding}, mismatches {mismatches}')
   assert mismatches == 0
   assert binding >= 300
+
+
+# NEED_FLOOR_MIN_GAP_ENABLED (static, replay on a different stack pending): v_ego 25 -> 1.5 s headway = 37.5 m. A slow-closing
+# lead (vRel -0.5) keeps need, ttc and the other gates open at every gap used below, so only the headway condition differs.
+def test_min_gap_off_floors_inside_1p5_s(monkeypatch):
+  p = make(monkeypatch)
+  assert run(p, steady(d=30.0, v_rel=-0.5), 20) == pytest.approx(-0.8)
+
+
+def test_min_gap_on_floors_at_and_above_1p5_s(monkeypatch):
+  assert run(make(monkeypatch, min_gap=True), steady(d=37.5, v_rel=-0.5), 20) == pytest.approx(-0.8)
+  assert run(make(monkeypatch, min_gap=True), steady(d=60.0, v_rel=-0.5), 20) == pytest.approx(-0.8)
+  assert run(make(monkeypatch, min_gap=True), steady(), 20) == pytest.approx(-0.8)
+
+
+def test_min_gap_on_does_not_floor_below_1p5_s(monkeypatch):
+  p = make(monkeypatch, min_gap=True)
+  assert run(p, steady(d=37.4, v_rel=-0.5), 30) == -2.0
+  p = make(monkeypatch, min_gap=True)
+  assert run(p, steady(d=30.0, v_rel=-0.5), 30) == -2.0
+
+
+def test_min_gap_is_evaluated_every_frame_not_sticky(monkeypatch):
+  p = make(monkeypatch, min_gap=True)
+  assert run(p, steady(d=40.0, v_rel=-0.5), 20) == pytest.approx(-0.8)
+  assert nf(p, steady(d=30.0, v_rel=-0.5), -2.0) == -2.0          # inside 1.5 s: off this frame
+  assert nf(p, steady(d=30.0, v_rel=-0.5), -2.0) == -2.0
+  assert (p._need_floor.off, p._need_floor.quiet) == (False, 0)    # gate state untouched
+  assert p._need_floor.gate_count >= hb.NEED_FLOOR_GATE_FRAMES
+  assert nf(p, steady(d=40.0, v_rel=-0.5), -2.0) == pytest.approx(-0.8)  # back above 1.5 s: on again at once
+
+
+def test_min_gap_switch_is_on_by_default_and_read_at_construction(monkeypatch):
+  assert hb.NEED_FLOOR_MIN_GAP_ENABLED is True
+  assert hb.NEED_FLOOR_MIN_GAP_S == 1.5
+  monkeypatch.setattr(hb, 'active_for', lambda CP: True)
+  p = hb.HondaBoschALongEnhancement(SimpleNamespace(radarUnavailable=False), 0.05, stock_brake_feel=True)
+  assert p._need_floor.min_gap is True
+  assert run(p, steady(d=30.0, v_rel=-0.5), 30) == -2.0          # shipped default: no floor inside 1.5 s
+  monkeypatch.setattr(hb, 'NEED_FLOOR_MIN_GAP_ENABLED', False)
+  p = hb.HondaBoschALongEnhancement(SimpleNamespace(radarUnavailable=False), 0.05, stock_brake_feel=True)
+  assert p._need_floor.min_gap is False
+
+
+def test_needfloor_class_default_is_no_gate():
+  assert hb.NeedFloor().min_gap is False
+  assert hb.NeedFloor(min_gap=True).min_gap is True

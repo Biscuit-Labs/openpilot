@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Shadow daemon for the HondaEps car learner (controls/lib/honda_eps_car_learner.py).
 
-Runs only on a car LatControlHondaEps steers, and only with HondaEpsLearner on. It turns the drive into 60 s chunks,
+Runs only on a car LatControlHondaEps steers, and only with HondaEpsLearner on (the default). It turns the drive into 60 s chunks,
 feeds the learner, keeps its state in a file under /data and publishes what it found as the HondaEpsLearnerResult
 param, which every route's initData then carries (tools/lateral/learner_result.py reads it back from a qlog).
 Nothing reads the result back into the controller.
@@ -127,7 +127,7 @@ def learner_setup(CP, cal):
 
 def should_run(params, CP) -> bool:
   """manager: only on a car LatControlHondaEps steers, and only when asked for."""
-  if not _get_param_bool(params, "HondaEpsLearner", False):
+  if not _get_param_bool(params, "HondaEpsLearner", True):
     return False
   from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import use_honda_eps_controller
   return use_honda_eps_controller(CP)

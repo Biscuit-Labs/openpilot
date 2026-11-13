@@ -1,6 +1,6 @@
 # HondaEps car learner: design (shadow)
 
-Status 2026-11-12: ported onto this branch's modules, wired as a shadow daemon behind `HondaEpsLearner` (default off).
+Status 2026-11-12: ported onto this branch's modules, wired as a shadow daemon behind `HondaEpsLearner` (default on on this branch).
 It measures and publishes. **Nothing reads its result back into the controller.** Replay results on two CR-Vs:
 `CAR_LEARNER_REPLAY.md`.
 

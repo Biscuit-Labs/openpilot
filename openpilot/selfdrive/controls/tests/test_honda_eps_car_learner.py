@@ -440,9 +440,10 @@ class FakeParams:
     self.values[key] = "1" if value else "0"
 
 
-def test_the_learner_is_off_unless_asked_for():
-  assert learnerd.should_run(FakeParams(), None) is False
+def test_the_learner_is_on_unless_turned_off():
   assert learnerd.should_run(FakeParams(HondaEpsLearner="0"), None) is False
+  ptm = _params(b'39990-TLA,A040\x00\x00', CAR.HONDA_CRV_5G)
+  assert learnerd.should_run(FakeParams(), ptm) is True
 
 
 def test_the_learner_runs_only_where_the_honda_eps_controller_steers():

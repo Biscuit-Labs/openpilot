@@ -404,7 +404,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // fixed by design; no settings UI
     // Shadow car learner (selfdrive/controls/honda_eps_learnerd.py): it measures and publishes, nothing reads it back
-    {"HondaEpsLearner", {PERSISTENT, BOOL, "0"}},
+    {"HondaEpsLearner", {PERSISTENT, BOOL, "1"}},
     {"HondaEpsLearnerReset", {PERSISTENT, BOOL, "0"}},  // set to start the learner over; the daemon clears it
     {"HondaEpsLearnerResult", {PERSISTENT, JSON}},  // per part: state, reason, frozen value or candidate (logged in initData)
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched

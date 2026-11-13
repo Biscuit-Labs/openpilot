@@ -18,6 +18,7 @@ jobs:
           echo "shell    : $SHELL"
       - name: Git environment check
         run: |
+          echo "PATH      : $PATH"
           echo "which git : $(command -v git)"
           git --version
           echo "exec-path : $(git --exec-path)"

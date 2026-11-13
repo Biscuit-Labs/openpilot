@@ -71,7 +71,7 @@ KEEP_VLEAD_MIN = -1.0
 # are untouched, and dRel < 30 m stays urgent. One event, one road (limited road evidence).
 URGENT_LAST_DIRECT_S = 1.0
 # Held-vRel range-slope bound (scratch candidate, 2026-11-11; level: replay only, not road tested). Scorecard episode 26,
-# route 00000071--37216af48f seg 9 (t0_ns 763779770390, labelled PHANTOM by the owner): track 58 at 81.6 -> 84.7 m. The
+# route 00000071--37216af48f seg 9 (t0_ns 763779770390, labeled PHANTOM by the owner): track 58 at 81.6 -> 84.7 m. The
 # parser marked the point NOT measured (track.direct False) for ~1.8 s and held vRel at exactly -9.51 while the track's own
 # range slope was +1.6..+2.5 m/s (the gap opening); the planner braked to -1.11. Counter-example that must not change:
 # REAL episode 292 (000000a4--34c412c0ef seg 16): direct True throughout, range slope -1.5..-5.8 agreeing with vRel.
@@ -87,7 +87,7 @@ URGENT_LAST_DIRECT_S = 1.0
 #   HELD_VREL_MARGIN: the bound is min(slope, 0) - margin (m/s); ep26 gives about -1.0.
 # One event, one road; the numbers are shaped on ep26 and ep292 only. Ported to the car base 2026-11-11 (C-013, from
 # b7468b5c2c on the unify stack); the car-base port has not been replayed.
-HELD_VREL_SLOPE_BOUND_ENABLED = True
+HELD_VREL_SLOPE_BOUND_ENABLED: bool = True
 HELD_VREL_MIN_D = 50.0
 HELD_VREL_CLOSING = -4.0
 HELD_VREL_SLOPE_MIN = -1.0
@@ -520,7 +520,8 @@ class BoschALeadPolicy:
                    else None for lead in output]
     if HELD_VREL_SLOPE_BOUND_ENABLED:
       # Before the weak-lead, reversal and camera bounds see the lead; track.vRel stays raw (weak_lead_contradiction reads it).
-      output = [held_vrel_bound(lead, track) if held_vrel_active(track) else lead for lead, track in zip(output, lead_tracks, strict=True)]
+      output = [held_vrel_bound(lead, track) if track is not None and held_vrel_active(track) else lead
+                for lead, track in zip(output, lead_tracks, strict=True)]
     urgent_v_rels = [urgency_v_rel(track) for track in lead_tracks]
     weak_weights = self.weak_lead_bound.update(
       output,

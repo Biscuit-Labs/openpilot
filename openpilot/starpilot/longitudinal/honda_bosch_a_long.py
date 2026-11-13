@@ -249,7 +249,7 @@ def stop_eased_target(prev: float, target: float, floor: float | None, dt: float
 # variants without the vLead/aLeadK gate (arms 10-12) softened stops behind a late-born stopped lead (closed-loop stop gap
 # 0.9 m vs 2.5 m at 18:30; seg 5 min gap 4.7 m vs 11.3 m) and must not be used. Multiplier 1.3 gave -1.91, 0.9 gave
 # -1.39. Open: at 630 s the simulated ego is still 2-2.6 m/s faster than the lead, so a late second brake is expected in
-# the car and is not modelled. The gate is tuned on three events; replay only, not driven, not yet scored on the corpus.
+# the car and is not modeled. The gate is tuned on three events; replay only, not driven, not yet scored on the corpus.
 # Frame counts are planner frames at 20 Hz.
 NEED_FLOOR_ENABLED = True       # switch; read at construction so a replay harness can set it before building the planner
 # 1.3 gave -1.91, 0.9 gave -1.39 on seg 10. 1.15 (Peter 2026-11-11, replay only): seg 10 -1.75 (hold-only -2.23, 1.0 -1.52); seg 5 / seg 18 stops unchanged;

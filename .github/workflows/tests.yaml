@@ -41,7 +41,7 @@ env:
 jobs:
   source_integrity:
     name: source integrity
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     permissions:
       contents: read
     steps:
@@ -190,7 +190,7 @@ jobs:
     needs: static_analysis
     # Compiles openpilot once per run. The test jobs below restore this scons cache before their own `scons`,
     # which then copies outputs instead of compiling them: about 5 runner-minutes saved per job.
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -307,7 +307,7 @@ jobs:
     name: custom pytest (${{ matrix.shard }})
     needs: [static_analysis, native_build]
     if: ${{ !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -362,7 +362,7 @@ jobs:
     name: complete custom pytest catalog
     needs: custom_pytest
     if: ${{ always() && !cancelled() && !(github.event_name == 'pull_request' && github.base_ref == 'Honda-PTM-Testing') }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     permissions:
       contents: read
     steps:
@@ -387,7 +387,7 @@ jobs:
     # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
     # Skipped only when static analysis failed, which is a required check itself and blocks the merge.
     if: ${{ !cancelled() && needs.static_analysis.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -421,7 +421,7 @@ jobs:
     name: complete AOL lifecycle catalog
     needs: aol_lifecycles
     if: ${{ always() && !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     permissions:
       contents: read
     steps:
@@ -442,7 +442,7 @@ jobs:
 
   map_provider:
     name: map provider
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -470,7 +470,7 @@ jobs:
     # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
     # Skipped only when static analysis failed, which is a required check itself and blocks the merge.
     if: ${{ !cancelled() && needs.static_analysis.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -511,7 +511,7 @@ jobs:
     # Still runs, compiling for itself, if the native build failed: a skipped required check would pass.
     # Skipped only when static analysis failed, which is a required check itself and blocks the merge.
     if: ${{ !cancelled() && needs.static_analysis.result == 'success' }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 35
     permissions:
       contents: read
@@ -545,7 +545,7 @@ jobs:
     name: complete RELEASE vehicle catalog
     needs: safety_release_contracts
     if: ${{ always() && !cancelled() }}
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     permissions:
       contents: read
     steps:
@@ -566,7 +566,7 @@ jobs:
 
   recorded_vehicles:
     name: recorded vehicles (${{ matrix.variant }})
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 30
     permissions:
       contents: read
@@ -598,7 +598,7 @@ jobs:
 
   panda_build_variants:
     name: Panda compile (${{ matrix.variant }})
-    runs-on: ubuntu-24.04
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-24.04' || 'self-hosted' }}
     timeout-minutes: 35
     permissions:
       contents: read

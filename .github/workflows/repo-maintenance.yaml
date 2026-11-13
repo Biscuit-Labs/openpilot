@@ -13,7 +13,7 @@ env:
 jobs:
   package_updates:
     name: package_updates
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     if: >-
       github.repository == 'commaai/openpilot' &&
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
@@ -74,7 +74,7 @@ jobs:
 
   cleanup_closed_branches:
     if: github.repository == 'commaai/openpilot' && github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && 'ubuntu-latest' || 'self-hosted' }}
     permissions:
       contents: write
       pull-requests: read

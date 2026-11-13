@@ -16,3 +16,10 @@ jobs:
           echo "kernel   : $(uname -srmo)"
           echo "runner   : $RUNNER_OS / $RUNNER_ARCH"
           echo "shell    : $SHELL"
+      - name: Git environment check
+        run: |
+          echo "which git : $(command -v git)"
+          git --version
+          echo "exec-path : $(git --exec-path)"
+      - name: Checkout (proves actions/checkout works with local git)
+        uses: actions/checkout@v7

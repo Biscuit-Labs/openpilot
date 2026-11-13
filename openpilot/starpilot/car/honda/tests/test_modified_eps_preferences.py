@@ -29,6 +29,23 @@ class TestModifiedEpsPreferences(unittest.TestCase):
     self.assertEqual(settings.torque_scale, 1.0)
     self.assertTrue(settings.delta_limiter)
 
+  def test_output_limiter_values_are_read_and_clamped(self):
+    self.params.put_bool("HondaTorqueOutputLimiter", True, block=True)
+    self.params.put_bool("HondaTorqueOutputLimitMode", True, block=True)
+    self.params.put("HondaTorqueOutputRateLimit", 2.5, block=True)
+    self.params.put("HondaTorqueOutputHardLimit", 0.35, block=True)
+    settings = read_settings(self.params)
+    self.assertTrue(settings.output_limiter)
+    self.assertTrue(settings.hard_limit_mode)
+    self.assertAlmostEqual(settings.ramp_rate, 2.5)
+    self.assertAlmostEqual(settings.hard_limit, 0.35)
+    # out-of-range values clamp to the allowed bounds
+    self.params.put("HondaTorqueOutputRateLimit", 1000.0, block=True)
+    self.params.put("HondaTorqueOutputHardLimit", 1000.0, block=True)
+    settings = read_settings(self.params)
+    self.assertEqual(settings.ramp_rate, 100.0)
+    self.assertEqual(settings.hard_limit, 1.0)
+
   def test_refreshes_once_a_second(self):
     now = [0]
     preferences = ModifiedEpsPreferences(self.params, clock=lambda: now[0])

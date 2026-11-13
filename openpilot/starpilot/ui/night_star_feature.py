@@ -16,6 +16,10 @@ SEATBELT_KEY = "DisableSeatbeltCheck"
 BOOL_ROWS = {
   "HondaDriverAssistDuringOverride": ("Assist During Override",
                                       "Keep steering assist active while you override the wheel."),
+  "HondaTorqueOutputLimiter": ("Torque Output Limiter",
+                               "Tames steering torque swings that can trip the EPS temporary fault."),
+  "HondaTorqueOutputLimitMode": ("Hard Limit Mode",
+                                 "Off ramps the torque command at the rate below; On hard-clamps it at the ceiling below."),
   SEATBELT_KEY: ("Disable Seatbelt Check", "Allow engaging and staying engaged with the driver's seatbelt unlatched."),
 }
 # key -> (label, reason, minimum, maximum, step, unit, integer)
@@ -28,8 +32,14 @@ NUMBER_ROWS = {
   "HondaMinSteerSpeed": ("Minimum Steer Speed", "No steering torque below this speed.", 0.0, 25.0, 1.0, "mph", True),
   "HondaOverrideTorqueScale": ("Torque During Override", "Share of the steering command kept while you override.",
                                0.0, 100.0, 5.0, "%", True),
+  "HondaTorqueOutputRateLimit": ("Torque Ramp Rate", "Fastest the torque command may change when the limiter ramps.",
+                                 0.5, 10.0, 0.5, "/s", False),
+  "HondaTorqueOutputHardLimit": ("Torque Hard Ceiling", "Largest torque command sent when the limiter hard-clamps.",
+                                 0.1, 1.0, 0.05, "", False),
 }
-EPS_KEYS = ("HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideTorqueScale", "HondaDriverAssistDuringOverride")
+EPS_KEYS = ("HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideTorqueScale", "HondaDriverAssistDuringOverride",
+            "HondaTorqueOutputLimiter", "HondaTorqueOutputLimitMode", "HondaTorqueOutputRateLimit",
+            "HondaTorqueOutputHardLimit")
 KEYS = frozenset((*BOOL_ROWS, *NUMBER_ROWS))
 
 

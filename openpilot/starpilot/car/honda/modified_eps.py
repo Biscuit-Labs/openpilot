@@ -35,6 +35,10 @@ def read_settings(params) -> ModifiedEpsSettings:
     delta_limiter=_flag(params, "HondaSteerDeltaLimiter", d.delta_limiter),
     delta_up=_number(params, "HondaSteerDeltaUp", d.delta_up, 0.0, 100.0),
     delta_down=_number(params, "HondaSteerDeltaDown", d.delta_down, 0.0, 100.0),
+    output_limiter=_flag(params, "HondaTorqueOutputLimiter", d.output_limiter),
+    hard_limit_mode=_flag(params, "HondaTorqueOutputLimitMode", d.hard_limit_mode),
+    ramp_rate=_number(params, "HondaTorqueOutputRateLimit", d.ramp_rate, 0.0, 100.0),
+    hard_limit=_number(params, "HondaTorqueOutputHardLimit", d.hard_limit, 0.0, 1.0),
   )
 
 

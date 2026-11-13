@@ -113,6 +113,16 @@ them apart: `REQUIRED_PTM_RWD` names the build each calibration models, and the 
   0.37-0.39 s, which ran them early.
 - **Driver override.** The shared modified-EPS press detector; after a press, while the carcontroller fades torque
   back in, the integrator bleeds toward 0 (tau 0.5 s) rather than holding its pre-press value.
+- **Torque-output limiter (carcontroller, every modified-EPS car).** The modified-EPS steering stage
+  (`opendbc/car/honda/modified_eps.py`) can tame the fast torque swings that push the EPS's torque signal past its
+  ~3000-count trip (the RDX's `NO_TORQUE_ALERT_1`, see Dropouts): `HondaTorqueOutputLimiter` turns it on, and
+  `HondaTorqueOutputLimitMode` picks **ramp** (the command may change at most `HondaTorqueOutputRateLimit` per
+  second; default 2.0, which leaves highway commands untouched and spreads the parking-speed swings that precede the
+  faults) or **hard limit** (the command magnitude is clamped at `HondaTorqueOutputHardLimit`; default 0.5). Either
+  way the withheld command is a delivery limit the EPS really cannot answer, so controlsd reports it as safety
+  limiting and freezes the integrator against it. An inactive frame drops the stage's last command to zero, so after
+  a one-frame fault the command ramps back in from zero instead of snapping back. Off by default for every car; it is
+  a Night Star page row, not a per-car calibration value.
 - **Output ceiling.** The output is limited to what the firmware still answers: past the end of the command row or the
   input clamp, more 0xE4 gives the same R5. A 4096-per-unit car whose row ends at key 1663 (CR-V A040 rows 0-1, A220 rows
   0-3) tops out at 3841/4096 = 0.9377 (key 1663 is 3840.6 E4 counts, rounded up); a car sent its own clamp (the Clarity,
@@ -140,6 +150,7 @@ The Night Star page (`openpilot/starpilot/ui/night_star_feature.py`) edits these
 | `HondaEpsAngleRateLimit` | deg/s ceiling on the desired-angle slew (0 disables); shown on calibrated cars only |
 | `HondaDriverOverrideThreshold`, `HondaOverrideTorqueScale`, `HondaDriverAssistDuringOverride` | the override the carcontroller applies |
 | `HondaMinSteerSpeed` | no steering torque below this speed |
+| `HondaTorqueOutputLimiter`, `HondaTorqueOutputLimitMode`, `HondaTorqueOutputRateLimit`, `HondaTorqueOutputHardLimit` | the torque-output limiter (ramp or hard limit) above |
 
 Fixed by design, with no row: `HondaTorqueOutputLowPassFilter` / `HondaTorqueOutputLpfTau*` (the output filter),
 `HondaOverrideFadeUpSecs` / `FadeDownSecs`, and `HondaSteerDeltaLimiter` / `HondaSteerDeltaUp` / `Down` (the stock steer

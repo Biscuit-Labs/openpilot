@@ -65,9 +65,9 @@ class TestHondaSteeringCommandFidelity:
   def _cs(v_ego=20.0, steering_pressed=False):
     return SimpleNamespace(out=SimpleNamespace(vEgo=v_ego, steeringPressed=steering_pressed, steeringTorque=0.0))
 
-  def _drive(self, steering, torques, settings=None, **cs_kwargs):
+  def _drive(self, steering, torques, settings=None, lat_active=True, **cs_kwargs):
     settings = settings or self.SETTINGS
-    return [steering.update(self._cc(t), self._cs(**cs_kwargs), settings)[0] for t in torques]
+    return [steering.update(self._cc(t, lat_active=lat_active), self._cs(**cs_kwargs), settings)[0] for t in torques]
 
   def _ready(self):
     steering = ModifiedEpsSteering()
@@ -95,6 +95,38 @@ class TestHondaSteeringCommandFidelity:
   def test_steer_delta_limiter_is_reported_as_limited(self):
     delivered = self._drive(self._ready(), [1.0], settings=replace(self.SETTINGS, delta_limiter=True))
     assert abs(1.0 - delivered[0]) > 1e-2
+
+  def test_output_limiter_ramps_a_fast_step(self):
+    settings = replace(self.SETTINGS, output_limiter=True, ramp_rate=2.0)
+    delivered = self._drive(self._ready(), [1.0] * 5, settings=settings)
+    # at 2.0/s and 100 Hz the command may move at most 0.02 per frame
+    assert all(abs(a - b) <= 2.0 * 0.01 + 1e-6 for a, b in zip(delivered, delivered[1:], strict=False))
+    assert abs(1.0 - delivered[-1]) > 1e-2  # the whole step is withheld, not passed through
+
+  def test_output_limiter_tracks_a_slow_ramp(self):
+    ramp = [0.01 * n for n in range(60)]  # 1.0/s, under a 2.0/s rate
+    delivered = self._drive(self._ready(), ramp, settings=replace(self.SETTINGS, output_limiter=True))
+    assert all(abs(cmd - out) <= 1e-2 for cmd, out in zip(ramp, delivered, strict=True))
+
+  def test_output_limiter_hard_mode_clamps_the_magnitude(self):
+    settings = replace(self.SETTINGS, output_limiter=True, hard_limit_mode=True, hard_limit=0.4)
+    delivered = self._drive(self._ready(), [0.6, -0.8, 0.2, -0.1], settings=settings)
+    assert delivered == pytest.approx([0.4, -0.4, 0.2, -0.1])
+
+  def test_output_limiter_ramps_back_in_after_an_inactive_frame(self):
+    # a one-frame EPS fault drops latActive and the command for a frame; the limiter must not snap back
+    settings = replace(self.SETTINGS, output_limiter=True, ramp_rate=2.0)
+    steering = self._ready()
+    self._drive(steering, [0.5], settings=settings)
+    self._drive(steering, [0.5], lat_active=False, settings=settings)   # the fault frame: torque 0
+    delivered = self._drive(steering, [0.5] * 3, settings=settings)
+    assert delivered[0] <= 2.0 * 0.01 + 1e-6
+    assert delivered[0] < delivered[-1]
+
+  def test_output_limiter_off_changes_nothing(self):
+    settings = replace(self.SETTINGS, output_limiter=False, hard_limit_mode=True, hard_limit=0.4)
+    delivered = self._drive(self._ready(), [1.0, -0.8], settings=settings)
+    assert delivered == pytest.approx([1.0, -0.8])
 
   def test_the_car_controller_sends_the_command_through_the_stage(self):
     CP = _modified_cp()

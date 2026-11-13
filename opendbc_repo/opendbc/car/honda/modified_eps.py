@@ -7,6 +7,11 @@ INVARIANT: every stage here may only reduce the command because the car genuinel
 minimum steer speed, cut for a driver override, or held back by the opt-in steer-delta limiter. controlsd turns any
 difference between CC.actuators.torque and what is sent into steer_limited_by_safety, which freezes the lateral
 integrator, so comfort shaping (the output low-pass) lives in the lateral controller, never here.
+
+The torque-output limiter is the same class as the delta limiter: a modified EPS trips its NO_TORQUE_ALERT on a
+single fast or large torque sample (fast swings and the snap back in after the one-frame fault alike), so the command
+is withheld for as long as the limiter is saturated -- that is a delivery limit, not comfort shaping. In ramp mode the
+command may change at most ramp_rate per second; in hard-limit mode its magnitude is clamped at hard_limit.
 """
 from dataclasses import dataclass
 
@@ -28,6 +33,10 @@ class ModifiedEpsSettings:
   delta_limiter: bool = False            # HondaSteerDeltaLimiter, the stock steer rate limit, opt-in
   delta_up: float = 3.0                  # HondaSteerDeltaUp, per second of the normalized command
   delta_down: float = 3.0                # HondaSteerDeltaDown
+  output_limiter: bool = False           # HondaTorqueOutputLimiter, tame torque swings that trip the EPS fault
+  hard_limit_mode: bool = False          # HondaTorqueOutputLimitMode, False ramps the command, True hard-clamps it
+  ramp_rate: float = 2.0                 # HondaTorqueOutputRateLimit, per second of the normalized command
+  hard_limit: float = 0.5                # HondaTorqueOutputHardLimit, the |command| ceiling in hard-limit mode
 
 
 DEFAULT_SETTINGS = ModifiedEpsSettings()
@@ -107,6 +116,17 @@ class ModifiedEpsSteering:
       else:
         self.override_ramp = 1.0 if settings.fade_up_s <= 0.0 else min(1.0, self.override_ramp + DT_CTRL / settings.fade_up_s)
       torque_cmd *= self.override_ramp
+
+      # The torque-output limiter. Ramp mode spreads fast command swings over time; hard-limit mode cuts the
+      # magnitude outright. Either way the command is withheld because the EPS cannot deliver it without tripping
+      # its fault, and an inactive frame (a one-frame fault included) drops last_torque to zero, so the command
+      # ramps back in from zero instead of snapping back after the fault clears.
+      if settings.output_limiter:
+        if settings.hard_limit_mode:
+          torque_cmd = max(min(torque_cmd, settings.hard_limit), -settings.hard_limit)
+        else:
+          step = settings.ramp_rate * DT_CTRL
+          torque_cmd = rate_limit(torque_cmd, self.last_torque, -step, step)
     else:
       self.override_ramp = 0.0
       self.steering_pressed_filter_s = 0.0

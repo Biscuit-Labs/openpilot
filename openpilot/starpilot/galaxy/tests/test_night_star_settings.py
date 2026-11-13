@@ -59,6 +59,21 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertTrue(self.set('Disable Seatbelt Check', 'On'))
     self.assertTrue(self.params.get_bool('DisableSeatbeltCheck'))
 
+  def test_torque_output_limiter_rows_and_save_path(self):
+    labels = self.labels()
+    self.assertIn('Torque Output Limiter', labels)
+    self.assertIn('Hard Limit Mode', labels)
+    self.assertIn('Torque Ramp Rate', labels)
+    self.assertIn('Torque Hard Ceiling', labels)
+    self.assertTrue(self.set('Torque Output Limiter', 'On'))
+    self.assertTrue(self.params.get_bool('HondaTorqueOutputLimiter'))
+    self.assertTrue(self.set('Hard Limit Mode', 'On'))
+    self.assertTrue(self.params.get_bool('HondaTorqueOutputLimitMode'))
+    self.assertTrue(self.set('Torque Ramp Rate', '2.5'))
+    self.assertEqual(self.params.get('HondaTorqueOutputRateLimit'), 2.5)
+    self.assertTrue(self.set('Torque Hard Ceiling', '0.35'))
+    self.assertAlmostEqual(self.params.get('HondaTorqueOutputHardLimit'), 0.35)
+
   def test_off_grid_saved_rate_limit_steps_from_where_it_is(self):
     self.params.put('HondaEpsAngleRateLimit', 219, block=True)
     row = next(row for row in self.page()['rows'] if row['label'] == 'Steering Angle Rate Limit')

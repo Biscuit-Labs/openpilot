@@ -418,6 +418,11 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaSteerDeltaLimiter", {PERSISTENT, BOOL, "0"}},  // the stock steer rate limit, opt-in on a modified EPS
     {"HondaSteerDeltaUp", {PERSISTENT, FLOAT, "3.0"}},
     {"HondaSteerDeltaDown", {PERSISTENT, FLOAT, "3.0"}},
+    // Honda torque-output limiter (opendbc/car/honda/modified_eps.py): tames torque swings a modified EPS faults on
+    {"HondaTorqueOutputLimiter", {PERSISTENT, BOOL, "0"}},  // the toggle
+    {"HondaTorqueOutputLimitMode", {PERSISTENT, BOOL, "0"}},  // 0 ramps the command, 1 hard-clamps it
+    {"HondaTorqueOutputRateLimit", {PERSISTENT, FLOAT, "2.0"}},  // per second of the normalized command, ramp mode
+    {"HondaTorqueOutputHardLimit", {PERSISTENT, FLOAT, "0.5"}},  // |command| ceiling, hard-limit mode
 
     // Modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
     // The base banding is in interface.py; these stay 100 (I: 20 low / 0 highway) unless trimming.

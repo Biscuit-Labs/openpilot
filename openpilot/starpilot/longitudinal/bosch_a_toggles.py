@@ -2,7 +2,6 @@
 
 - BoschAStockBrakeFeel: the Stock Brake Feel law in honda_bosch_a_long (D-086 and its follow-ups).
 - BoschAHumanFollowing: HumanFollowing (human_following.py) and HumanAcceleration (human_acceleration.py).
-- BoschACameraCapHold: camera-cap mode in radard (radar_camera_cap.py, C-012): on = D+E (default), off = VA. Read once by radard, not plannerd.
 
 Like UseStarPilotLongitudinalPlanner, the values are latched for the life of the plannerd process, so a change
 applies on the next drive. Only an exact saved "1" turns a feature on; a missing, unreadable or malformed value is
@@ -15,8 +14,7 @@ from openpilot.starpilot.saved_source import read_saved
 
 STOCK_BRAKE_FEEL_KEY = 'BoschAStockBrakeFeel'
 HUMAN_FOLLOWING_KEY = 'BoschAHumanFollowing'
-CAMERA_CAP_HOLD_KEY = 'BoschACameraCapHold'
-KEYS = (STOCK_BRAKE_FEEL_KEY, HUMAN_FOLLOWING_KEY, CAMERA_CAP_HOLD_KEY)
+KEYS = (STOCK_BRAKE_FEEL_KEY, HUMAN_FOLLOWING_KEY)
 # (key, label, reason) for the settings rows on the Long Planner page
 ROWS = (
   (STOCK_BRAKE_FEEL_KEY, "Stock Brake Feel (Bosch-A)",
@@ -27,10 +25,6 @@ ROWS = (
    ("Follows the driving model's predicted path for the car ahead instead of a straight-line guess, and eases " +
     "acceleration at low set speeds and near the set speed. Works with either planner. Changes apply on the next drive. " +
     "Acts only on Bosch-A Hondas (classic and alt-radar) with openpilot longitudinal.")),
-  (CAMERA_CAP_HOLD_KEY, "Camera cap hold: D+E (default, 1 s tapered hold) / VA",
-   ("On (default) adds a 1 s tapered hold to the far-lead camera cap: it never brakes harder than VA, softens real " +
-    "far slowdowns by up to about 0.4 m/s\u00b2 for up to about 2 s (replay evidence only), and cuts more residual " +
-    "phantoms. Off is VA, the cap without the hold. Changes apply on the next drive. Acts only on verified Bosch-A Hondas with a radar.")),
 )
 
 
@@ -38,7 +32,6 @@ ROWS = (
 class BoschAToggles:
   stock_brake_feel: bool = False
   human_following: bool = False
-  camera_cap_hold: bool = True  # read by radard (read_camera_cap_hold), carried here so one parser owns every Bosch-A toggle
 
 
 OFF = BoschAToggles()
@@ -52,24 +45,9 @@ def _on(params, key: str) -> bool:
   return bool(readable and raw == b'1')
 
 
-def _not_off(params, key: str) -> bool:
-  """Default-on toggle: Off only for an exact saved b'0'."""
-  try:
-    raw, readable = read_saved(params, key, 8)
-  except Exception:
-    return True
-  return not (readable and raw == b'0')
-
-
 def read_toggles(params) -> BoschAToggles:
   """The saved toggles; Off for anything but an exact b'1'."""
-  return BoschAToggles(stock_brake_feel=_on(params, STOCK_BRAKE_FEEL_KEY), human_following=_on(params, HUMAN_FOLLOWING_KEY),
-                        camera_cap_hold=_not_off(params, CAMERA_CAP_HOLD_KEY))
-
-
-def read_camera_cap_hold(params) -> bool:
-  """radard's latch: VA only for an exact saved "0"; missing, unreadable or malformed is D+E (the default)."""
-  return _not_off(params, CAMERA_CAP_HOLD_KEY)
+  return BoschAToggles(stock_brake_feel=_on(params, STOCK_BRAKE_FEEL_KEY), human_following=_on(params, HUMAN_FOLLOWING_KEY))
 
 
 def vehicle_supported(CP) -> bool:

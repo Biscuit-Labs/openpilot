@@ -63,7 +63,8 @@ def max_speeds(data: dict, segments: int) -> list[float | None]:
   for row in rows:
     speed = row.get('speed') if isinstance(row, dict) else None
     factor = SPEED_UNITS.get(row.get('unit')) if isinstance(row, dict) else None
-    mps = speed * factor if type(speed) in (int, float) and factor is not None and math.isfinite(speed) else None
+    ok = isinstance(speed, (int, float)) and not isinstance(speed, bool) and factor is not None and math.isfinite(speed)
+    mps = speed * factor if ok else None
     limits.append(mps if mps is not None and 0 < mps <= MAX_SPEED_LIMIT_MPS else None)
   return limits
 

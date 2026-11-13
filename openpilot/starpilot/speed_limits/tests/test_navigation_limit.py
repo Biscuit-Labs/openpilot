@@ -38,7 +38,7 @@ def test_route_progress_reports_the_matched_segment_limit_only_on_route():
   assert route.progress((.005, 0.), 15., 90.).speed_limit_mps == pytest.approx(45 * MPH)
   assert route.progress((.015, 0.), 15., 90.).speed_limit_mps == pytest.approx(30 * MPH)
   assert route.progress((.015, 0.), 15., 270.).speed_limit_mps is None  # driving the other way: off route
-  assert route.progress((.015, .01), 15., 90.).speed_limit_mps is None  # a kilometre away: off route
+  assert route.progress((.015, .01), 15., 90.).speed_limit_mps is None  # a kilometer away: off route
   assert NavigationRoute(route_data(None)).progress((.005, 0.), 15., 90.).speed_limit_mps is None
 
 
@@ -302,7 +302,7 @@ def test_navigation_runtime_merges_the_road_limit_only_without_a_destination(tmp
   from openpilot.starpilot.navigation.runtime import RouteRuntime
   owner = NavigationOwner(tmp_path)
   settings = {**owner.read(), 'enabled': True, 'token': 'pk.test'}
-  owner.read_routing = lambda: dict(settings)
+  owner.read_routing = lambda: dict(settings)  # ty: ignore[invalid-assignment]
   assert settings['roadSpeedLimit'] is True  # on by default
   matcher = Matcher()
   from openpilot.starpilot.navigation.road_limit import RoadLimit

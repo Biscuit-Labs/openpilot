@@ -48,7 +48,7 @@ def matched_limit(data: dict) -> float | None:
     return None
   speed = row.get('speed') if isinstance(row, dict) else None
   factor = SPEED_UNITS.get(row.get('unit')) if isinstance(row, dict) else None
-  if type(speed) not in (int, float) or factor is None or not math.isfinite(speed):
+  if not isinstance(speed, (int, float)) or isinstance(speed, bool) or factor is None or not math.isfinite(speed):
     return None
   mps = speed * factor
   return mps if 0 < mps <= MAX_SPEED_LIMIT_MPS else None

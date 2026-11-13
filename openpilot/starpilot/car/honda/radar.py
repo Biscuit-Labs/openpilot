@@ -520,7 +520,7 @@ class BoschALeadPolicy:
                    else None for lead in output]
     if HELD_VREL_SLOPE_BOUND_ENABLED:
       # Before the weak-lead, reversal and camera bounds see the lead; track.vRel stays raw (weak_lead_contradiction reads it).
-      output = [held_vrel_bound(lead, track) if held_vrel_active(track) else lead for lead, track in zip(output, lead_tracks)]
+      output = [held_vrel_bound(lead, track) if held_vrel_active(track) else lead for lead, track in zip(output, lead_tracks, strict=False)]
     urgent_v_rels = [urgency_v_rel(track) for track in lead_tracks]
     weak_weights = self.weak_lead_bound.update(
       output,

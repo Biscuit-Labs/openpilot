@@ -43,6 +43,7 @@ from openpilot.starpilot.longitudinal import human_acceleration, human_following
 from openpilot.starpilot.longitudinal.honda_bosch_a_long import HondaBoschALongEnhancement
 from openpilot.starpilot.longitudinal.bosch_a_onset_ramp import BoschAOnsetRamp
 from openpilot.starpilot.longitudinal.bosch_a_smooth import BoschASmooth
+from openpilot.starpilot.longitudinal.bosch_a_turnoff import raw_track_y
 from openpilot.starpilot.longitudinal.bosch_a_coast_first import BoschACoastFirst
 from openpilot.starpilot.longitudinal.bosch_a_release_coast import BoschAReleaseCoast
 from openpilot.starpilot.longitudinal.bosch_a_stop_gap import BoschAStopGap
@@ -527,7 +528,9 @@ class LongitudinalPlanner:
       right_blinker=bool(sm['carState'].rightBlinker), gas_pressed=bool(sm['carState'].gasPressed),
       reset_state=bool(reset_state))
     output_a_target = self.bosch_a_smooth.step(float(a_prev), float(output_a_target),
-                                               reset=bool(reset_state or sm['carState'].standstill))
+                                               reset=bool(reset_state or sm['carState'].standstill),
+                                               lead_one=planner_radar_state.leadOne,
+                                               raw_y=raw_track_y(sm) if self.bosch_a_smooth.radar else None)
     output_a_target = self.bosch_a_onset_ramp.step(
       lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, prev=float(a_prev),
       target=float(output_a_target), fcw=bool(self.fcw),

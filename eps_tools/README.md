@@ -179,6 +179,13 @@ over `0x60000-0x6FF60` stored at `0x6FF7C`. The EPS recomputes these while it
 runs, so a stale one passes the checksums above but faults the EPS a second or
 two after it starts steering.
 
+They also keep a monitor copy of the LKAS calibration, which the EPS's monitors
+re-run each stage from: every field (speed clamps, override fade, target map,
+trackers, P/D/u clamps, helper E/F/G/H, Kd, Kp) must equal its shadow in every
+populated row (THR banks 1-7 at `0x67B00`, TJB rows 0-4 at `0x62E00`, rows
+`0x300` apart). A primary edit with a stale shadow passes the checksums and CRCs
+once they are recomputed, then faults the EPS on the car.
+
 Ridgeline (`39990-T6Z`) images are a different family (V850, flash `0x10000`,
 length `0x50000`) and get their own checks instead of the word sums: the payload
 is decrypted with the header-5 keys as `k0 + (k1 ^ (byte - k2))`, must contain

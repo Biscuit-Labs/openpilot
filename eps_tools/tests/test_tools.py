@@ -61,9 +61,11 @@ def image(length=0x4c000, key=b'\x01\x02\x03', ids=1, secrets=1):
     return body + struct.pack('<I', sum(body) & 0xffffffff)
 
 
-def rom_crc_image(software_id=b'39990-TJB,A220', start=0xc000, length=0x74000, stale=False):
-    """A THR/TJB-shaped image whose checksums are right and ROM CRCs right unless stale."""
+def rom_crc_image(software_id=b'39990-TJB,A220', start=0xc000, length=0x74000, stale=False, edits=()):
+    """A THR/TJB-shaped image whose checksums are right and ROM CRCs right unless stale; edits = (flash addr, bytes)."""
     app = bytearray(length)
+    for addr, data in edits:
+        app[addr - start:addr - start + len(data)] = data
     for region_start, region_end, slot in check_rwd.ROM_CRC_REGIONS:
         app[region_start - start + 7] = 0x5a  # some content to CRC
         crc = check_rwd.crc32_bzip2(app[region_start - start:region_end - start])
@@ -194,6 +196,28 @@ class ValidationTests(unittest.TestCase):
                     self.assertEqual(check_rwd.check(path), expected)
                 if not expected:
                     self.assertTrue('ROM CRC failed' in output.getvalue() or 'THR/TJB image' in output.getvalue())
+
+    def test_thr_tjb_monitor_shadows(self):
+        # A primary calibration edit must be mirrored to the monitor shadow (TJB's sits 0x4D00 below THR's),
+        # in every populated row; checksums and ROM CRCs are recomputed here, so only the shadow check can catch it.
+        tracker = struct.pack('!H', 1641)
+        cases = (
+            (b'39990-THR,A020', ((0x57bd2, tracker), (0x67be8, tracker)), True),
+            (b'39990-THR,A020', ((0x57bd2, tracker),), False),
+            (b'39990-THR,A020', ((0x57bd2 + 6 * 0x300, tracker),), False),
+            (b'39990-TJB,A220', ((0x57bd2, tracker), (0x67be8 - 0x4d00, tracker)), True),
+            (b'39990-TJB,A220', ((0x57bd2, tracker), (0x67be8, tracker)), False),
+            (b'39990-TJB,A220', ((0x57bd2 + 5 * 0x300, tracker),), True),  # TJB rows 5-6 are erased in the primary only
+            (b'39990-TLA,A040', ((0x57bd2, tracker),), True),  # no monitor shadow outside THR/TJB
+        )
+        with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
+            path = Path(folder) / 'image.rwd'
+            for software_id, edits, expected in cases:
+                path.write_bytes(rom_crc_image(software_id, edits=edits))
+                with self.subTest(software_id=software_id, edits=edits), contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(check_rwd.check(path), expected)
+                if not expected:
+                    self.assertIn('monitor shadow stale: tracker_1', output.getvalue())
 
     def test_known_lengths_match_published_offsets(self):
         # Offsets the per-vehicle tables used before validation was generalized, including

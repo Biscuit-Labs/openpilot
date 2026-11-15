@@ -179,6 +179,17 @@ over `0x60000-0x6FF60` stored at `0x6FF7C`. The EPS recomputes these while it
 runs, so a stale one passes the checksums above but faults the EPS a second or
 two after it starts steering.
 
+Ridgeline (`39990-T6Z`) images are a different family (V850, flash `0x10000`,
+length `0x50000`) and get their own checks instead of the word sums: the payload
+is decrypted with the header-5 keys as `k0 + (k1 ^ (byte - k2))`, must contain
+`HNAB` and a T6Z part number, and each Honda bank (`0x0-0xA000`, `0xA000-0x1D000`,
+`0x1D000-0x4FF00`) plus the bootloader's FF01 validate span (`0x0-0x4FF00`) must
+sum to 0 as little-endian 32-bit words. Their header 3 lists three spellings of the
+part number against two seed secrets, which is allowed for T6Z only. A valid T6Z
+image is still refused by `eps-update.py` and `flash.py`: it is programmed through
+its own bootloader sequence (erase/validate routines FF00/FF01), which these tools
+do not implement.
+
 Malformed images and failed checksums return a nonzero exit status. Nothing
 bypasses these checks.
 

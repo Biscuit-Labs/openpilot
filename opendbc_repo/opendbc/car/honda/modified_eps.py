@@ -51,6 +51,18 @@ def steering_pressed_threshold(CP, override_threshold: int) -> float:
   return override_threshold if stock == STOCK_STEER_THRESHOLD else stock * override_threshold / STOCK_STEER_THRESHOLD
 
 
+# A press ends only once the driver's torque falls below this share of the threshold. Without it a driver holding just
+# under the threshold flips steeringPressed every few frames; each flip cuts the torque, the wheel jumps, their grip
+# eases, the torque fades back and they cross again (the ~1 s cut/fade cycle on the CR-V A220 at 2000).
+STEERING_PRESSED_RELEASE = 0.75
+
+
+def steering_pressed_with_release(steering_torque: float, threshold: float, previous_pressed: bool) -> bool:
+  if previous_pressed:
+    return abs(steering_torque) >= threshold * STEERING_PRESSED_RELEASE
+  return abs(steering_torque) > threshold
+
+
 def lane_change_nudge_torque(CP) -> float | None:
   # With steeringPressed raised on a modified EPS, a lane-change nudge still counts at the car's stock threshold.
   return STEER_THRESHOLD.get(CP.carFingerprint, STOCK_STEER_THRESHOLD) if modified_eps(CP) else None

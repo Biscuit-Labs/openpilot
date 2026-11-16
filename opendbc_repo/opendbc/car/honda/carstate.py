@@ -7,7 +7,8 @@ from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import pcm_acc
 from opendbc.car.honda.hondacan import CanBus
-from opendbc.car.honda.modified_eps import current_settings, modified_eps, steering_pressed_threshold
+from opendbc.car.honda.modified_eps import current_settings, modified_eps, steering_pressed_threshold, \
+  steering_pressed_with_release
 from opendbc.car.honda.yaw_rate import get_yaw_rate_calibration
 from opendbc.car.honda.values import CAR, DBC, STEER_THRESHOLD, HondaFlags, CruiseButtons, CruiseSettings, \
                                                  GearShifter, CarControllerParams
@@ -47,6 +48,7 @@ class CarState(CarStateBase):
     # which is confirmed on the modified-EPS fleet but not on every stock car of the same models.
     self.modified_eps = modified_eps(CP)
     self.modified_eps_settings = None
+    self.steering_pressed_prev = False
     self.yaw_rate = get_yaw_rate_calibration(CP.carFingerprint) if self.modified_eps else None
 
     self.brake_switch_prev = False
@@ -193,9 +195,10 @@ class CarState(CarStateBase):
     ret.steeringTorque = cp.vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"]
     if self.modified_eps:
       steer_threshold = steering_pressed_threshold(self.CP, current_settings(self.modified_eps_settings).override_threshold)
+      ret.steeringPressed = steering_pressed_with_release(ret.steeringTorque, steer_threshold, self.steering_pressed_prev)
+      self.steering_pressed_prev = ret.steeringPressed
     else:
-      steer_threshold = STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
-    ret.steeringPressed = abs(ret.steeringTorque) > steer_threshold
+      ret.steeringPressed = abs(ret.steeringTorque) > STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
     # VSA yaw sensor. The DBC signal is clockwise-positive; yawRate is left-positive like steeringAngleDeg.
     if self.yaw_rate is not None:
       ret.yawRate = -self.yaw_rate.update(cp.vl["KINEMATICS"]["YAW_RATE"], ret.standstill) * CV.DEG_TO_RAD

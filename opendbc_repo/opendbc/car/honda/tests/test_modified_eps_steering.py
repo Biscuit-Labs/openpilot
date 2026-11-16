@@ -10,8 +10,9 @@ from opendbc.car.honda import yaw_rate
 from opendbc.car.honda.carcontroller import CarController
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
-from opendbc.car.honda.modified_eps import (DEFAULT_SETTINGS, ModifiedEpsSteering, get_eps_modified_steering_pressed,
-                                            lane_change_nudge_torque, modified_eps, steering_pressed_threshold)
+from opendbc.car.honda.modified_eps import (DEFAULT_SETTINGS, STEERING_PRESSED_RELEASE, ModifiedEpsSteering,
+                                            get_eps_modified_steering_pressed, lane_change_nudge_torque, modified_eps,
+                                            steering_pressed_threshold, steering_pressed_with_release)
 from opendbc.car.honda.values import CAR, DBC, HondaFlags
 from opendbc.car.honda.yaw_rate import YawRateCalibration, get_yaw_rate_calibration
 
@@ -43,6 +44,36 @@ def test_only_a_modified_eps_gets_the_steering_stage_and_threshold():
   assert steering_pressed_threshold(CP, 1840) == 1840
   assert steering_pressed_threshold(CP, 0) == 1200          # 0 keeps the stock threshold
   assert lane_change_nudge_torque(CP) == 1200
+
+
+def test_a_press_ends_only_below_the_release_share():
+  assert STEERING_PRESSED_RELEASE == 0.75
+  assert not steering_pressed_with_release(2000.0, 2000.0, False)    # strictly over the threshold to start
+  assert steering_pressed_with_release(-2001.0, 2000.0, False)
+  assert steering_pressed_with_release(1600.0, 2000.0, True)         # easing to 1600 keeps the press
+  assert steering_pressed_with_release(-1500.0, 2000.0, True)
+  assert not steering_pressed_with_release(1499.0, 2000.0, True)     # below 0.75 x 2000 releases
+  assert not steering_pressed_with_release(1600.0, 2000.0, False)    # 1600 alone never starts one
+
+
+def _steer_torque_sequence(CP, torques):
+  CI = CarInterface(CP)
+  pressed = []
+  for tq in torques:
+    CI.can_parsers[Bus.pt].vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"] = tq
+    pressed.append(CI.CS.update(CI.can_parsers).steeringPressed)
+  return pressed
+
+
+def test_modified_eps_steering_pressed_holds_through_a_dip():
+  # the A220 cycle: hold under 2000, cross it, ease off to ~1700, cross again; one press, not three
+  assert _steer_torque_sequence(_modified_cp(CAR.HONDA_CRV_5G), [1900, 2050, 1700, 2050, 1700, 1400, 1900]) == \
+    [False, True, True, True, True, False, False]
+
+
+def test_stock_eps_steering_pressed_is_unchanged():
+  stock = CarInterface.get_non_essential_params(CAR.HONDA_CRV_5G)
+  assert _steer_torque_sequence(stock, [1300, 1100, 1300]) == [True, False, True]
 
 
 class TestHondaSteeringCommandFidelity:

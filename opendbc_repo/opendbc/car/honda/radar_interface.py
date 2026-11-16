@@ -2,7 +2,8 @@
 from opendbc.can import CANParser
 from opendbc.car import Bus, structs
 from opendbc.car.interfaces import RadarInterfaceBase
-from opendbc.car.honda.values import CAR, DBC
+from opendbc.car.honda.bosch_a_radar import BoschARadar, bosch_a_radar_platform
+from opendbc.car.honda.values import DBC
 
 
 def _create_nidec_can_parser(car_fingerprint):
@@ -19,8 +20,7 @@ class RadarInterface(RadarInterfaceBase):
     self.radar_off_can = CP.radarUnavailable
     self.bosch_a = None
     self.v_ego = None   # set by card before each update; the Bosch-A decoder's reversing-coast bound reads it
-    if not self.radar_off_can and CP.carFingerprint in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G):
-      from opendbc.car.honda.bosch_a_radar import BoschARadar
+    if not self.radar_off_can and bosch_a_radar_platform(CP.carFingerprint):
       self.bosch_a = BoschARadar(CP)
       self.rcp = self.bosch_a.rcp
       self.trigger_msg = self.bosch_a.trigger_msg
@@ -33,6 +33,11 @@ class RadarInterface(RadarInterfaceBase):
       self.rcp = _create_nidec_can_parser(CP.carFingerprint)
     self.trigger_msg = 0x445
     self.updated_messages = set()
+
+  @property
+  def point_statuses(self) -> dict[int, int] | None:
+    """Bosch-A F0 STATUS per point of the last RadarData returned; None for other radars."""
+    return self.bosch_a.point_statuses if self.bosch_a is not None else None
 
   def update(self, can_strings):
     if self.bosch_a is not None:

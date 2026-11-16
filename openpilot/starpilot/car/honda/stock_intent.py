@@ -15,6 +15,11 @@ class HondaStockCardIntent(AolCardIntent):
     self.cancel_held = False
     self.cancel_ticks = 0
     self.auto_main = settings.lkas_action != AOL_TOGGLE and settings.main_action != AOL_TOGGLE
+    # Main mapped to AOL, LKAS not: each main press flips cruise main and toggles AOL, so a main press made before
+    # the first healthy frame is lost and the two start out of step. The boot pulse can't fix that (auto_main is
+    # False here), so the first healthy frame with main already on arms the latch directly. LKAS-mapped setups are
+    # left alone: an LKAS press doesn't touch main, so one press arms them.
+    self.boot_arm_main = settings.main_action == AOL_TOGGLE and settings.lkas_action != AOL_TOGGLE
 
   def cancel_action(self, action):
     if action == AOL_TOGGLE and self.settings.enabled:
@@ -47,18 +52,34 @@ class HondaStockCardIntent(AolCardIntent):
         events.append(structs.CarState.ButtonEvent(**event.to_dict()))
     available = bool(CS.cruiseState.available)
     healthy = CS.canValid and not CS.canTimeout
+    boot_arm = False
     if healthy:
       if self.main_pulse:
         events.append(structs.CarState.ButtonEvent(type=ButtonType.mainCruise, pressed=False))
         self.main_pulse = False
-      if not available:
+      # route 000000ac--138f4b8bb4 segment 0: main was already on before the first
+      # canValid frame (avail=True at 6.25s, canValid True only at 6.26s), so the
+      # off->on edge openpilot normally pulses on never happens and AOL stays
+      # unarmed until a full cruise engage. Treat the first healthy frame as
+      # neutral/not-available so the pulse can fire on the next healthy frame if
+      # main is still on, but not on this frame itself: intent.py needs one
+      # non-held frame first to set _gesture_neutral_seen, or the pulse is ignored.
+      # Never synthesize the pulse while standard cruise is enabled: intent.py reads a
+      # mainCruise press during engagement as the driver toggling lateral off (seen
+      # when openpilot starts, or restarts, with cruise already engaged). Full
+      # engagement arms AOL on its own in that case.
+      first = not self.main_seen
+      engaged = bool(kwargs.get('standard_enabled', False))
+      # Same fresh-disabled-epoch rule as the pulse: with standard cruise enabled, full engagement arms on its own.
+      boot_arm = first and available and self.boot_arm_main and not engaged
+      if not available or first:
         self.main_neutral = True
-      elif self.auto_main and self.main_seen and self.main_neutral and not self.main_available:
+      elif self.auto_main and self.main_neutral and not self.main_available and not engaged:
         events.append(structs.CarState.ButtonEvent(type=ButtonType.mainCruise, pressed=True))
         self.main_pulse = True
         self.main_neutral = False
       self.main_seen = True
-      self.main_available = available
+      self.main_available = available and not first
     else:
       self.cancel_held = False
       self.cancel_ticks = 0
@@ -69,6 +90,13 @@ class HondaStockCardIntent(AolCardIntent):
       state.buttonEvents = events
       CS = state.as_reader()
     super().update(CS, **kwargs)
+    if boot_arm and self.settings.enabled and not CS.accFaulted and not self._fault_inhibit:
+      # Arm only, never toggle off, so this stays out of the gesture path.
+      now_ns = kwargs.get('now_ns', 0)
+      self.allowed_latch = True
+      self.pause_lateral = False
+      self.physical_arm_ns = now_ns
+      self._last_latch_edge_ns = now_ns
     if not available:
       self.allowed_latch = False
     if self.cancel_held:

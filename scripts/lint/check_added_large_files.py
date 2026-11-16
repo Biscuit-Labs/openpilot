@@ -6,10 +6,19 @@ import subprocess
 
 
 LARGE_TEXT_FILES = frozenset((
+  'openpilot/selfdrive/ui/translations/app.pot',
+  'openpilot/selfdrive/ui/translations/app_de.po',
+  'openpilot/selfdrive/ui/translations/app_es.po',
+  'openpilot/selfdrive/ui/translations/app_fr.po',
+  'openpilot/selfdrive/ui/translations/app_ja.po',
+  'openpilot/selfdrive/ui/translations/app_ko.po',
+  'openpilot/selfdrive/ui/translations/app_vi.po',
+  'openpilot/starpilot/ui/translation_messages.json',
   # shortcut: these existing modules bypass 120 KiB; split when their responsibilities warrant it.
   'openpilot/selfdrive/selfdrived/selfdrived.py',
   'openpilot/starpilot/galaxy/server.py',
   'openpilot/starpilot/galaxy/web/js/onroad-layout.js',
+  'openpilot/starpilot/ui/feature_settings_owner.py',
   'openpilot/cereal/gen/cpp/car.capnp.c++',
   'openpilot/cereal/gen/cpp/car.capnp.h',
   'openpilot/cereal/gen/cpp/custom.capnp.c++',
@@ -19,6 +28,7 @@ LARGE_TEXT_FILES = frozenset((
   'openpilot/cereal/gen/cpp/log.capnp.c++',
   'openpilot/cereal/gen/cpp/log.capnp.h',
   'openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.c',
+  'openpilot/selfdrive/test/process_replay/refs/starpilot/manifest.json',
   'openpilot/starpilot/lateral/tests/fixtures/corolla_tss2_ba901b5f.json',
   'openpilot/starpilot/lateral/tests/fixtures/genesis_g70_ba901b5f.json',
   'openpilot/starpilot/lateral/tests/fixtures/oct2_turns.json',

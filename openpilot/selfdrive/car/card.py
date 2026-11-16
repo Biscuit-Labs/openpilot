@@ -32,7 +32,8 @@ from opendbc.car.hyundai.ioniq6_media import Ioniq6MediaButtons
 from opendbc.car.hyundai.values import CAR as HYUNDAI_CAR
 from opendbc.car.interfaces import CarInterfaceBase, RadarInterfaceBase
 from openpilot.selfdrive.pandad import can_capnp_to_list, can_list_to_can_capnp
-from openpilot.selfdrive.car.cruise import VCruiseHelper, SlcPendingConfirmation
+from openpilot.selfdrive.car.cruise import VCruiseHelper, SlcPendingConfirmation, engage_initial_speed, engage_keeps_speed, read_engage_66
+from openpilot.starpilot.longitudinal.planner_selection import read_selection as read_planner_selection
 from openpilot.starpilot.speed_limits import physical_actions as slc_physical
 from openpilot.starpilot.aol.intent import AolProcessFaultContext, independent_axis_requested, read_settings
 from openpilot.starpilot.aol.transport_pause import TransportPauseFeedback, cp_identity
@@ -68,7 +69,9 @@ from openpilot.starpilot.car.nissan.aol import (
 )
 from openpilot.starpilot.car.hyundai.aol import aol_safety_config as hyundai_aol_safety_config, pending_stock_angle_arm
 from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_intent as hkg_cancel_intent_retained
+from openpilot.starpilot.car.ford.aol import brake_pause_active as ford_brake_pause_active
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
+from openpilot.starpilot.aol.honda_override import honda_override_shield
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
 from openpilot.starpilot.conditional_mode.manual import Button, ButtonTracker, IoniqMediaMapCache, WheelMapCache, Press, ioniq6_media_eligible
@@ -90,7 +93,7 @@ from openpilot.starpilot.feature_runtime import (requested as feature_requested,
 from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.vehicle_selection import startup_candidate
 from openpilot.starpilot.vehicle_preferences import VehicleStartupPreferences
-from openpilot.starpilot.controller_extensions import configure_controller
+from openpilot.starpilot.controller_extensions import configure_controller, observe_controller_can
 from openpilot.starpilot.car.seatbelt_check import SeatbeltCheck
 from openpilot.starpilot.vehicle_startup import VehicleStartupOwner
 from openpilot.starpilot.controllers.wheel_actions import WheelPublisher, key_for
@@ -408,8 +411,11 @@ class Car:
     self.learning_car_state_source_ns = 0
     self.learning_applied_evidence = self.learning_previous_applied_evidence = None
     try:
-      from opendbc.car.steering_projection import install_observer
-      self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
+      from openpilot.starpilot.lateral.learning_preferences import read_preference
+      preference = read_preference(self.params, self.CP)
+      if preference.valid and preference.enabled:
+        from opendbc.car.steering_projection import install_observer
+        self.learning_stamp_observer = self.record_learning_send_stamp if install_observer(self.CI) else None
     except Exception:
       pass  # Optional learning setup cannot stop native startup.
     self.aol_transport_feedback = TransportPauseFeedback(self.CP) if self.aol_replay else None
@@ -462,6 +468,9 @@ class Car:
 
     self.experimental_mode = self.params.get_bool("ExperimentalMode")
     self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
+    self.engage_66 = read_engage_66(self.params)
+    # Latched for the drive, the same way plannerd reads it.
+    self.stock_planner = not read_planner_selection(self.params).starpilot
 
     # card is driven by can recv, expected at 100Hz
     self.rk = Ratekeeper(100, print_delay_threshold=None)
@@ -515,6 +524,7 @@ class Car:
     can_list = can_capnp_to_list(can_strs)
 
     # Update carState from CAN
+    observe_controller_can(self.CI, can_list)
     CS = self.CI.update(can_list)
     self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
     seatbelt_check = getattr(self, 'seatbelt_check', None)
@@ -621,7 +631,9 @@ class Car:
       angle_arm_pending = pending_stock_angle_arm(self.CP, CS, self.sm, self.aol_card_intent,
         now_ns=now_ns, producer=self.slc_producer_session,
         acknowledged_arm_ns=getattr(self, '_angle_aol_acknowledged_arm_ns', 0))
-      transport_reset = not (hkg_cancel_retained or rivian_brake_retained or angle_arm_pending) and self.aol_transport_feedback.observe(
+      # Night Star: a Honda override's temporary EPS fault feeds neither the transport tracker nor native loss
+      honda_shield = honda_override_shield(self, self.CP, CS, self.aol_card_intent.allowed_latch)
+      transport_reset = not (hkg_cancel_retained or rivian_brake_retained or angle_arm_pending or honda_shield) and self.aol_transport_feedback.observe(
         self.sm, self.CP, CS, now_ns,
         latched=self.aol_card_intent.allowed_latch, cancel_source_ns=cancel_source_ns,
         brake_source_ns=brake_source_ns,
@@ -629,7 +641,8 @@ class Car:
         intent_producer_session=getattr(self, 'slc_producer_session', ''),
         main_arm_ns=getattr(self.aol_card_intent, 'main_arm_ns', 0),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
-        intent_paused=getattr(self.aol_card_intent, 'pause_lateral', False))
+        intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
+          ford_brake_pause_active(self.CP, CS, self.aol_settings)))
       fault_active = True if transport_reset else None
       event_ns = int(self.sm.logMonoTime['onroadEvents'])
       if (getattr(self.aol_card_intent, 'requires_fault_observation', self.aol_card_intent.explicit_latch) and
@@ -647,7 +660,7 @@ class Car:
           not feedback.retention_started_ns and not feedback.retention_qualified and not feedback.retention_pending and
           not any(e.immediateDisable or e.softDisable or e.userDisable for e in self.sm['onroadEvents']))
         fault_active = transport_reset or self.aol_disarming_fault(CS, event_ns, now_ns,
-          transport_observed_healthy=reuse_transport or angle_arm_pending)
+          transport_observed_healthy=reuse_transport or angle_arm_pending or honda_shield)
       angle_aol, ford_aol, honda_aol, mazda_aol, preap_aol, volkswagen_aol = self.aol_permission_owners()
       nissan_aol = qualified_nissan_aol(self.CP, marked_only=True)
       rivian_aol = qualified_rivian_aol(self.CP, marked_only=True)
@@ -681,8 +694,9 @@ class Car:
           panda_ready=angle_panda_ready,
           restricted=(getattr(self.aol_transport_feedback, 'ordinary_warning_qualified', False) or
             restrict(self.CP, CS) or
-            ((angle_aol or mazda_aol or preap_aol or rivian_aol) and self.aol_card_intent.pause_lateral) or
+            ((angle_aol or ford_aol or mazda_aol or preap_aol or rivian_aol) and self.aol_card_intent.pause_lateral) or
             (angle_aol and CS.brakePressed and (not CS.standstill) and (CS.vEgo < self.aol_settings.pause_brake_mps)) or
+            ford_brake_pause_active(self.CP, CS, self.aol_settings) or
             (volkswagen_aol and (self.aol_card_intent.pause_lateral or
             (CS.brakePressed and (not CS.standstill) and (CS.vEgo < self.aol_card_intent.settings.pause_brake_mps))))),
           now_ns=now_ns,
@@ -693,7 +707,7 @@ class Car:
             native.observedMonoTime >= preap_observation['pending_cancel_ns']):
           self._preap_cancel_echo_pending_ns = 0
         self._angle_aol_pending_since_ns = pending_since
-        if lost:
+        if lost and not honda_shield:
           fault_active = True
       if (angle_aol and native is not None and native.requestedLateral and native.lateralAllowed and
           0 < self.aol_card_intent.physical_arm_ns <= native.observedMonoTime):
@@ -849,9 +863,27 @@ class Car:
                                        slc_enabled=getattr(self, 'slc_control_enabled', getattr(self, 'slc_replay', False)),
                                        slc_approved=approved)
     if self.sm['carControl'].enabled and not self.CC_prev.enabled:
+      initial = None
+      now_ns = int(self.can_log_mono_time) if REPLAY and hasattr(self, 'can_log_mono_time') else time.monotonic_ns()
+      if (getattr(self, 'slc_control_enabled', False) and self.CP.openpilotLongitudinalControl and
+          CS.canValid and not CS.canTimeout and CS.cruiseState.available and
+          self.sm.valid['carControl'] and self.sm.alive['carControl'] and
+          0 < int(self.sm.logMonoTime['carControl']) <= now_ns and
+          now_ns - int(self.sm.logMonoTime['carControl']) <= slc_physical.STATE_MAX_AGE_NS and
+          (self.sm['carControl'].longActive or CS.gasPressed)):
+        evidence = getattr(self.CI.CS, 'dashboard_limit', None)
+        initial = slc_physical.engagement_state(
+          self.sm, evidence.observation if evidence is not None else None, self.slc_producer_session,
+          now_ns, after_ns=getattr(self, 'slc_source_floor_ns', 0))
       # Initialization owns this edge; evaluate commands against its final speed.
-      self.v_cruise_helper.initialize_v_cruise(self.CS_prev, self.experimental_mode,
-                                            resume=self.vehicle_startup.consume_cruise_resume(), initial_speed=self.initial_cruise_speed)
+      adopted = self.v_cruise_helper.initialize_v_cruise(
+        self.CS_prev, self.experimental_mode, resume=self.vehicle_startup.consume_cruise_resume(),
+        initial_speed=engage_initial_speed(self.initial_cruise_speed, self.experimental_mode, getattr(self, 'stock_planner', False),
+                                           getattr(self, 'engage_66', True)),
+        keep_speed=engage_keeps_speed(self.experimental_mode, getattr(self, 'stock_planner', False)),
+        slc_target_mps=float(initial.presentationAdjustedLimit) if initial is not None else None, is_metric=self.is_metric)
+      if adopted:
+        self.slc_receipts.append(('engagementAdopt', initial, 0.0, float(self.v_cruise_helper.v_cruise_kph / 3.6), now_ns))
 
   def aol_cancel_source(self, CS, now_ns: int) -> int:
     """Bind Cancel to this parsed CAN batch and its local monotonic receipt."""
@@ -875,22 +907,32 @@ class Car:
     return received_ns
 
   def aol_honda_brake_source(self, CS, now_ns: int) -> int:
+    """A driver's longitudinal withdrawal on a stock-AOL Honda: the brake, or a CANCEL press.
+
+    Both end only longitudinal; the AOL latch keeps lateral (the panda keeps the host's lateral request on CANCEL).
+    """
     observation = getattr(self, '_aol_can_observation', None)
-    if (not CS.brakePressed or not qualified_honda_stock_aol(self.CP, marked_only=True) or
+    cancel = any(e.type == structs.CarState.ButtonEvent.Type.cancel and e.pressed for e in CS.buttonEvents)
+    if (not (CS.brakePressed or cancel) or not qualified_honda_stock_aol(self.CP, marked_only=True) or
         observation is None or observation[0] is not CS):
       return 0
     from opendbc.car import Bus
-    from opendbc.car.honda.values import HondaFlags
+    from opendbc.car.honda.values import CruiseButtons, HondaFlags
     parser = self.CI.can_parsers[Bus.pt]
-    message = 'BRAKE_MODULE' if self.CP.flags & HondaFlags.BOSCH_ALT_BRAKE else 'POWERTRAIN_DATA'
-    signals = parser.vl.get(message, {})
-    # Match the real parser's applied-brake or two-sample switch decision.
-    brake = bool(signals.get('BRAKE_PRESSED', 0) or message == 'POWERTRAIN_DATA' and
-                 signals.get('BRAKE_SWITCH', 0) and self.CI.CS.brake_switch_active)
-    stamp = int(parser.ts_nanos.get(message, {}).get('BRAKE_PRESSED', 0))
+    if CS.brakePressed:
+      message = 'BRAKE_MODULE' if self.CP.flags & HondaFlags.BOSCH_ALT_BRAKE else 'POWERTRAIN_DATA'
+      signals = parser.vl.get(message, {})
+      # Match the real parser's applied-brake or two-sample switch decision.
+      withdrawn = bool(signals.get('BRAKE_PRESSED', 0) or message == 'POWERTRAIN_DATA' and
+                       signals.get('BRAKE_SWITCH', 0) and self.CI.CS.brake_switch_active)
+      stamp = int(parser.ts_nanos.get(message, {}).get('BRAKE_PRESSED', 0))
+    else:
+      message = 'SCM_BUTTONS'
+      withdrawn = int(parser.vl.get(message, {}).get('CRUISE_BUTTONS', 0)) == CruiseButtons.CANCEL
+      stamp = int(parser.ts_nanos.get(message, {}).get('CRUISE_BUTTONS', 0))
     _, received_ns, can_source_ns, boot_ns = observation
     # CANParser/CAN batch use BOOTTIME; retain the original MONOTONIC receipt.
-    if (not brake or not 0 < received_ns <= now_ns or now_ns - received_ns > 30_000_000 or
+    if (not withdrawn or not 0 < received_ns <= now_ns or now_ns - received_ns > 30_000_000 or
         not 0 < stamp <= can_source_ns <= boot_ns or boot_ns - stamp > 30_000_000 or
         can_source_ns - stamp > 30_000_000):
       return 0
@@ -921,7 +963,8 @@ class Car:
         intent_producer_session=getattr(self, 'slc_producer_session', ''),
         main_arm_ns=getattr(self.aol_card_intent, 'main_arm_ns', 0),
         startup_calibration_pending=getattr(self.aol_card_intent, 'startup_calibration_pending', False),
-        intent_paused=getattr(self.aol_card_intent, 'pause_lateral', False)):
+        intent_paused=(getattr(self.aol_card_intent, 'pause_lateral', False) or
+          ford_brake_pause_active(self.CP, CS, self.aol_settings))):
       return True
     events = self.sm['onroadEvents']
     if self.aol_transport_feedback.retention_qualified or self.aol_transport_feedback.retention_pending:
@@ -1083,6 +1126,13 @@ class Car:
       companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
       companion.starpilotCarState.lateralAuthorityUnavailable = bool(steering_authority.latched)
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+    if self.CP.brand == 'tesla':
+      info = getattr(self.CI.CC, 'steering_limit_info', None)
+      if info:
+        if companion is None:
+          companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
+        companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+        companion.starpilotCarState.steeringLimitInfo = info
     if getattr(self, 'learning_applied_evidence', None) is not None:
       try:
         from openpilot.starpilot.flm.evidence_hooks import applied_message
@@ -1108,11 +1158,18 @@ class Car:
     if self.CP.brand == 'mazda':
       from openpilot.starpilot.car.mazda.dashboard import compose
       companion = compose(self.CP, self.CI.CS, CS, companion, car_state_stamp=int(cs_send.logMonoTime))
+    elif self.CP.brand == 'hyundai':
+      from openpilot.starpilot.car.hyundai.dashboard import compose as hyundai_compose
+      companion = hyundai_compose(self.CP, self.CI.CS, CS, companion, car_state_stamp=int(cs_send.logMonoTime))
     if self.v_cruise_helper.toyota is not None:
       if companion is None:
         companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
       self.v_cruise_helper.toyota.publish(companion.starpilotCarState.toyotaCruise)
+    if companion is not None and getattr(self, 'radar_point_status', None) is not None:
+      # radard reads the latest starpilotCarState: every one card sends carries the latest radar point statuses
+      from openpilot.starpilot.car.honda import radar_point_status
+      radar_point_status.write(companion.starpilotCarState, *self.radar_point_status)
     self.car_gps_publisher.update(self.CI.CS, self.pm, companion)
     self.pm.send('carState', cs_send)
     if getattr(self, 'learning_stamp_observer', None) is not None:
@@ -1168,9 +1225,11 @@ class Car:
           record.button = 'accel'
         else:
           record.sessionId = str(detail.sessionId)
-          record.commandId = int(detail.commandId)
+          record.commandId = 0 if kind == 'engagementAdopt' else int(detail.commandId)
           record.decisionId = int(detail.decisionId)
           record.presentationId = int(detail.presentationId)
+          if kind == 'engagementAdopt':
+            record.button = 'decel'
         self.pm.send('slcCruiseEvent', event)
 
     if getattr(self, 'conditional_replay', False) and self.manual_receipt is not None:
@@ -1207,9 +1266,16 @@ class Car:
   def radar_publish(self, RD):
     if RD is not None:
       tracks_msg = messaging.new_message('radarTracks')
-      tracks_msg.valid = not any(RD.errors.to_dict().values())
+      tracks_msg.valid = not RD.errors.canError
       tracks_msg.radarTracks = RD
       self.pm.send('radarTracks', tracks_msg)
+      statuses = getattr(getattr(self, 'RI', None), 'point_statuses', None)
+      if statuses is not None:
+        from openpilot.starpilot.car.honda import radar_point_status
+        self.radar_point_status = (int(tracks_msg.logMonoTime), dict(statuses))
+        status_msg = messaging.new_message('starpilotCarState', valid=bool(tracks_msg.valid))
+        radar_point_status.write(status_msg.starpilotCarState, *self.radar_point_status)
+        self.pm.send('starpilotCarState', status_msg)
 
   def publish_traffic_receipt(self, cs_send):
     traffic_receipt = getattr(self, 'traffic_receipt', None)
@@ -1351,7 +1417,8 @@ class Car:
     stamp, receipt = int(sm.logMonoTime['pandaStates']), int(sm.recv_time['pandaStates'] * 1e9)
     pandas = sm['pandaStates']
     owner = getattr(self.vehicle_startup, 'owner', None)
-    count = 2 if isinstance(owner, CapturedADRVStartup) and hyundai_canfd_config_index(owner.cp) == 1 else 1
+    count = 2 if (isinstance(owner, CapturedADRVStartup) and owner.continuity_required() and
+                  hyundai_canfd_config_index(owner.cp) == 1) else 1
     ignition_pandas = pandas
     if (count == 2 and len(pandas) == 2 and
         pandas[0].pandaType == log.PandaState.PandaType.dos and
@@ -1380,7 +1447,7 @@ class Car:
                 len(pandas) == len(self.CP.safetyConfigs) and
                 all(ps.safetyModel == cfg.safetyModel and ps.safetyParam == cfg.safetyParam and
                     ps.alternativeExperience == self.CP.alternativeExperience and
-                    (not ps.safetyRxChecksInvalid or inactive_keepalive and self.volt_startup_keepalive())
+                    (not ps.safetyRxChecksInvalid or inactive_keepalive and self.gm_startup_keepalive())
                     for ps, cfg in zip(pandas, self.CP.safetyConfigs, strict=True)))
 
   def _feedback_capture(self, now_ns):
@@ -1442,7 +1509,7 @@ class Car:
       builder = messaging.log_from_bytes(packet).as_builder()
       builder.logMonoTime = int(getattr(self, 'volt_cc_now_boot_ns', 0))
       packet = builder.to_bytes()
-    elif self.volt_startup_keepalive() or monitored_steering:
+    elif self.volt_startup_keepalive() or monitored_steering or (self.gm_startup_keepalive() and not self.initialized_prev):
       builder = messaging.log_from_bytes(packet).as_builder()
       builder.logMonoTime = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
       packet = builder.to_bytes()
@@ -1486,6 +1553,11 @@ class Car:
     self.volt_cc_now_mono_ns = now_ns
     return True
 
+  def gm_startup_keepalive(self):
+    # Every GM EPS needs a continuous neutral stream after the camera relay opens,
+    # including while the host is still initializing and the vehicle is in reverse.
+    return (getattr(getattr(self, 'CP', None), 'brand', None) == 'gm' and not self.CP.passive)
+
   def volt_sdgm_startup_keepalive(self):
     if getattr(getattr(self, 'CP', None), 'brand', None) != 'gm':
       return False
@@ -1522,9 +1594,10 @@ class Car:
     from opendbc.car.hyundai.torque_ev_startup import TorqueEVStartup, required
     from opendbc.car.hyundai.ecu_startup import Outcome
     owner = getattr(getattr(self, 'vehicle_startup', None), 'owner', None)
-    return (isinstance(owner, TorqueEVStartup) and owner.outcome in (Outcome.PENDING, Outcome.SENT_UNCONFIRMED) and
+    from opendbc.car.hyundai.generic_hda2_startup import GenericHDA2Startup, carnival_long
+    return (isinstance(owner, (TorqueEVStartup, GenericHDA2Startup)) and owner.outcome in (Outcome.PENDING, Outcome.SENT_UNCONFIRMED) and
             owner.ready and owner.published and owner.ci is self.CI and not owner.closed and
-            required(self.CP))
+            (required(self.CP) or (isinstance(owner, GenericHDA2Startup) and carnival_long(self.CP))))
 
   def mixed_startup_keepalive(self):
     from opendbc.car.hyundai.blended_longitudinal import BlendedStartup
@@ -1560,7 +1633,7 @@ class Car:
       source_ns = int(self.sm.logMonoTime['carControl'])
       receipt_ns = int(self.sm.recv_time['carControl'] * 1e9)
       # Disabled torque/accel are commands; inactive curvature is only telemetry.
-      if (not (mixed_startup or ev6_startup or classic_startup or
+      if (not (mixed_startup or ev6_startup or classic_startup or self.gm_startup_keepalive() or
                (self.aol_replay and native_bootstrap_supported(self.CP) and self.vehicle_startup.owner is None)) or
           not CS.canValid or CS.canTimeout or
           not (self.sm.seen['carControl'] and self.sm.valid['carControl'] and self.sm.alive['carControl']) or
@@ -1587,7 +1660,11 @@ class Car:
     if getattr(self.CI.CC, "bolt_cc_profile", False):
       self.CI.CC.bolt_cc_metric = self.is_metric
 
-    if (initialize_only and self.mixed_startup_keepalive() and self.vehicle_startup.owner.pending_target):
+    from opendbc.car.hyundai.generic_hda2_startup import GenericHDA2Startup
+    from opendbc.car.hyundai.ecu_startup import Outcome
+    pending_carnival = (isinstance(self.vehicle_startup.owner, GenericHDA2Startup) and
+                        self.vehicle_startup.owner.outcome is Outcome.PENDING)
+    if initialize_only and (pending_carnival or (self.mixed_startup_keepalive() and self.vehicle_startup.owner.pending_target)):
       # Fresh disabled controls alone are insufficient: finish the host's
       # selfdriveInitializing phase before suppressing factory ADAS output.
       return
@@ -1604,7 +1681,7 @@ class Car:
       from opendbc.car.hyundai.ev6_startup import EV6Startup
       from opendbc.car.hyundai.ecu_startup import Outcome
       classic = self.vehicle_startup.owner
-      if isinstance(classic, (G90Startup, TorqueEVStartup, EV6Startup)) and classic.outcome is Outcome.PENDING:
+      if isinstance(classic, (G90Startup, TorqueEVStartup, EV6Startup, GenericHDA2Startup)) and classic.outcome is Outcome.PENDING:
         now = time.monotonic_ns()
         source = int(self.sm.logMonoTime['carControl'])
         receipt = int(self.sm.recv_time['carControl'] * 1e9)
@@ -1684,7 +1761,7 @@ class Car:
           self.last_actuators_output, can_sends = self.CI.apply(inactive, now_boot_ns)
           self.publish_sendcan(can_sends, valid=CS.canValid)
         return
-      if (((isinstance(self.CI, GMInterface) and self.volt_startup_keepalive()) or ev6_startup or classic_startup) and
+      if (((isinstance(self.CI, GMInterface) and self.gm_startup_keepalive()) or ev6_startup or classic_startup) and
           self.startup_panda_configured(inactive_keepalive=True)):
         inactive = car.CarControl.new_message().as_reader()
         now_boot_ns = time.clock_gettime_ns(time.CLOCK_BOOTTIME)
@@ -1792,11 +1869,11 @@ class Car:
                    self.sm.seen['onroadEvents'])
     if not self.CP.passive and initialized:
       self.controls_update(CS, self.sm['carControl'])
-    elif ((not self.ci_initialized or self.volt_startup_keepalive() or self.ev6_startup_keepalive() or
+    elif ((not self.ci_initialized or self.gm_startup_keepalive() or self.ev6_startup_keepalive() or
            self.classic_startup_keepalive() or self.torque_ev_startup_keepalive() or self.mixed_startup_keepalive()) and
           self.sm.seen['onroadEvents'] and
           any(e.name == EventName.selfdriveInitializing for e in self.sm['onroadEvents']) and
-          ((self.aol_replay and native_bootstrap_supported(self.CP)) or self.ev6_startup_keepalive() or
+          (self.gm_startup_keepalive() or (self.aol_replay and native_bootstrap_supported(self.CP)) or self.ev6_startup_keepalive() or
            self.classic_startup_keepalive() or self.torque_ev_startup_keepalive() or self.mixed_startup_keepalive())):
       self.controls_update(CS, self.sm['carControl'], initialize_only=True)
 
@@ -1826,6 +1903,7 @@ class Car:
       self.is_metric = self.params.get_bool("IsMetric")
       self.experimental_mode = self.params.get_bool("ExperimentalMode") and self.CP.openpilotLongitudinalControl
       self.initial_cruise_speed = self.params.get("InitialCruiseSpeedKph", return_default=True)
+      self.engage_66 = read_engage_66(self.params)
       if self.aol_card_intent is not None:
         self.aol_card_intent.settings = read_settings(self.params)
       now = time.monotonic()

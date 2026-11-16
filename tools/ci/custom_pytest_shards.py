@@ -12,9 +12,11 @@ import sys
 from xml.etree import ElementTree
 
 from tools.ci.lifecycle_shards import build_identity, same_build_inputs
+from tools.ci.supported_vehicles import supported
 
 ROOT = Path(__file__).resolve().parents[2]
 HEAVY_MODULES = {
+  'openpilot/starpilot/tests/test_ford_bluepilot_library_lifecycle.py',
   'openpilot/starpilot/car/toyota/tests/test_camera_pedal_extension_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_eps8_sdsu_callers.py',
   'openpilot/starpilot/car/toyota/tests/test_legacy_advert_callers.py',
@@ -97,7 +99,7 @@ def blob_id(path):
 
 def partition(catalog, count, root=ROOT):
   """Whole modules, except explicitly reviewed independent heavy parameter cases."""
-  if type(count) is not int or not 1 <= count <= 24 or not catalog or len(catalog) != len(set(catalog)):
+  if type(count) is not int or not 1 <= count <= 32 or not catalog or len(catalog) != len(set(catalog)):
     raise ValueError('Empty, duplicate or invalid custom pytest catalog')
   grouped = defaultdict(list)
   for node in catalog:
@@ -143,6 +145,29 @@ def source_snapshot(root=ROOT):
           'runners': {name: checksum((root / 'tools/ci' / name).read_bytes()) for name in (
             'run_host_tests.py', 'custom_pytest_shards.py', 'custom_pytest_workloads.json',
             'pytest_progress.py', 'worker_diagnostics.py', 'lifecycle_shards.py', 'lifecycle_build_outputs.json')}}
+
+
+# Tracked files that `scons` rewrites from tracked sources (cereal/SConscript). Every shard builds before it
+# tests, so a shard records the CI host's codegen here; the aggregate checkout has not built and keeps the
+# committed copies. The shards must still agree with each other on these, and their generators are inputs.
+BUILD_REGENERATED_PREFIXES = ('openpilot/cereal/gen/',)
+BUILD_REGENERATED_FILES = frozenset({'openpilot/cereal/services.h'})
+
+
+def build_regenerated(name):
+  return name in BUILD_REGENERATED_FILES or name.startswith(BUILD_REGENERATED_PREFIXES)
+
+
+def same_committed_source(built, checkout):
+  """A built shard and the unbuilt aggregate checkout pin the same commit, tree, recipes and source files."""
+  def committed(inputs):
+    inputs = dict(inputs)
+    if 'tracked_inputs' in inputs:
+      inputs['tracked_inputs'] = {name: None if build_regenerated(name) else record for name, record in inputs['tracked_inputs'].items()}
+    if 'changes' in inputs:
+      inputs['changes'] = {name: record for name, record in inputs['changes'].items() if not build_regenerated(name)}
+    return inputs
+  return committed(built['inputs']) == committed(checkout['inputs'])
 
 
 REAL_XAPK = 'openpilot/.cache/starport/android-auto-17-6-663454-release.xapk'
@@ -293,6 +318,11 @@ class ShardPlugin:
       self.errors.append({'id': report.nodeid, 'failure': str(report.longrepr)[:4096]})
 
   def pytest_collection_modifyitems(self, session, config, items):
+    # Other brands' cases inside brand-neutral files leave the catalog itself: tools/ci/supported_vehicles.py
+    other_brands = [item for item in items if not supported(item.nodeid)]
+    if other_brands:
+      items[:] = [item for item in items if supported(item.nodeid)]
+      config.hook.pytest_deselected(items=other_brands)
     self.catalog = [item.nodeid for item in items]
     assignment, loads = partition(self.catalog, self.count)
     if type(self.index) is not int or not 0 <= self.index < self.count:
@@ -363,6 +393,7 @@ def aggregate(directory, count, root=ROOT):
   if len(paths) != count:
     raise ValueError('Missing or duplicate custom pytest shard jobs')
   expected_source = source_snapshot(root)
+  first_build = None
   full = None
   seen = []
   audited_skips = []
@@ -378,7 +409,8 @@ def aggregate(directory, count, root=ROOT):
     before, after = doc['source_before'], doc['source_after']
     if before != after or before['runners'] != expected_source['runners']:
       raise ValueError('Source or runner changed during execution')
-    if not same_build_inputs(before['build'], expected_source['build']):
+    first_build = first_build or before['build']
+    if not same_build_inputs(before['build'], first_build) or not same_committed_source(before['build'], expected_source['build']):
       raise ValueError('Custom pytest source HEAD, input closure or build recipe mismatch')
     outcome_path = path.with_name('outcomes.json')
     junit = path.parent / 'diagnostics/pytest.xml'
@@ -430,7 +462,7 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('action', choices=('run', 'aggregate'))
   parser.add_argument('--index', type=int)
-  parser.add_argument('--count', type=int, default=24)
+  parser.add_argument('--count', type=int, default=32)
   parser.add_argument('--output', type=Path, required=True)
   parser.add_argument('--directory', type=Path)
   args = parser.parse_args()

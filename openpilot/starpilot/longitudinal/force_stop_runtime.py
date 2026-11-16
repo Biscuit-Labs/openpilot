@@ -33,6 +33,17 @@ def standstill_takeoff_light(model, car) -> bool | None:
   return should_stop or horizon < FROZEN_RAW_STOP_DISTANCE_M + STOP_MODEL_RELEASE_MARGIN_M
 
 
+def dashboard_stop_sign(sm, *, now_ns: int, drive_id: int) -> bool:
+  try:
+    if not sm.seen['starpilotCarState'] or not sm.valid['starpilotCarState']:
+      return False
+    stamp = int(sm.logMonoTime['starpilotCarState'])
+    return bool(drive_id < stamp <= now_ns and now_ns - stamp <= SOURCE_AGE_NS and
+                sm['starpilotCarState'].dashboardStopSign > 0)
+  except (AttributeError, KeyError, TypeError, ValueError):
+    return False
+
+
 class ForceStopRuntime:
   def __init__(self, params):
     self.params = params
@@ -164,8 +175,12 @@ class ForceStopRuntime:
       # Keep model perception warm during AOL and a manual brake stop. Only
       # actual longitudinal ownership may produce a stop target or hold.
       if not control.longActive or not state.enabled or car.brakePressed:
+        # A gas tap drops longActive; keep the 10 s release it started so the
+        # stop does not re-arm about a second after the driver pressed.
+        override = self.policy.override_until_ns if car.gasPressed and state.enabled and not car.brakePressed else 0
         self.resume.reset()
         self.policy.reset()
+        self.policy.override_until_ns = override
         self.plan = StopPlan()
         return self.plan
       frame = StopFrame(stamp, float(car.vEgo), horizon, light_context, horizon is not None and horizon < 50,
@@ -173,7 +188,8 @@ class ForceStopRuntime:
                         tracked is not None and tracked.tracked is True, bool(lead.present), float(lead.dRel), float(lead.vLead),
                         raw_curve[1] if raw_curve is not None else False, curvature[0] if curvature is not None else None,
                         bool(car.leftBlinker or car.rightBlinker), float(car.steeringAngleDeg), resume_requested=resume_requested,
-                        perception_available=perception_available)
+                        perception_available=perception_available,
+                        sign=dashboard_stop_sign(sm, now_ns=now_ns, drive_id=drive_id))
       self.plan = self.policy.step(frame, vehicle_tune(str(cp.carFingerprint)), self.offset)
       if takeoff_enabled:
         self.plan = replace(self.plan, takeoff_light_observed=takeoff_observed, takeoff_light=takeoff_light)

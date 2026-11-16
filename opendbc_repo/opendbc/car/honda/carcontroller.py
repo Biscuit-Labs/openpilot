@@ -2,6 +2,7 @@ import numpy as np
 
 from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, structs
+from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
@@ -125,6 +126,8 @@ class CarController(CarControllerBase):
     self.gas = 0.0
     self.brake = 0.0
     self.last_torque = 0.0
+    # frames the driver has been turning the wheel (+) or let go (-), for the cluster lanes
+    self.override_frames = 0
 
   def update(self, CC, CS, now_nanos):
     _projection = self.learning_projection_observer
@@ -133,6 +136,10 @@ class CarController(CarControllerBase):
     actuators = CC.actuators
     hud_control = CC.hudControl
     hud_v_cruise = hud_control.setSpeed / CS.v_cruise_factor if hud_control.speedVisible else 255
+    if hud_control.speedVisible and not CS.dynamic_v_cruise_units and not CS.is_metric:
+      # Imperial cluster reads whole kph on Honda's 1.6 kph-per-mph grid. Exact 50 mph
+      # (80.47 kph) rounded to 81 and showed 51 (route 0000008f--1effd6e0ad, 2026-11-05).
+      hud_v_cruise = round(hud_control.setSpeed * CV.MS_TO_MPH) * 1.6
     pcm_cancel_cmd = CC.cruiseControl.cancel
     if self.keep_pcm_acc:
       # carstate hides the PCM's ACC from openpilot in this mode, so the cancel on disengage is sent from here
@@ -268,6 +275,15 @@ class CarController(CarControllerBase):
             command = self.nidec_interceptor.update(CC, CS, gas, brake, wind_brake)
             can_sends.append(create_command(self.packer, command, (self.frame // 2) % 16))
 
+    if CS.out.steeringPressed:
+      self.override_frames = max(self.override_frames, 0) + 1
+    elif self.override_frames >= 50:
+      self.override_frames = -1
+    elif -100 < self.override_frames < 0:
+      self.override_frames -= 1
+    else:
+      self.override_frames = 0
+
     # Send dashboard UI commands.
     if self.frame % 10 == 0:
       if self.CP.openpilotLongitudinalControl:
@@ -276,8 +292,16 @@ class CarController(CarControllerBase):
                                                  hud_control, hud_v_cruise, CS.is_metric, CS.acc_hud))
 
       steering_available = CS.out.cruiseState.available and CS.out.vEgo > max(self.params.STEER_GLOBAL_MIN_SPEED, self.CP.minSteerSpeed)
+      # the cluster shows outline lanes once the driver has turned the wheel for 0.5 s and fills them 1 s after letting
+      # go, so a nudge mid-lane does not blink them
+      overridden = self.override_frames >= 50 or (-100 < self.override_frames < 0)
+      # outline lanes while openpilot is engaged, at any speed; fill them only while it steers above the minimum
+      # steer speed. The car cannot see an AOL pause, so a paused AOL with openpilot off shows no lanes.
+      engaged = CS.out.cruiseState.available and (CC.enabled or CC.latActive)
       can_sends.extend(hondacan.create_lkas_hud(self.packer, self.CAN.lkas, self.CP, hud_control, CC.latActive,
-                                                steering_available, alert_steer_required, CS.lkas_hud))
+                                                steering_available, alert_steer_required, CS.lkas_hud,
+                                                lanes_active=CC.latActive and not overridden and steering_available,
+                                                lanes_outline=engaged))
 
       if self.CP.openpilotLongitudinalControl:
         # TODO: combining with create_acc_hud block above will change message order and will need replay logs regenerated

@@ -1,16 +1,21 @@
 """Honda Bosch A Long Enhancement: longitudinal behavior that is active whenever the Bosch-A radar is on.
 
 Ported from openpilot-radar (ns-bosch-radar-testing @ 567495f4ad + 6db22115e8, selfdrive/controls/lib/longitudinal_planner.py).
-Active only when `active_for(CP)`: a Honda in VERIFIED_BOSCH_A_CARS with openpilot longitudinal and the radar not
+Active only when `active_for(CP)`: a Honda on a Bosch-A platform (VERIFIED_BOSCH_A_CARS, same as
+`bosch_a_radar_platform`, including alt-radar stock) with openpilot longitudinal and the radar not
 disabled (`HondaBoschARadar`), which is the same gate radard uses to build BoschALeadPolicy. Each part also has its own
 switch: Stock Brake Feel is the owner toggle `BoschAStockBrakeFeel` (bosch_a_toggles.py, default Off, read once when
 plannerd starts and passed in as `stock_brake_feel`); STOP_EASE_ENABLED, RADAR_LEAD_RECOVERY and BIRTH_RAIL_ENABLED are
-constants and stay off. Both longitudinal planners (StarPilot's and the upstream one) call it the same way.
+constants and stay off; NEWBORN_HOLD_ENABLED (D-080 alone) is a constant and is on. Both longitudinal planners
+(StarPilot's and the upstream one) call it the same way.
 
 Contents:
 - Stock Brake Feel (D-086, D-100, D-103, D-120): stock Honda ACC's TTC depth and jerk tables, with the soft exit,
   takeover hold, lead-stop law (<= 20 s) and the emergency latch.
 - Stop ease (planner side): the brake eases toward about -0.5 m/s^2 at the stop when there is room.
+- Need floor (2026-11-11, NEED_FLOOR_ENABLED, on; replay only): need_floor() raises a braking target to -max(need, 0.8)
+  for a steady closing moving lead, after smooth and stop gap; called from longitudinal_planner.py only. It acts only at
+  a gap of at least 1.5 s of headway (NEED_FLOOR_MIN_GAP_ENABLED, on; static tests, replay on a different stack pending).
 
 The planner calls `step()` once per cycle, after every other target owner and before the final clip. Every limit
 here only shapes how a brake builds or lets off; the emergency latch passes the planner's target through untouched,
@@ -26,6 +31,17 @@ import numpy as np
 # go no deeper than the depth table and may deepen no faster than the jerk table (fitted to stock ACC_CONTROL).
 STOCK_FEEL_DEPTH_BP = [2.0, 2.25, 2.75, 3.5, 4.5, 5.5, 6.5, 7.5, 9.0, 11.0, 13.5, 17.5, 25.0]  # s
 STOCK_FEEL_DEPTH_V = [-3.5, -3.2, -2.4, -2.3, -2.3, -2.1, -1.7, -1.6, -1.28, -1.09, -0.88, -0.74, -0.35]  # m/s^2
+# Far entry (TTC >= 25 s): -0.6 instead of -0.35 while the nearest lead is within STOCK_FEEL_FAR_GAP_S of time gap
+# (owner 2026-11-06). Route 96 32:17 (49 mph, lead then braking -3): the -0.35 cap held a plateau for ~6 s and the
+# driver took over; 8f B3 slowed too late on the same plateau. An ungated -0.6 (c59ee88e4, driven on route 99) added
+# far-lead brakes: vn80 -1.58 at gap 8.2 s, p78 -1.04 at gap 92 s. Only the time gap separates them: the plateau
+# frames sit at 1.2-2.0 s (T4) and 3.3-3.6 s (B3), the far brakes at 9-10 s and 100+ s; lead decel, closing speed
+# and a closing/distance need all overlapped (aLeadK reads -0.8..-1.2 on the far brakes). Replay (Job, open loop,
+# Stock Brake Feel + Human Following + Approaching lead buffer on; limited road evidence): T4 min gap 0.54 -> 0.91 s,
+# B3 2.26 -> 2.71 s, both equal to the ungated -0.6; 2.46 h pooled vs ungated: both far brakes gone, 3 marginal new
+# <-1 episodes (two 1-frame -1.01/-1.03, one -1.18 at 7.8 s), all traced to closed-loop divergence.
+STOCK_FEEL_FAR_DEPTH = -0.6  # m/s^2
+STOCK_FEEL_FAR_GAP_S = 5.0   # s
 STOCK_FEEL_JERK_BP = [2.0, 2.5, 6.0, 10.0]  # s
 STOCK_FEEL_JERK_V = [3.0, 2.0, 1.0, 0.6]  # m/s^3
 STOCK_FEEL_TTC_FLOOR_S = 2.0
@@ -74,12 +90,21 @@ STOP_EASE_MIN_GAP = 2.0  # m
 #   gates (RECOVERED_CAM_GATE, NEWBORN_*) plus RadarPoint fields (`measured`, `recovered`) that 7.0 does not have, so
 #   this switch does NOT turn them on. Turning those decoder constants on without the gates is the rejected
 #   configuration (STATUS 225; D-075 phantom brakes on 280/294/2ae/284).
+# NEWBORN_HOLD_ENABLED: D-080 (newborn aLeadK bound, planner_radar_state()) on its own switch, on since 2026-11-11
+#   (owner: "Port the hold alone to my branch"). It needs none of the decoder or radard parts above. Evidence, open-loop
+#   replay only, not driven: route 000000bd seg10 ~621.8 s, radar track 23 became the lead with aLeadK -2.44 and
+#   tripped the Stock Brake Feel emergency latch through the stopping-need path (need 2.56); with the hold the target
+#   peak went -2.37 -> -2.23, worst step jerk -8.0 -> -1.4 m/s^3, latch rows 44 -> 0; the real hard stop on seg5 (5:34)
+#   was identical (-3.50, 79 latch rows). Corpus (36 routes + second set, on the bob-unify-bd build f0024b0c3d, not this
+#   base): 52 episodes moved, 0 harder, no REAL or PHANTOM label moved; owner reviewed the largest softenings (ep49,
+#   ep417, ep2111) and accepted them. Onsets slipped by up to 0.35 s on unlabelled episodes.
 STOP_EASE_ENABLED = False
 RADAR_LEAD_RECOVERY = False
+NEWBORN_HOLD_ENABLED = True
 
 
 def active_for(CP) -> bool:
-  """Same gate as radard's BoschALeadPolicy: verified Bosch-A Honda, radar on, openpilot longitudinal."""
+  """Same gate as radard's BoschALeadPolicy: Bosch-A Honda (classic or alt-radar), radar on, openpilot longitudinal."""
   from opendbc.car.honda.bosch_a_radar import VERIFIED_BOSCH_A_CARS
   return bool(CP.brand == "honda" and CP.carFingerprint in VERIFIED_BOSCH_A_CARS and not CP.radarUnavailable and
               CP.openpilotLongitudinalControl)
@@ -141,7 +166,7 @@ def stock_feel_emergency(leads, v_ego: float, active: bool) -> bool:
        ttc <= STOCK_FEEL_EMERGENCY_A_LEAD_MAX_TTC:
       return True
   need = lead_stop_need(leads, v_ego)
-  depth = float(np.interp(ttc, STOCK_FEEL_DEPTH_BP, STOCK_FEEL_DEPTH_V))
+  depth = stock_feel_depth(leads, ttc, v_ego)
   return need >= STOCK_FEEL_EMERGENCY_NEED and need > -depth
 
 
@@ -158,6 +183,16 @@ def stock_feel_law_active(leads, emergency: bool) -> bool:
   return not emergency and ttc > STOCK_FEEL_TTC_FLOOR_S and ttc != float('inf')
 
 
+def stock_feel_depth(leads, ttc: float, v_ego: float) -> float:
+  """Depth table at this TTC; the far entry is STOCK_FEEL_FAR_DEPTH while the nearest lead is within
+  STOCK_FEEL_FAR_GAP_S of time gap."""
+  depth_v = STOCK_FEEL_DEPTH_V
+  d_near = min((float(lead.dRel) for lead in leads if _present(lead)), default=float('inf'))
+  if d_near <= STOCK_FEEL_FAR_GAP_S * max(float(v_ego), 0.0):
+    depth_v = STOCK_FEEL_DEPTH_V[:-1] + [STOCK_FEEL_FAR_DEPTH]
+  return float(np.interp(ttc, STOCK_FEEL_DEPTH_BP, depth_v))
+
+
 def stock_feel_target(leads, prev: float, target: float, dt: float, v_ego: float = 0.0,
                       emergency: bool = False, law_recent: bool = False) -> float:
   """D-086 stock Honda ACC brake law (see the constants above)."""
@@ -169,7 +204,7 @@ def stock_feel_target(leads, prev: float, target: float, dt: float, v_ego: float
     return brake_onset_limited_target(prev, target, dt, STOCK_FEEL_EXIT_JERK)
   if not ttc > STOCK_FEEL_TTC_FLOOR_S or ttc == float('inf'):
     return brake_onset_limited_target(prev, target, dt, STOCK_FEEL_JERK_OUTSIDE)
-  depth = float(np.interp(ttc, STOCK_FEEL_DEPTH_BP, STOCK_FEEL_DEPTH_V))
+  depth = stock_feel_depth(leads, ttc, v_ego)
   if STOCK_FEEL_LEAD_STOP:
     need = lead_stop_need(leads, v_ego, STOCK_FEEL_LEAD_STOP_MAX_T)
     if need > -depth:
@@ -203,6 +238,118 @@ def stop_eased_target(prev: float, target: float, floor: float | None, dt: float
   return float(min(floor, max(target, prev + STOP_EASE_JERK * dt)))
 
 
+# ---- Need floor ("arm 13" / arm D; Bosch-A, replay only) ---------------------------------------------------------------
+# Owner 2026-11-11, route 11c8fa231c0499ed/000000bd--3279f521f1 seg 10 (10:20): a radar lead born at 61 m closing at 10.5
+# m/s never stopped (vLead 8.5-9 m/s, then 13), min gap 41 m; -2.23 with the newborn hold 'still feels too hard', owner
+# wants a -1.3 to -1.5 peak. Cause: the MPC asks -2.3..-2.4 to restore time-gap headway, and the Stock Brake Feel depth
+# table is TTC-only (TTC 4.7-5.9 s allows -2.1..-2.25). Replay (Job, open loop at a1ac1afdba + anchored kinematic closed
+# loop, 0.3 s lag, MPC not reacting; one route, three events), against the newborn hold alone: seg 10 peak -2.23 -> -1.52,
+# worst decel jerk -7.2 -> -3.7, closed-loop min gap 38.3 -> 30.7 m, min TTC 4.72 -> 4.63 s; seg 5 (5:34) and seg 18
+# (18:30), both stopped leads: 0 frames differ, the gate never opened (highest vLead while closing 3.9 m/s). Earlier
+# variants without the vLead/aLeadK gate (arms 10-12) softened stops behind a late-born stopped lead (closed-loop stop gap
+# 0.9 m vs 2.5 m at 18:30; seg 5 min gap 4.7 m vs 11.3 m) and must not be used. Multiplier 1.3 gave -1.91, 0.9 gave
+# -1.39. Open: at 630 s the simulated ego is still 2-2.6 m/s faster than the lead, so a late second brake is expected in
+# the car and is not modeled. The gate is tuned on three events; replay only, not driven, not yet scored on the corpus.
+# Frame counts are planner frames at 20 Hz.
+NEED_FLOOR_ENABLED = True       # switch; read at construction so a replay harness can set it before building the planner
+# 1.3 gave -1.91, 0.9 gave -1.39 on seg 10. 1.15 (Peter 2026-11-11, replay only): seg 10 -1.75 (hold-only -2.23, 1.0 -1.52); seg 5 / seg 18 stops unchanged;
+# ep1046 REAL -2.30 -> -2.72; 15 of 1141 episodes >0.05 deeper, onsets unchanged
+NEED_FLOOR_MULT = 1.15          # floor = -max(MULT * need, MIN)
+NEED_FLOOR_MIN = 0.8            # m/s^2; the shallowest the floor may be
+NEED_FLOOR_HEADWAY_S = 1.0      # s; need's gap target = vLead * this + STOP_M
+NEED_FLOOR_STOP_M = 6.0         # m
+NEED_FLOOR_MIN_ROOM_M = 5.0     # m; need's room is never smaller than this
+NEED_FLOOR_RELEASE_TTC_S = 3.0  # s; closing at or under this TTC: floor off and sticky
+NEED_FLOOR_RELEASE_NEED = 2.0   # m/s^2; need at or over this: floor off and sticky
+NEED_FLOOR_MIN_V_EGO = 5.0      # m/s
+NEED_FLOOR_MIN_D = 15.0         # m
+NEED_FLOOR_GATE_V_LEAD = 5.0    # m/s; lead must be moving (stopped leads at 5:34 and 18:30 never opened the gate)
+NEED_FLOOR_GATE_A_LEAD = -1.0   # m/s^2; lead's aLeadK must be above this (not itself braking hard)
+NEED_FLOOR_GATE_FRAMES = 10     # consecutive frames of the gate on one (track id, radar flag): 0.5 s
+NEED_FLOOR_QUIET_FRAMES = 20    # frames with no lead closing before the sticky-off clears: 1.0 s
+# Min-gap gate. Owner 2026-11-11 (via Bob), scorecard ep645, route 000000ae seg 81: gap 22 m at 16.0 m/s (1.37 s), closing 2.2 m/s;
+# floor -0.80 vs hold -1.19, owner wants the floor not to soften a lead this close. Evidence level: static tests + replay on a
+# different stack pending; Peter turned it on on his car 2026-11-12. No Param: this module switch is read at construction (like
+# NEED_FLOOR_ENABLED) so a replay harness can set it before building the planner.
+NEED_FLOOR_MIN_GAP_ENABLED = True
+NEED_FLOOR_MIN_GAP_S = 1.5      # s; with the gate on the floor applies only at d >= v_ego * this (evaluated every frame, not sticky)
+
+
+class NeedFloor:
+  """Raises a braking target to at least -max(NEED_FLOOR_MULT * need, NEED_FLOOR_MIN) for a steady closing moving lead.
+
+  need = closing^2 / (2 * max(d - (max(vLead, 0) * HEADWAY_S + STOP_M), MIN_ROOM_M)), the decel that closes the speed
+  difference in the room left before the headway gap. The floor only RAISES a braking target (never adds braking) and
+  never touches should_stop. It applies to the nearer present planner lead (leadOne or leadTwo, vision or radar) only
+  when the lead is closing, v_ego >= MIN_V_EGO, d >= MIN_D, ttc > RELEASE_TTC_S, need < RELEASE_NEED, the floor is not
+  sticky-off and the gate (vLead >= GATE_V_LEAD and aLeadK > GATE_A_LEAD for GATE_FRAMES consecutive frames on the same
+  (track id, radar flag)) is open. Sticky-off: once the release fires (closing and (ttc <= RELEASE_TTC_S or need >=
+  RELEASE_NEED)) or the Stock Brake Feel emergency latch is on, the floor stays off until QUIET_FRAMES frames with no
+  lead closing, or the lead identity changes to one farther away than the previous frame's gap. No lead: quiet + 1, gate
+  count 0, sticky clears at QUIET_FRAMES. Called after bosch_a_stop_gap.step in longitudinal_planner.py only; it is not
+  in starpilot/longitudinal/upstream/planner.py. Parity target: the ARM 'D' block of replay_bd.py (Job's scorecard
+  harness), including its rounding of the lead fields (d and vRel to 0.01, aLeadK to 0.001). Replay only."""
+  def __init__(self, min_gap: bool = False):
+    """`min_gap` (NEED_FLOOR_MIN_GAP_ENABLED, passed by HondaBoschALongEnhancement): also require d >= v_ego *
+    NEED_FLOOR_MIN_GAP_S, re-evaluated every frame; it never touches gate_count, off or quiet."""
+    self.min_gap = min_gap is True
+    self.reset()
+
+  def reset(self):
+    self.off = False
+    self.quiet = 0
+    self.last_id = None
+    self.last_d = None
+    self.gate_id = None
+    self.gate_count = 0
+
+  @staticmethod
+  def _view(lead):
+    return (int(getattr(lead, 'radarTrackId', -1)), int(bool(getattr(lead, 'radar', False))),
+            round(float(lead.dRel), 2), round(float(lead.vRel), 2), round(float(getattr(lead, 'aLeadK', 0.0)), 3))
+
+  def step(self, leads, v_ego: float, emergency: bool, target: float) -> float:
+    views = [self._view(lead) for lead in leads if _present(lead)]
+    a = float(target)
+    if not views:
+      self.quiet += 1
+      self.gate_count = 0
+      if self.off and self.quiet >= NEED_FLOOR_QUIET_FRAMES:
+        self.off = False
+      return a
+    track_id, radar, d, v_rel, a_lead = min(views, key=lambda x: x[2])
+    v_ego = float(v_ego)
+    v_lead = v_ego + v_rel
+    need = (v_rel * v_rel if v_rel < 0 else 0.0) / (2.0 * max(d - (max(v_lead, 0.0) * NEED_FLOOR_HEADWAY_S + NEED_FLOOR_STOP_M),
+                                                               NEED_FLOOR_MIN_ROOM_M))
+    ttc = d / -v_rel if v_rel < -0.1 else float('inf')
+    closing = v_rel < 0
+    lid = (track_id, radar)
+    if closing:
+      self.quiet = 0
+    else:
+      self.quiet += 1
+    if self.off and (self.quiet >= NEED_FLOOR_QUIET_FRAMES or
+                     (self.last_id is not None and lid != self.last_id and self.last_d is not None and d > self.last_d)):
+      self.off = False
+    self.last_id = lid
+    self.last_d = d
+    if (closing and (ttc <= NEED_FLOOR_RELEASE_TTC_S or need >= NEED_FLOOR_RELEASE_NEED)) or bool(emergency):
+      self.off = True
+    if self.gate_id != lid or not (v_lead >= NEED_FLOOR_GATE_V_LEAD and a_lead > NEED_FLOOR_GATE_A_LEAD):
+      self.gate_count = 0
+    else:
+      self.gate_count += 1
+    self.gate_id = lid
+    if (self.gate_count >= NEED_FLOOR_GATE_FRAMES and closing and not self.off and v_ego >= NEED_FLOOR_MIN_V_EGO and
+        d >= NEED_FLOOR_MIN_D and ttc > NEED_FLOOR_RELEASE_TTC_S and need < NEED_FLOOR_RELEASE_NEED and
+        (not self.min_gap or d >= v_ego * NEED_FLOOR_MIN_GAP_S)):
+      floor = -max(NEED_FLOOR_MULT * need, NEED_FLOOR_MIN)
+      if a < floor:
+        a = floor
+    return a
+
+
 class HondaBoschALongEnhancement:
   def __init__(self, CP, dt: float, stock_brake_feel: bool = False):
     """`stock_brake_feel` is the owner's BoschAStockBrakeFeel toggle (bosch_a_toggles.read_toggles); it only arms the law,
@@ -211,19 +358,37 @@ class HondaBoschALongEnhancement:
     self.stock_feel = active and stock_brake_feel is True
     self.stop_ease = active and STOP_EASE_ENABLED
     self.enabled = self.stock_feel or self.stop_ease
-    self.newborn_hold = NewbornLeadHold() if active and RADAR_LEAD_RECOVERY else None
+    self.newborn_hold = NewbornLeadHold() if active and (RADAR_LEAD_RECOVERY or NEWBORN_HOLD_ENABLED) else None
+    # Implausible-drop bound (D-041/D-042; owner bookmark route a2 seg 50, 2026-11-07): same gate as the other active
+    # checks in this module (Bosch-A supported, radar available); default ON, no toggle.
+    self.drop_bound = ImplausibleDropBound() if active else None
+    self._need_floor = NeedFloor(min_gap=NEED_FLOOR_MIN_GAP_ENABLED) if self.stock_feel and NEED_FLOOR_ENABLED else None
     self.dt = dt
     self.reset()
 
-  def planner_radar_state(self, radar_state, a_ego: float):
-    """The radarState the MPC sees: D-080 bounds a newborn radar lead's aLeadK; otherwise radar_state itself."""
-    if self.newborn_hold is None:
-      return radar_state
-    return bound_newborn_leads(radar_state, a_ego, self.newborn_hold)
+  def planner_radar_state(self, radar_state, a_ego: float, model_v2=None):
+    """The radarState the MPC sees: D-080 bounds a newborn radar lead's aLeadK, then the implausible-drop bound
+    (below) clamps a leadOne velocity-glitch brake; otherwise radar_state itself. Chained so both can apply."""
+    if self.newborn_hold is not None:
+      radar_state = bound_newborn_leads(radar_state, a_ego, self.newborn_hold)
+    if self.drop_bound is not None:
+      radar_state = bound_implausible_drop(radar_state, model_v2, self.drop_bound)
+    return radar_state
 
   def reset(self):
     self.emergency = False
     self.law_t = 0.0
+
+  def need_floor(self, *, lead_one, lead_two, target: float, v_ego: float, reset_state: bool) -> float:
+    """Need floor (NeedFloor, above): raise a braking `target` for a steady closing moving lead. Call it on the output of
+    bosch_a_stop_gap.step with that call's v_ego, in longitudinal_planner.py only (not in upstream/planner.py); it never
+    touches should_stop. Not active (Stock Brake Feel off, or NEED_FLOOR_ENABLED False at construction) or reset_state:
+    state is cleared and the target passes through."""
+    if self._need_floor is None or reset_state:
+      if self._need_floor is not None:
+        self._need_floor.reset()
+      return float(target)
+    return self._need_floor.step((lead_one, lead_two), v_ego, self.emergency, target)
 
   def step(self, *, lead_one, lead_two, prev: float, target: float, v_ego: float,
            stopping: bool, standstill: bool, reset_state: bool) -> float:
@@ -244,7 +409,7 @@ class HondaBoschALongEnhancement:
     return stop_eased_target(prev, target, stop_ease_floor(v_ego, d_lead), self.dt)
 
 
-# ---- Newborn lead aLeadK bound (D-080), under RADAR_LEAD_RECOVERY ---------------------------------------------------
+# ---- Newborn lead aLeadK bound (D-080), under NEWBORN_HOLD_ENABLED (or RADAR_LEAD_RECOVERY) ----------------------------
 # Ported from openpilot-radar longitudinal_planner.py (567495f4ad), where it is part of the StockBrakeFeel toggle (D-086,
 # default off). Replay only, not driven. STATUS 212: on 2e2 (~283 s) a radar lead first seen while its velocity estimate
 # was still converging published aLeadK -3 / -2.5 when ~0.75 m/s^2 was needed, and on 2e1 a jumping track reached
@@ -342,6 +507,169 @@ def bound_newborn_leads(radar_state, a_ego: float, hold: NewbornLeadHold):
     leads.append(lead if a_lead is None else _BoundedLead(lead, a_lead))
     changed |= a_lead is not None
   return _BoundedRadarState(radar_state, leads[0], leads[1]) if changed else radar_state
+
+
+# ---- Implausible radar-drop bound on leadOne (owner bookmark, route 000000a2--794ebefbf7 seg 50, 2026-11-07) --------
+# Right after a left lane change, leadOne was radar track 24 at 18 m, matched to the camera lead (leadsV3[0] x~19-20 m,
+# prob 1.0). Over 0.7 s track 24's vLead collapsed 12.5 -> 2.9 m/s (vRel +1.1 -> -6.9, an implied -13 m/s^2, physically
+# impossible), aLeadK pinned at -3.0. The camera lead's v stayed 10.5-11.9 m/s and x 19-20 m the whole time. The planner
+# braked at -3.5 and the car went 10.3 -> 4.2 m/s; the track then died and the next track (62) showed the car pulling
+# away at 22 m. A radar velocity glitch, not a real lead. D-041/D-042: the point is never dropped or altered in
+# radarState; this only bounds what leadOne publishes to the planner (MPC + this module's stock-feel law), the same
+# pattern as the D-080 newborn bound above. Replay only (16-drive census + 12-episode gate rerun, 2026-11-07); no road
+# evidence yet for this specific bound.
+# Residual risk: a real lead braking harder than DROP_MPS/DROP_WINDOW_S (>10 m/s^2 - itself a crash-decel lead) while
+# the camera model lags behind gets up to MAX_S = 1.0 s of the camera's (slower-braking) speed instead of the radar's.
+DROP_WINDOW_S = 0.5          # s; a2 seg 50: the glitch collapsed vLead inside this window
+DROP_MPS = 5.0               # m/s over DROP_WINDOW_S; 5.0 / 0.5 s = 10 m/s^2, beyond a real car's braking
+MODEL_DROP_MAX_MPS = 1.5     # m/s the camera lead's v may drop in the window and still call the radar drop a glitch
+# Range-split census, 2026-11-07, replay. Model x change over the 0.5 s before the trigger, in m: a2 seg 50 phantom
+# +0.50; 84 s15 radar-noise legs +2.44 and -3.81; real slowdowns 7b s27 -5.84, 99 s1 -5.05, 7b s23 -5.81, 78 s3 -5.19,
+# 7b s8 -3.69, 80 s6 -8.81, 80 s19 -1.06; adjacent-lane truck 8a s2 -2.92; 8a s11 (disengaged, lead steady) -0.09.
+# 0.3 m sits between a2 (+0.50) and the closest real slowdown, 80 s19 (-1.06). A magnitude gate on radar-vs-camera
+# range split was tried first and rejected: 7b s23 split -8.3 m is deeper than a2's -3.4 m. Not firing falls back to
+# the old behavior (the radar drop is published unbounded), so the gate only narrows the bound.
+MODEL_RANGE_SHRINK_MAX_M = 0.3  # m the camera lead's x may shrink over DROP_WINDOW_S and still call the radar drop a glitch
+AGREE_M = 4.0                # m; radar dRel vs (model x - RADAR_TO_CAMERA) agreement needed at the window start
+MODEL_PROB_MIN = 0.9         # camera lead confidence needed to trust it over the radar
+TRIGGER_V_EGO_MIN = 5.0      # m/s; below this the radar's own near-field behavior is not glitch-like, stay off
+END_CONVERGE_MPS = 2.0       # m/s; |radar vLead - model v| under this: radar has caught back up, end the bound
+END_MODEL_DROP_MPS = 3.0     # m/s the camera lead's v may fall since the trigger before releasing immediately
+MAX_S = 1.0                  # s; hard cap on how long the bound can run
+RETRIGGER_COOLDOWN_S = 2.0   # s a track id is blocked from re-triggering after the bound ends on it
+MODEL_V_MARGIN_MPS = 1.0     # m/s below the model's v that the bounded vLead may not go
+IMPLAUSIBLE_DROP_DT = NEWBORN_LEAD_DT  # s per planner frame (DT_MDL), same assumption as the newborn bound above
+
+
+# Lazy import, same reasoning as active_for's: this module is imported before radard's car gates are known to apply.
+def _radar_to_camera() -> float:
+  from openpilot.selfdrive.controls.radard import RADAR_TO_CAMERA
+  return RADAR_TO_CAMERA
+
+
+def _model_lead0(model_v2):
+  """(prob, x[0], v[0], a[0]) of the first model lead, or None when modelV2/leadsV3[0] is unusable."""
+  if model_v2 is None:
+    return None
+  try:
+    leads = model_v2.leadsV3
+    if len(leads) < 1:
+      return None
+    lead0 = leads[0]
+    return float(lead0.prob), float(lead0.x[0]), float(lead0.v[0]), float(lead0.a[0])
+  except (AttributeError, IndexError, TypeError, ValueError):
+    return None
+
+
+def _drop_radar_lead(lead) -> bool:
+  return _present(lead) and bool(getattr(lead, 'radar', False)) and int(getattr(lead, 'radarTrackId', -1)) >= 0
+
+
+class ImplausibleDropBound:
+  """Per-leadOne state for the implausible-drop bound (see the constants above). `bound_implausible_drop` drives it
+  once per planner frame."""
+
+  def __init__(self):
+    self.frame = 0
+    self.track_id: int | None = None
+    self.hist: list[tuple[int, float, float, tuple | None]] = []  # (frame, vLead, dRel, model) trimmed to the
+    # trailing DROP_WINDOW_S of the current track; model is (prob, x, v, a) or None
+    self.active = False
+    self.trigger_frame = 0
+    self.trigger_model_v = 0.0
+    self.cooldown_until: dict[int, int] = {}
+
+  def tick(self):
+    self.frame += 1
+
+  def _end(self, track_id: int):
+    self.active = False
+    self.cooldown_until[track_id] = self.frame + round(RETRIGGER_COOLDOWN_S / IMPLAUSIBLE_DROP_DT)
+
+  def _reset_track(self, track_id: int | None):
+    if self.active and self.track_id is not None:
+      self._end(self.track_id)
+    self.track_id = track_id
+    self.hist = []
+
+  def update(self, lead, model_v2):
+    """`lead` is radarState.leadOne this frame. Returns (vLead, vRel, aLeadK) to publish, or None to leave it as is."""
+    if not _drop_radar_lead(lead):
+      self._reset_track(None)
+      return None
+    track_id = int(lead.radarTrackId)
+    if track_id != self.track_id:
+      self._reset_track(track_id)
+    model = _model_lead0(model_v2)
+    v_lead = float(lead.vLead)
+    d_rel = float(lead.dRel)
+    v_ego = v_lead - float(lead.vRel)
+    self.hist.append((self.frame, v_lead, d_rel, model))
+    while self.hist and (self.frame - self.hist[0][0]) * IMPLAUSIBLE_DROP_DT > DROP_WINDOW_S:
+      self.hist.pop(0)
+
+    if self.active:
+      if model is None or abs(v_lead - model[2]) < END_CONVERGE_MPS or \
+         (self.trigger_model_v - model[2]) > END_MODEL_DROP_MPS or \
+         (self.frame - self.trigger_frame) * IMPLAUSIBLE_DROP_DT >= MAX_S:
+        self._end(track_id)
+        return None
+      return self._bounded(lead, model, v_ego)
+
+    if model is None or model[0] <= MODEL_PROB_MIN or v_ego <= TRIGGER_V_EGO_MIN or len(self.hist) < 2 or \
+       self.cooldown_until.get(track_id, -1) > self.frame:
+      return None
+    start_frame, start_v_lead, start_d_rel, start_model = self.hist[0]
+    if start_model is None:
+      return None
+    max_v_lead = max(h[1] for h in self.hist)
+    if not max_v_lead - v_lead > DROP_MPS:
+      return None
+    if not start_model[2] - model[2] < MODEL_DROP_MAX_MPS:
+      return None
+    if not model[1] - start_model[1] > -MODEL_RANGE_SHRINK_MAX_M:
+      return None
+    if not abs(start_d_rel - (start_model[1] - _radar_to_camera())) < AGREE_M:
+      return None
+    self.active = True
+    self.trigger_frame = self.frame
+    self.trigger_model_v = model[2]
+    return self._bounded(lead, model, v_ego)
+
+  @staticmethod
+  def _bounded(lead, model: tuple, v_ego: float):
+    """vLead/vRel/aLeadK bounded only toward a faster, less-braking lead; dRel is untouched (D-041/D-042)."""
+    model_v, model_a = model[2], model[3]
+    v_lead_b = max(float(lead.vLead), model_v - MODEL_V_MARGIN_MPS)
+    v_rel_b = v_lead_b - v_ego
+    a_lead_k_b = max(float(lead.aLeadK), min(model_a, 0.0))
+    return v_lead_b, v_rel_b, a_lead_k_b
+
+
+class _FieldBoundedLead:
+  """A lead that reads as `lead` except for the given field overrides."""
+  def __init__(self, lead, **fields):
+    self._lead = lead
+    for name, value in fields.items():
+      setattr(self, name, value)
+    self._fields = fields
+
+  def __getattr__(self, name):
+    return getattr(self._lead, name)
+
+
+def bound_implausible_drop(radar_state, model_v2, state: ImplausibleDropBound):
+  state.tick()
+  result = state.update(radar_state.leadOne, model_v2)
+  if result is None:
+    return radar_state
+  v_lead_b, v_rel_b, a_lead_k_b = result
+  fields = {'vLead': v_lead_b, 'vLeadK': v_lead_b, 'vRel': v_rel_b, 'aLeadK': a_lead_k_b}
+  lead = radar_state.leadOne
+  if hasattr(lead, 'aLead'):
+    fields['aLead'] = a_lead_k_b
+  bounded = _FieldBoundedLead(lead, **fields)
+  return _BoundedRadarState(radar_state, bounded, radar_state.leadTwo)
 
 
 # ---- Birth-rail ramps (D-077), OFF and not wired --------------------------------------------------------------------

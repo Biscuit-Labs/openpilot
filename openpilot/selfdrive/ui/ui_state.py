@@ -20,7 +20,7 @@ from openpilot.selfdrive.ui.lib.prime_state import PrimeState
 from openpilot.selfdrive.selfdrived.alertmanager import OFFROAD_ALERTS
 from openpilot.system.ui.lib.application import gui_app
 from openpilot.common.hardware import HARDWARE, PC
-from openpilot.common.hardware.usb import cable_connected, get_usb_state, is_chestnut_usb_id
+from openpilot.common.hardware.usb import cable_connected, get_usb_state, is_chestnut_usb_id, usb_host_connected
 from openpilot.starpilot.models.manager import ModelManager
 from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
 from openpilot.tools.replay.display_clock import BOOT_TIME_SERVICES, DisplayClockReader
@@ -110,6 +110,7 @@ class UIState:
         "onroadEvents",
         "extrinsicsCalibration",
         "radarState",
+        "radarTracks",
         "deviceState",
         "pandaStates",
         "carParams",
@@ -123,6 +124,7 @@ class UIState:
         "selfdriveState",
         "starpilotSelfdriveState",
         "starpilotLateralState",
+        "starpilotBlendfulState",
         "starpilotNavigation",
         "longitudinalPlan",
         "gpsLocationExternal",
@@ -132,6 +134,7 @@ class UIState:
         "carOutput",
         "carControl",
         "aolAxisState",
+        "aolIntentWire",
         "slcState",
         "vehicleParameters",
         "testJoystick",
@@ -139,9 +142,9 @@ class UIState:
         *(["customReserved6", "cabinCameraState", "narrowRoadEncodeIdx", "wideRoadEncodeIdx", "cabinEncodeIdx"]
           if self.replay_clock is not None else []),
       ],
-      ignore_alive=["starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
-      ignore_valid=["starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
-      ignore_avg_freq=["starpilotSelfdriveState", "starpilotLateralState", "aolAxisState", "starpilotCarState"],
+      ignore_alive=["starpilotSelfdriveState", "starpilotLateralState", "starpilotBlendfulState", "aolAxisState", "starpilotCarState", "radarTracks"],
+      ignore_valid=["starpilotSelfdriveState", "starpilotLateralState", "starpilotBlendfulState", "aolAxisState", "starpilotCarState", "radarTracks"],
+      ignore_avg_freq=["starpilotSelfdriveState", "starpilotLateralState", "starpilotBlendfulState", "aolAxisState", "starpilotCarState", "radarTracks"],
     )
 
     self.prime_state = ProjectionPrimeState(self.params) if self.replay_clock is not None or isinstance(self.params, ProjectionParams) else PrimeState()
@@ -389,7 +392,7 @@ class UIState:
         # are eligible. Live transitions retain their stricter receive boundary.
         self.started_frame = max(0, self.sm.frame - 1) if replay else self.sm.frame
         self.started_time = time.monotonic()
-        self.chestnut_present = self.sm["deviceState"].chestnutPresent or (self.chestnut_compiled and self.usb_connected)
+        self.chestnut_present = self.sm["deviceState"].chestnutPresent or (self.chestnut_compiled and self.usb_connected and not usb_host_connected())
 
       for callback in self._offroad_transition_callbacks:
         gui_app.measure_frame_phase("transition", callback)

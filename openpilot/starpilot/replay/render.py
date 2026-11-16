@@ -15,6 +15,7 @@ import threading
 import time
 from typing import TYPE_CHECKING, cast
 
+from openpilot.starpilot.local_timezone import local_zone
 from openpilot.starpilot.replay.client import MAX_WORKER_STATUS
 from openpilot.starpilot.replay.frames import ReplayFramePublisher, SESSION
 from openpilot.starpilot.replay.media import MediaMux, MediaStore, web_media_dir
@@ -59,7 +60,7 @@ def recorded_wall_clock(sample, wall_minus_mono_ns: int | None):
   if sample is None or not sample.valid or sample.now_ns is None or type(wall_minus_mono_ns) is not int:
     return None
   try:
-    return datetime.fromtimestamp((sample.now_ns + wall_minus_mono_ns) / 1e9).astimezone()
+    return datetime.fromtimestamp((sample.now_ns + wall_minus_mono_ns) / 1e9, local_zone())
   except (OSError, OverflowError, ValueError):
     return None
 
@@ -278,7 +279,7 @@ class Compositor:
     self.context = HeadlessContext(width, height)
     self.resources.callback(self.context.close)
     try:
-      import pyray as rl
+      from openpilot.starpilot.ui.raylib import rl
       from openpilot.system.ui.lib.application import gui_app
       from openpilot.selfdrive.ui.ui_state import ui_state
       from openpilot.starpilot.ui.presentation import BitmapFonts, Profile, default_font_directory
@@ -356,7 +357,6 @@ class Compositor:
       self.view.stock_confidence_layer = lambda rect, state: self.camera.render_stock_confidence_layer(rect, lateral_active=state.lateral_active)
       self.view.stock_confidence_reset = self.camera.reset_stock_confidence_layer
       self.view.extra_overlays = lambda rect, state: self.camera.render_model_source_layer(rect, show_long_indicator=None)
-      self.view.compact_sidebar.personality_renderer = self._personality_layer
 
   def _camera_layer(self, rect, state):
     self.primary_ready = self._primary_matches()
@@ -391,9 +391,10 @@ class Compositor:
                                          lead_indicator=state.appearance.show_lead_indicator and state.lead_indicator_source_fresh,
                                          lead_info_mode=state.appearance.lead_info_mode, lead_info_metric=state.appearance.lead_info_metric,
                                          lateral_active=state.lateral_active, road_style=state.customization['roadColors']['compact'],
-                                         poll_camera=False)
+                                         poll_camera=False, radar_points=state.customization.get('radarPoints') is True)
       else:
-        self.camera.render_camera_model_layer(rect, road_style=state.customization['roadColors']['large'], poll_camera=False)
+        self.camera.render_camera_model_layer(rect, road_style=state.customization['roadColors']['large'], poll_camera=False,
+                                              radar_points=state.customization.get('radarPoints') is True)
     finally:
       sm.updated = original
     self.render_receipts.update({name: receipts[name] for name in flags.read if name in receipts})
@@ -469,13 +470,6 @@ class Compositor:
     self.monitor.render(state, monitor=monitor, driver=driver, fresh=monitor is not None and driver is not None,
                         onroad=self.ui.is_onroad(), top_icons=top_icons)
 
-  def _personality_layer(self, rect, state):
-    from openpilot.starpilot.ui.onroad_state import AlertSize, is_lane_change_notice
-    indicator = self.camera._long_indicator
-    indicator.set_should_draw(state.alert.size == AlertSize.NONE or is_lane_change_notice(state.alert))
-    indicator.render_sidebar(rect, personality=state.personality, longitudinal_active=state.cruise_active,
-                             traffic_mode=state.traffic_mode)
-
   def _close_camera(self):
     callbacks = self.ui._offroad_transition_callbacks
     if self.camera._offroad_transition in callbacks:
@@ -517,7 +511,7 @@ class Compositor:
     # Preserve the subscriber to avoid repeated seeks while paused.
     self.camera.client = client
     self.camera.frame = frame
-    self.camera.available_streams = available
+    self.camera.available_streams = list(available)
     if client is not None and client.is_connected():
       self.camera._initialize_textures()
     pip_client = self.pip_stream._client

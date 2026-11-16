@@ -2,7 +2,8 @@ from collections import OrderedDict
 from datetime import datetime, timedelta
 import hashlib
 
-import pyray as rl
+from openpilot.starpilot.local_timezone import local_now
+from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.appearance_preferences import CameraViewChoice
 from openpilot.starpilot.ui.navigation_icons import ASSETS, MANIFEST, icon_name
@@ -23,7 +24,7 @@ def arrival_time(remaining_seconds: float, now: datetime) -> str:
 class NavigationCard:
   def __init__(self, fonts, *, clock=None):
     self.fonts = fonts
-    self.clock = clock or (lambda: datetime.now().astimezone())
+    self.clock = clock or local_now
     self.collapsed = False
     self._key = None
     self._press = None

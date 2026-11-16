@@ -25,6 +25,7 @@ from functools import partial, total_ordering
 from queue import Queue
 from typing import cast
 from collections.abc import Callable, Iterable
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter, DEFAULT_POOLBLOCK
@@ -48,7 +49,8 @@ from openpilot.tools.lib.helpers import RE
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.version import get_build_metadata
 from openpilot.common.hardware.hw import Paths
-from openpilot.system.athena.rpc import dispatcher, dumps_call, handle, is_call, is_response, loads
+from openpilot.system.athena.rpc import (boolean, dict_of, dispatcher, dumps_call, either, handle, integer, is_call, is_response,
+                                         list_of, loads, number, one_of, regex, struct)
 
 
 from openpilot.starpilot.connect.provider import active_provider, owns_recording, cloudlog_root, mark_recording
@@ -84,6 +86,16 @@ UploadFileDict = dict[str, str | int | float | bool]
 UploadItemDict = dict[str, str | bool | int | float | dict[str, str]]
 
 UploadFilesToUrlResponse = dict[str, int | list[UploadItemDict] | list[str]]
+
+# param validators for RPC inputs
+DATA_PATH = r'(?!.*\.\.)[\w\-.][\w\-./]*'  # relative to log root
+UPLOAD_URL = regex(r'https?://[\x21-\x7e]+')
+UPLOAD_HEADERS = dict_of(regex(r'[\w\-]+'), regex(r'[\x20-\x7e]*'))
+UPLOAD_ID = regex(r'[0-9a-f]{40}')
+CLIP_FILENAME = regex(r'[\w\-][\w\-.]*')
+# headers is optional: Konik's "upload all" batch leaves it out, and UploadFile.from_dict already defaults it to {}
+UPLOAD_FILE = struct({"fn": regex(DATA_PATH), "url": UPLOAD_URL},
+                     {"headers": UPLOAD_HEADERS, "allow_cellular": boolean, "priority": integer(0, DEFAULT_UPLOAD_PRIORITY)})
 
 
 class UploadTOSAdapter(HTTPAdapter):
@@ -140,7 +152,6 @@ class UploadItem:
     return self.priority == other.priority
 
 
-dispatcher["echo"] = lambda s: s
 recv_queue: Queue[str] = queue.Queue()
 send_queue: Queue[tuple[int, int, str]] = queue.PriorityQueue()
 upload_queue: Queue[UploadItem] = queue.PriorityQueue()
@@ -159,6 +170,32 @@ def strip_zst_extension(fn: str) -> str:
   if fn.endswith('.zst'):
     return fn[:-4]
   return fn
+
+
+def resolve_upload_path(path: str, url: str) -> str | None:
+  try:
+    destination = urlparse(url).path
+  except ValueError:
+    return None
+
+  # Konik can request a bare log name with a .zst destination. Keep the canonical
+  # .zst path so the worker prefers the compressed file or compresses the raw log.
+  if not path.endswith('.zst') and destination.endswith('/' + os.path.basename(path) + '.zst'):
+    return path + '.zst'
+  return path
+
+
+def get_upload_source(path: str, log_root: str) -> str | None:
+  source = path
+  if not os.path.exists(source):
+    source = strip_zst_extension(path)
+    if source == path or not os.path.exists(source):
+      return None
+
+  # A per-file provider marker on the raw fallback can differ from the .zst path.
+  if not owns_recording(path, log_root) or (source != path and not owns_recording(source, log_root)):
+    return None
+  return source
 
 
 class AbortTransferException(Exception):
@@ -220,7 +257,8 @@ def handle_long_poll(ws: WebSocket, exit_event: threading.Event | None) -> None:
 
 
 def jsonrpc_handler(end_event: threading.Event) -> None:
-  dispatcher["startLocalProxy"] = partial(startLocalProxy, end_event)
+  dispatcher.add_method(partial(startLocalProxy, end_event), name="startLocalProxy",
+                        remote_ws_uri=regex(r'wss://ssh\.comma\.ai(:(443|8443))?/[0-9a-f]{16}'), local_port=one_of(8022, *LOCAL_PORT_WHITELIST))
   while not end_event.is_set():
     try:
       data = recv_queue.get(timeout=1)
@@ -334,19 +372,13 @@ def upload_handler(end_event: threading.Event) -> None:
 
 
 def _do_upload(upload_item: UploadItem, callback: Callable | None = None) -> requests.Response:
-  path = upload_item.path
-  if not owns_recording(path, Paths.log_root()):
-    raise ValueError('Recording belongs to another cloud provider')
-  compress = False
-
-  # If file does not exist, but does exist without the .zst extension we will compress on the fly
-  if not os.path.exists(path) and os.path.exists(strip_zst_extension(path)):
-    path = strip_zst_extension(path)
-    compress = True
+  path = get_upload_source(upload_item.path, Paths.log_root())
+  if path is None:
+    raise ValueError('Recording belongs to another cloud provider or is unavailable')
 
   stream = None
   try:
-    stream, content_length = get_upload_stream(path, compress)
+    stream, content_length = get_upload_stream(path, path != upload_item.path)
     response = UPLOAD_SESS.put(upload_item.url,
                                data=CallbackReader(stream, callback, content_length) if callback else stream,
                                headers={**upload_item.headers, 'Content-Length': str(content_length)},
@@ -358,11 +390,8 @@ def _do_upload(upload_item: UploadItem, callback: Callable | None = None) -> req
 
 
 # security: user should be able to request any message from their car
-@dispatcher.add_method
+@dispatcher.add_method(service=one_of(*SERVICE_LIST), timeout=integer(0, 10_000))
 def getMessage(service: str, timeout: int = 1000) -> dict:
-  if service is None or service not in SERVICE_LIST:
-    raise Exception("invalid service")
-
   socket = messaging.sub_sock(service, timeout=timeout)
   try:
     ret = messaging.recv_one(socket)
@@ -409,7 +438,7 @@ def scan_dir(path: str, prefix: str) -> list[str]:
           files.append(rel_path)
   return files
 
-@dispatcher.add_method
+@dispatcher.add_method(prefix=either(one_of(''), regex(DATA_PATH)))
 def listDataDirectory(prefix='') -> list[str]:
   return scan_dir(Paths.log_root(), prefix)
 
@@ -633,13 +662,16 @@ class VideoClips:
 
 
 video_clips = VideoClips()
-dispatcher.add_method(video_clips.createClip)
-dispatcher.add_method(video_clips.getClipState)
-dispatcher.add_method(video_clips.deleteClip)
-dispatcher.add_method(video_clips.getClipChunk)
+dispatcher.add_method(video_clips.createClip, route=regex(RE.ROUTE_NAME),
+                      source_start_time=number(0, 24*3600), source_end_time=number(0, 24*3600),
+                      clip=struct({"camera": regex(r'[a-z]*camera\.hevc'), "filename": CLIP_FILENAME, "bitrate": number(1, 20),
+                                   "speedup": integer(1, 10)}))
+dispatcher.add_method(video_clips.getClipState, route=regex(RE.ROUTE_NAME))
+dispatcher.add_method(video_clips.deleteClip, filename=CLIP_FILENAME)
+dispatcher.add_method(video_clips.getClipChunk, filename=CLIP_FILENAME, offset=integer(0, 2**32))
 
 
-@dispatcher.add_method
+@dispatcher.add_method(fn=regex(DATA_PATH), url=UPLOAD_URL, headers=UPLOAD_HEADERS)
 def uploadFileToUrl(fn: str, url: str, headers: dict[str, str]) -> UploadFilesToUrlResponse:
   # this is because mypy doesn't understand that the decorator doesn't change the return type
   response: UploadFilesToUrlResponse = uploadFilesToUrls([{
@@ -650,7 +682,7 @@ def uploadFileToUrl(fn: str, url: str, headers: dict[str, str]) -> UploadFilesTo
   return response
 
 
-@dispatcher.add_method
+@dispatcher.add_method(files_data=list_of(UPLOAD_FILE))
 def uploadFilesToUrls(files_data: list[UploadFileDict]) -> UploadFilesToUrlResponse:
   files = map(UploadFile.from_dict, files_data)
 
@@ -661,8 +693,9 @@ def uploadFilesToUrls(files_data: list[UploadFileDict]) -> UploadFilesToUrlRespo
       failed.append(file.fn)
       continue
 
-    path = os.path.join(Paths.log_root(), file.fn)
-    if not owns_recording(path, Paths.log_root()) or (not os.path.exists(path) and not os.path.exists(strip_zst_extension(path))):
+    log_root = Paths.log_root()
+    path = resolve_upload_path(os.path.join(log_root, file.fn), file.url)
+    if path is None or get_upload_source(path, log_root) is None:
       failed.append(file.fn)
       continue
 
@@ -701,7 +734,7 @@ def listUploadQueue() -> list[UploadItemDict]:
   return [asdict(i) for i in items if (i is not None) and (i.id not in cancelled_uploads)]
 
 
-@dispatcher.add_method
+@dispatcher.add_method(upload_id=either(UPLOAD_ID, list_of(UPLOAD_ID)))
 def cancelUpload(upload_id: str | list[str]) -> dict[str, int | str]:
   if not isinstance(upload_id, list):
     upload_id = [upload_id]
@@ -714,7 +747,7 @@ def cancelUpload(upload_id: str | list[str]) -> dict[str, int | str]:
   cancelled_uploads.update(cancelled_ids)
   return {"success": 1}
 
-@dispatcher.add_method
+@dispatcher.add_method(latitude=number(-90, 90), longitude=number(-180, 180))
 def setNavDestination(latitude: float, longitude: float) -> dict[str, int | str]:
   if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
     return {"success": 0, "error": "Invalid destination coordinates"}
@@ -728,7 +761,7 @@ def clearNavDestination() -> dict[str, int]:
   return {"success": 1}
 
 
-@dispatcher.add_method
+@dispatcher.add_method(route=regex(RE.ROUTE_NAME))
 def setRouteViewed(route: str) -> dict[str, int | str]:
   # maintain a list of the last 10 routes viewed in connect
   params = Params()
@@ -759,6 +792,7 @@ def startLocalProxy(global_end_event: threading.Event, remote_ws_uri: str, local
     identity_token = Api(dongle_id).get_token()
     ws = create_connection(remote_ws_uri,
                            cookie="jwt=" + identity_token,
+                           redirect_limit=0,
                            enable_multithread=True)
 
     # Set TOS to keep connection responsive while under load.
@@ -825,7 +859,7 @@ def getNetworkMetered() -> bool:
   return HARDWARE.get_network_metered(network_type)
 
 
-@dispatcher.add_method
+@dispatcher.add_method(sdp=regex(r'[\x20-\x7e\r\n]*'), enabled=boolean)
 def startStream(sdp: str, enabled: bool) -> dict:
   from openpilot.system.webrtc.helpers import StreamRequestBody, post_stream_request, wait_for_webrtcd
   params = Params()
@@ -1044,8 +1078,24 @@ def ws_manage(ws: WebSocket, end_event: threading.Event) -> None:
       break
 
 
-def backoff(retries: int) -> int:
-  return random.randrange(0, min(128, int(2 ** retries)))
+def backoff(retries: int, cap: int = 128) -> int:
+  return random.randrange(0, min(cap, int(2 ** retries)))
+
+
+def get_backoff_cap() -> int:
+  # A Wi-Fi stall of a few seconds should not leave athena waiting up to 2 minutes to reconnect
+  try:
+    if HARDWARE.get_network_type() == NetworkType.wifi:
+      return 30
+  except Exception:
+    cloudlog.exception("athenad.get_backoff_cap.exception")
+  return 128
+
+
+def clear_ping_time_after_retry(params: Params, retries: int) -> None:
+  # Keep the last ping through one failed connection, so a brief drop does not flip the sidebar to offline
+  if retries > 1:
+    params.remove("LastAthenaPingTime")
 
 
 def main(exit_event: threading.Event | None = None):
@@ -1087,14 +1137,14 @@ def main(exit_event: threading.Event | None = None):
       break
     except (ConnectionError, TimeoutError, WebSocketException):
       conn_retries += 1
-      params.remove("LastAthenaPingTime")
+      clear_ping_time_after_retry(params, conn_retries)
     except Exception:
       cloudlog.exception("athenad.main.exception")
 
       conn_retries += 1
-      params.remove("LastAthenaPingTime")
+      clear_ping_time_after_retry(params, conn_retries)
 
-    time.sleep(backoff(conn_retries))
+    time.sleep(backoff(conn_retries, get_backoff_cap()))
 
 
 if __name__ == "__main__":

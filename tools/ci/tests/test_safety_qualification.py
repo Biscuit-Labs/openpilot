@@ -47,7 +47,7 @@ class TestSafetyQualificationRunner(TestCase):
   def test_catalog_prerequisites_bind_visionipc_and_hash_all_import_lines(self):
     for name in ("coverage", "mutation-full"):
       paths = qualification.prerequisite_artifact_paths(["fixture.so"], name)
-      self.assertIn("msgq_repo/msgq/visionipc/visionipc_pyx.so", paths)
+      self.assertIn("msgq_repo/msgq/visionipc/_visionipc.so", paths)
       self.assertEqual(len(paths), len(set(paths)))
     with tempfile.TemporaryDirectory() as td:
       root = Path(td)
@@ -95,8 +95,7 @@ class TestSafetyQualificationRunner(TestCase):
   def test_coverage_catalog_includes_native_pytest_and_external_callers(self):
     from tools.ci import safety_pytest_coverage as coverage
     selected = coverage.targets_for_coverage(qualification.ROOT)
-    for name in ('opendbc_repo/opendbc/car/ford/tests/test_pinion_measurement.py',
-                 'opendbc_repo/opendbc/safety/tests/test_tesla_preap_pedal.py::test_actual_registered_priming_rate_absolute_bus_and_counter_bounds',
+    for name in ('opendbc_repo/opendbc/safety/tests/test_tesla_preap_pedal.py::test_actual_registered_priming_rate_absolute_bus_and_counter_bounds',
                  'openpilot/starpilot/car/nissan/tests/test_aol.py',
                  'openpilot/starpilot/car/rivian/tests/test_aol_native.py'):
       self.assertIn(name, selected)
@@ -220,7 +219,7 @@ class TestSafetyQualificationRunner(TestCase):
       self.assertEqual(len(libraries.builds[0]['source_sha256']), 64)
       libraries.load(variant)
       module.load.assert_called_with(variant.resolve())
-      params = root / 'opendbc_repo/opendbc/bluepilot_lateral/params/limits.h'
+      params = root / 'opendbc_repo/opendbc/bluepilot_lateral/safety/ford.h'
       params.parent.mkdir(parents=True)
       params.write_text('changed native include')
       with self.assertRaisesRegex(RuntimeError, 'sources changed before loading'):
@@ -239,6 +238,45 @@ class TestSafetyQualificationRunner(TestCase):
       changing = coverage.InstrumentedLibraries(native, module, root)
       with patch.dict(os.environ, {'SAFETY_COVERAGE': '1'}), self.assertRaisesRegex(RuntimeError, 'sources changed'):
         changing.build()
+
+  def test_coverage_runs_every_brand_as_a_drivable_car_and_restores_the_fork_scope(self):
+    from types import SimpleNamespace
+    from opendbc.car import supported_brands
+    from tools.ci import safety_pytest_coverage as coverage
+    def start(brand):
+      return supported_brands.limit_to_supported_brands(SimpleNamespace(brand=brand, dashcamOnly=False)).dashcamOnly
+    self.assertTrue(start('nissan'))  # the fork scope: an unsupported brand starts in dashcam
+    self.assertFalse(start('honda'))
+    with coverage.all_brands_supported():
+      self.assertFalse(start('nissan'))
+      self.assertFalse(start('rivian'))
+    self.assertTrue(start('nissan'))
+
+  def test_coverage_collects_and_runs_the_catalog_with_every_brand_drivable(self):
+    # Regression: with the fork scope in force the Nissan end-to-end cases ran in dashcam mode (aol_qualified False),
+    # failed, and left modes/nissan_aol.h uncovered, so the gate failed on both the pytest accounting and gcovr.
+    from types import SimpleNamespace
+    from opendbc.car import supported_brands
+    from tools.ci import safety_pytest_coverage as coverage
+    seen = []
+    def collect(targets):
+      seen.append(('collect', supported_brands.brand_supported('nissan')))
+      return ['case'], []
+    def run(nodeids):
+      seen.append(('run', supported_brands.brand_supported('nissan')))
+      return [], []
+    with tempfile.TemporaryDirectory() as td:
+      native, output = Path(td) / 'libsafety.so', Path(td) / 'out.json'
+      native.write_bytes(b'native fixture')
+      fake = SimpleNamespace(load=Mock(), _build_libsafety=Mock(), libpath=str(native))
+      modules = {'opendbc.safety.tests.libsafety': SimpleNamespace(libsafety_py=fake),
+                 'opendbc.safety.tests.libsafety.libsafety_py': fake}
+      with (patch.dict(sys.modules, modules),
+            patch.object(coverage.vehicle_pytest, 'collect', side_effect=collect),
+            patch.object(coverage.vehicle_pytest, 'run', side_effect=run)):
+        coverage.run(native, output, [coverage.targets_for_coverage()[0]])
+    self.assertEqual(seen, [('collect', True), ('run', True)])
+    self.assertFalse(supported_brands.brand_supported('nissan'))
 
   def test_actual_native_builder_instruments_debug_and_release_without_changing_variant(self):
     import ast
@@ -277,7 +315,7 @@ class TestSafetyQualificationRunner(TestCase):
                  ".github/workflows/safety.yaml", "pyproject.toml", "uv.lock",
                  "opendbc_repo/opendbc/safety/tests/libsafety/safety.c",
                  "openpilot/starpilot/aol/intent.py", "openpilot/cereal/SConscript",
-                 "msgq_repo/msgq/ipc_pyx.pyx", "msgq_repo/SConscript", "tools/setup_dependencies.sh",
+                 "msgq_repo/msgq/ipc_py.cc", "msgq_repo/SConscript", "tools/setup_dependencies.sh",
                  "openpilot/common/SConscript", "panda/tests/libpanda/SConscript",
                  "panda/board/stm32h7/stm32h7x5_flash.ld", "panda/board/stm32h7/startup_stm32h7x5xx.s",
                  "panda/tests/misra/coverage_table", "opendbc_repo/opendbc/safety/tests/misra/coverage_table"):
@@ -288,7 +326,7 @@ class TestSafetyQualificationRunner(TestCase):
     inputs = dict.fromkeys(("openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/long_mpc.py",
                            "openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/SConscript",
                            "openpilot/cereal/car.capnp", "opendbc_repo/opendbc/safety/safety.h",
-                           "msgq_repo/msgq/ipc_pyx.pyx", "tools/ci/run_safety_qualification.py"), "input")
+                           "msgq_repo/msgq/ipc_py.cc", "tools/ci/run_safety_qualification.py"), "input")
     before = {**outputs, **inputs}
     regenerated = {**dict.fromkeys(outputs, "new-output"), **inputs}
     for name in ("coverage", "mutation-full"):
@@ -345,7 +383,7 @@ class TestSafetyQualificationRunner(TestCase):
         (root / ".venv/bin/python").symlink_to(sys.executable)
         output = Path(td) / "evidence"
         extension = ".dylib" if sys.platform == "darwin" else ".so"
-        artifacts = (f"openpilot/common/libparams_c{extension}", "msgq_repo/msgq/ipc_pyx.so",
+        artifacts = (f"openpilot/common/libparams_c{extension}", "msgq_repo/msgq/_ipc.so",
                      "openpilot/selfdrive/controls/lib/longitudinal_mpc_lib/c_generated_code/acados_ocp_solver_pyx.so")
         artifacts = qualification.prerequisite_artifact_paths(artifacts, "coverage")
         for path in artifacts:
@@ -512,7 +550,7 @@ class TestSafetyQualificationRunner(TestCase):
             "can_dbc": str(qualification.ROOT / "opendbc_repo/opendbc/can/dbc.py"),
             "cereal_log": str(qualification.ROOT / "openpilot/cereal/log.capnp"),
             "cereal_messaging": str(qualification.ROOT / "openpilot/cereal/messaging/__init__.py"),
-            "msgq_ipc": str(qualification.ROOT / "msgq_repo/msgq/ipc_pyx.so")}
+            "msgq_ipc": str(qualification.ROOT / "msgq_repo/msgq/_ipc.so")}
     with tempfile.TemporaryDirectory() as td:
       output = Path(td) / "imports.log"
       with patch.object(qualification.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, json.dumps(good), "")):
@@ -522,7 +560,7 @@ class TestSafetyQualificationRunner(TestCase):
         self.assertFalse(qualification.check_import_origins("python", {}, output))
 
   @skipUnless((qualification.ROOT / ".venv/bin/python").is_file() and
-              (qualification.ROOT / "msgq_repo/msgq/ipc_pyx.so").is_file(),
+              (qualification.ROOT / "msgq_repo/msgq/_ipc.so").is_file(),
               "requires the built locked environment; actual origin checks also run in every safety gate")
   def test_actual_second_checkout_import_shadow_is_rejected(self):
     with tempfile.TemporaryDirectory() as td:

@@ -49,6 +49,33 @@ def validated_initial_cruise_speed(value: object) -> int:
   return V_CRUISE_INITIAL
 
 
+# Peter's call (2026-10-22): with the stock planner in Experimental Mode, a fresh engage sets 66 mph,
+# or the current speed if faster. Chill and the StarPilot planner keep the saved initial speed.
+# ENGAGE_66_KEY (on by default) turns it off, and Experimental then uses the saved initial speed too.
+E2E_ENGAGE_SPEED_KPH = int(round(66 * CV.MPH_TO_KPH))
+ENGAGE_66_KEY = "ExperimentalEngage66Mph"
+
+
+def read_engage_66(params) -> bool:
+  """The setting, on when unset, unreadable or unknown to a params library built before the key existed."""
+  try:
+    value = params.get(ENGAGE_66_KEY, return_default=True)
+  except Exception:
+    return True
+  return value is not False
+
+
+def engage_initial_speed(saved: object, experimental_mode: bool, stock_planner: bool, engage_66: bool = True) -> object:
+  return E2E_ENGAGE_SPEED_KPH if engage_66 and experimental_mode and stock_planner else saved
+
+
+# Peter's call (2026-10-22): with the stock planner in Chill, a fresh engage keeps the current speed even
+# below the 25 mph initial speed, so lifting off after SET does not brake back up to 25 mph. Below
+# V_CRUISE_MIN (about 5 mph) the saved initial speed still applies.
+def engage_keeps_speed(experimental_mode: bool, stock_planner: bool) -> bool:
+  return stock_planner and not experimental_mode
+
+
 def slc_target_kph(target_mps: float, is_metric: bool) -> float:
   target = round(target_mps * CV.MS_TO_KPH) if is_metric else round(target_mps * CV.MS_TO_MPH) * CV.MPH_TO_KPH
   return float(np.clip(round(target, 1), V_CRUISE_MIN, V_CRUISE_MAX))
@@ -300,21 +327,36 @@ class VCruiseHelper:
       self.toyota.constrain(self)
       self.toyota.requested = (self.v_cruise_kph, self.v_cruise_cluster_kph)
 
-  def initialize_v_cruise(self, CS, experimental_mode: bool, *, resume: bool | None = None, initial_speed: object = V_CRUISE_INITIAL) -> None:
-    # initializing is handled by the PCM
-    if self.CP.pcmCruise:
-      return
-
-
+  def initialize_v_cruise(self, CS, experimental_mode: bool, *, resume: bool | None = None,
+                          initial_speed: object = V_CRUISE_INITIAL, keep_speed: bool = False,
+                          slc_target_mps: float | None = None, is_metric: bool = False) -> bool:
+    """Return whether engagement adopts the qualified current SLC limit."""
+    if (not self.CP.openpilotLongitudinalControl or slc_target_mps is None or type(slc_target_mps) not in (int, float) or
+        not math.isfinite(slc_target_mps) or not V_CRUISE_MIN / 3.6 - 1e-5 <= slc_target_mps <= V_CRUISE_MAX / 3.6 + 1e-5):
+      slc_target_mps = None
+    # PCM initializes when SLC does not own SET.
+    if self.CP.pcmCruise and (not self.slc_pcm or slc_target_mps is None):
+      return False
     # A car-owned acknowledgment can outlive the physical button event.
     if resume is None:
       age = monotonic_ns() - self.pending_resume_ns
       resume = (0 < self.pending_resume_ns and 0 <= age <= 500_000_000) or any(
         b.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for b in CS.buttonEvents)
     self.pending_resume_ns = 0
-    if resume and self.v_cruise_initialized:
-      self.v_cruise_kph = self.v_cruise_kph_last
+    if slc_target_mps is None and resume and self.v_cruise_initialized:
+      if not self.CP.pcmCruise:
+        self.v_cruise_kph = self.v_cruise_kph_last
+        self.v_cruise_cluster_kph = self.v_cruise_kph
+      return False
+    elif slc_target_mps is not None:
+      # Toyota still needs its native capacity/release approval before application.
+      if self.toyota is None:
+        self.apply_slc_target(slc_target_mps, is_metric)
+      return True
+    elif keep_speed and CS.vEgo * CV.MS_TO_KPH >= V_CRUISE_MIN:
+      self.v_cruise_kph = int(round(np.clip(CS.vEgo * CV.MS_TO_KPH, V_CRUISE_MIN, V_CRUISE_MAX)))
     else:
       self.v_cruise_kph = int(round(np.clip(max(CS.vEgo * CV.MS_TO_KPH, validated_initial_cruise_speed(initial_speed)), V_CRUISE_INITIAL, V_CRUISE_MAX)))
 
     self.v_cruise_cluster_kph = self.v_cruise_kph
+    return False

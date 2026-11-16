@@ -472,6 +472,8 @@ class _BoschATrackState:
   # shipped D-057 re-anchor would have needed, and by a lifecycle discontinuity.
   recovered: bool = False
   strict_clean_count: int = 0
+  # The F0 STATUS nibble of the latest valid observation (0 before the first one); see BoschARadar.point_statuses.
+  status: int = 0
   rejected_strict_dirty_t: float = -1e9  # last rejected sweep that only the relaxed window called clean
 
 
@@ -703,18 +705,44 @@ def _create_bosch_a_can_parser(CP):
   return CANParser(DBC[CP.carFingerprint][Bus.radar], messages, CanBus(CP).camera)
 
 
-VERIFIED_BOSCH_A_CARS = frozenset((CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G))
+def bosch_a_alt_radar_car(car_fingerprint: str) -> bool:
+  """Bosch harness with BOSCH_ALT_RADAR (stock AOL family); same Bosch-A object bank, different ACC integration."""
+  if car_fingerprint not in CAR:
+    return False
+  flags = int(CAR[car_fingerprint].config.flags)
+  return (bool(flags & HondaFlags.BOSCH) and bool(flags & HondaFlags.BOSCH_ALT_RADAR) and
+          not bool(flags & HondaFlags.BOSCH_CANFD))
+
+
+def bosch_a_radar_platform(car_fingerprint: str) -> bool:
+  """Bosch-A object-bank cars wired to honda_bosch_a_radar (classic harness and alt-radar stock)."""
+  if car_fingerprint not in CAR:
+    return False
+  if DBC.get(car_fingerprint, {}).get(Bus.radar) != BOSCH_A_DBC_NAME:
+    return False
+  flags = int(CAR[car_fingerprint].config.flags)
+  unsupported = int(HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD)
+  return bool(flags & HondaFlags.BOSCH) and not bool(flags & unsupported)
+
+
+BOSCH_A_ALT_RADAR_CARS = frozenset(c for c in CAR if bosch_a_alt_radar_car(c) and bosch_a_radar_platform(c))
+
+# Same set as bosch_a_radar_platform: honda_bosch_a_radar wired, not radarless / CANFD.
+VERIFIED_BOSCH_A_CARS = frozenset(c for c in CAR if bosch_a_radar_platform(c))
 
 
 class BoschARadar(RadarInterfaceBase):
   def __init__(self, CP):
     super().__init__(CP)
-    if CP.carFingerprint not in VERIFIED_BOSCH_A_CARS or CP.flags & (HondaFlags.BOSCH_RADARLESS | HondaFlags.BOSCH_CANFD | HondaFlags.BOSCH_ALT_RADAR):
-      raise ValueError("Honda radar requires its verified classic Bosch-A profile")
+    if not bosch_a_radar_platform(CP.carFingerprint):
+      raise ValueError("Honda radar requires a classic Bosch-A platform with honda_bosch_a_radar wired")
     self.rcp = _create_bosch_a_can_parser(CP)
     self.trigger_msg = BOSCH_A_TRIGGER_MSG
     # Ego speed, set by card before each update (the reversing-coast bound). None until then.
     self.v_ego: float | None = None
+    # F0 STATUS per point of the last RadarData returned (7 confirmed; 9 on route 34 T479's phantom lead). card
+    # carries it to radard in starpilotCarState.radarPointStatus: car.capnp's RadarPoint is upstream-owned on 7.0.
+    self.point_statuses: dict[int, int] = {}
     self._slots = [_BoschASlotState() for _ in range(BOSCH_A_NUM_SLOTS)]
     self._tracks: dict[int, _BoschATrackState] = {}
     self._slot_track_ids: list[int | None] = [None] * BOSCH_A_NUM_SLOTS
@@ -840,6 +868,7 @@ class BoschARadar(RadarInterfaceBase):
         'track_id': track_id,
         'track_id_valid': track_id_valid,
         'object_valid': object_valid,
+        'status': status,
         'range_sigma_raw': range_sigma_raw,
         'existence_raw': existence_raw,
         'direct_vrel_raw': direct_vrel_raw,
@@ -934,6 +963,7 @@ class BoschARadar(RadarInterfaceBase):
         track.floor_run.clear()
         track.floor_seen = False
         self.pts.pop(track_id, None)
+      track.status = observation['status']
 
       v0 = self.rcp.vl[BOSCH_A_MAIN_IDS[slot][0]]
       range_raw = int(v0['RANGE_RAW'])
@@ -1422,5 +1452,7 @@ class BoschARadar(RadarInterfaceBase):
           self._slot_track_ids[old_slot] = None
       self._slot_track_ids[slot] = track_id
 
+    self.point_statuses = {track_id: (self._tracks[track_id].status if track_id in self._tracks else 0)
+                           for track_id in sorted(self.pts)}
     ret.points = [self.pts[track_id] for track_id in sorted(self.pts)]
     return ret

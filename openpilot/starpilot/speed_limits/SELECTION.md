@@ -42,15 +42,26 @@ If no eligible alternative exists, the result retains unknown or stale state.
 Unknown takes precedence over stale, which takes precedence over absence; the
 full per-source statuses remain available. Explicit absence, exclusion below the
 minimum or an empty configured source set produces an absent result. Acceptance
-independently applies the saved previous-limit policy without changing those
-source statuses. Malformed input produces `invalid_input`, errors and
+keeps accepted history but supplies no control target during source loss.
+Malformed input produces `invalid_input`, errors and
 an unknown observation without selecting a source.
 
 The tests include composition through the acceptance reducer: accepted 65 mph,
 proposed 45, driver rejection, then source loss and reconnect. Last accepted
-history remains 65 for both longitudinal-only and combined authority. The saved
-fallback policy controls whether acceptance exposes that historical target on
-source loss. Neither choice changes the already applied cruise SET or authorizes
-a new source-loss command. Lateral-only or stock ownership cannot turn a selected
+history remains 65 for both longitudinal-only and combined authority. Source loss
+does not change the already applied cruise SET or authorize a new command.
+Lateral-only or stock ownership cannot turn a selected
 speed into a system longitudinal target. These are
 deterministic policy tests, not native producer, planner, CAN or vehicle evidence.
+
+## Online source: the Mapbox route limit (2026-10-26)
+
+The online source is the posted limit Mapbox Directions returns for the route
+(`annotations=maxspeed`, one entry per route segment). Navigation publishes the
+limit of the segment the car is matched to as `starpilotNavigation.speedLimit`
+(m/s, 0 = unknown), and only while guiding and on the route; off the route it is
+0. `navigation_observation.py` turns that into the online observation: absent when
+not guiding, stale past 3 s, unknown at 0. `online_fallback` is now on, so the
+route limit is used only when neither priority slot has an eligible limit, and
+the sign shows "NAV". Evidence: static tests only
+(`tests/test_navigation_limit.py`); not yet replayed on a navigated drive.

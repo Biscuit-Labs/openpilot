@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from collections import deque
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -9,6 +10,12 @@ import capnp
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_MDL
 from openpilot.common.simple_kalman import KF1D
+from openpilot.starpilot.car.honda import radar_point_status
+from openpilot.starpilot.car.honda.radar_lead_bound import (CAMERA_PROB_MIN, TREND_SAMPLES, WeakLeadBound,
+                                                           camera_contradiction, camera_passed_ratio, range_slope)
+from openpilot.starpilot.car.honda.radar_camera_cap import CameraCap
+from openpilot.starpilot.car.honda.radar_camera_slow_bound import CameraSlowBound
+from openpilot.starpilot.car.honda.radar_reversal_bound import ReversalBound, urgent
 
 if TYPE_CHECKING:
   from openpilot.selfdrive.controls.radard import KalmanParams
@@ -32,6 +39,61 @@ HONDA_BOSCH_A_LOW_SPEED_MIN_COUNT = 3
 HONDA_BOSCH_A_CHALLENGER_STALE_CYCLES = 2
 HONDA_BOSCH_A_GROSS_DISTANCE_STALE_CYCLES = 3
 HONDA_BOSCH_A_GROSS_DISTANCE_M = 25.0
+# In-path radar keep (route 11c8fa231c0499ed/0000009e--9704dd1da2 seg 24, replay of radard at fd3b0ec99d by Job,
+# 2026-11-06; level: replay / limited road evidence). Track 39 (dRel 28.1, yRel -0.86, vRel -7.9, cnt 342) was a real
+# in-path closing lead; the model lead's x jumped 33 -> 50.6 m and the relaxed match in match_vision_to_track failed
+# on the gap alone, so the preferred track was dropped and aLeadK flipped -3.0 -> +0.33. Deleting a real radar lead
+# is worse than publishing a degraded one (repo rule), so when the relaxed vision match fails, a preferred track
+# that is still in lane, still closer than the vision lead, and still closing is kept rather than dropped. Release
+# is normal: when the track leaves lane, stops closing, or disappears, the old path runs.
+#   KEEP_Y_MAX: in-lane bound in the radar frame (ego-centred). First set to 1.5; Job's camera stills of the census
+#   events at |yRel| 1.44-1.5 (2026-11-06) showed two next-lane cars kept (7b i5143 box truck right lane, 71 i16009
+#   left lane) and three real in-lane leads, so |yRel| cannot separate them near 1.5. 1.2 drops all five back to the
+#   old behavior and still holds the route-9e track for ~1 s (its yRel reached -1.06 at -5.36 s, -1.45 at -5.0 s).
+#   KEEP_VREL_MAX: closing bound; 0.0 m/s means the track must be closing, not holding or separating.
+#   KEEP_VLEAD_MIN: the kept track must not itself be moving toward us. Job's census of all 46 keep events over
+#   pool14 + r99 + r9b (2026-11-06, replay + camera stills): the only two with vEgo+vRel < -1 were cross traffic seen
+#   while stopped at an intersection (route 72 i2493 at -6.6 m/s, route 7e i5814 at -9.0 m/s); every other event was
+#   >= -0.24. n=46, so this separates the sample, it is not proof it generalizes.
+KEEP_Y_MAX = 1.2
+KEEP_VREL_MAX = 0.0
+KEEP_VLEAD_MIN = -1.0
+# Bosch-A urgency on a point with no direct speed reading (b1 seg14 47.7 s, route 000000b1--c417f37f1c;
+# parser replay on logged CAN, and logged radarState/carControl). Track 4 at 69-59 m was measured closing at 11.7 m/s,
+# then for 0.75 s the parser had no direct reading and published its floor estimate, vRel -31 -> -8.4. On that floor
+# the reversal/weak-lead bounds took it as urgent (TTC 2.2 s) and dropped their weight at once; leadOne read vRel -21,
+# vLead 0, and the plan ramped to -3.5 for about 1 s until Peter pressed the gas. Its own last reading and its range
+# slope (-9 to -15) both put TTC above 4 s. So while the parser marks a point unmeasured, the urgency TTC uses the
+# last direct reading if it is no older than URGENT_LAST_DIRECT_S, else the published vRel as before. The range slope
+# is not used: on b1 its 82 -> 69 m reflector hop read -17 to -22 and kept the lead urgent 47.80-48.45 s (probe), while
+# the last reading alone keeps TTC 5.1-5.9 s. Cost (Peter chose it, 2026-11-08): a lead that starts closing faster while
+# unmeasured is judged on a reading up to 1 s old. Only the urgency test moves: the published point, its vRel and dRel
+# are untouched, and dRel < 30 m stays urgent. One event, one road (limited road evidence).
+URGENT_LAST_DIRECT_S = 1.0
+# Held-vRel range-slope bound (scratch candidate, 2026-11-11; level: replay only, not road tested). Scorecard episode 26,
+# route 00000071--37216af48f seg 9 (t0_ns 763779770390, labeled PHANTOM by the owner): track 58 at 81.6 -> 84.7 m. The
+# parser marked the point NOT measured (track.direct False) for ~1.8 s and held vRel at exactly -9.51 while the track's own
+# range slope was +1.6..+2.5 m/s (the gap opening); the planner braked to -1.11. Counter-example that must not change:
+# REAL episode 292 (000000a4--34c412c0ef seg 16): direct True throughout, range slope -1.5..-5.8 agreeing with vRel.
+# So while the parser is holding (not measuring) a far point's vRel and the point's own range is flat or opening while the
+# held vRel says it closes fast, the published vRel/vLead/vLeadK are raised to the range slope (capped at 0) less a margin,
+# never lowered; dRel, aLeadK and the point are untouched. The radar's own measurement wins the cycle `direct` returns.
+# The existing urgency test (urgency_v_rel + reversal-bound urgent(): range < 30 m or TTC < 4 s) vetoes it.
+#   HELD_VREL_MIN_D: far leads only (m); ep26 was 81-85 m.
+#   HELD_VREL_CLOSING: the published vRel must be at or below this (m/s); ep26 -9.51.
+#   HELD_VREL_SLOPE_MIN: range slope at or above this = flat or opening (m/s); ep26 +1.6..+2.5, ep292 <= -1.5.
+#   HELD_VREL_DISAGREE: slope - vRel must be at least this (m/s); ep26 11-12.
+#   HELD_VREL_MIN_S: the condition must hold continuously this long before the bound acts (s).
+#   HELD_VREL_MARGIN: the bound is min(slope, 0) - margin (m/s); ep26 gives about -1.0.
+# One event, one road; the numbers are shaped on ep26 and ep292 only. Ported to the car base 2026-11-11 (C-013, from
+# b7468b5c2c on the unify stack); the car-base port has not been replayed.
+HELD_VREL_SLOPE_BOUND_ENABLED: bool = True
+HELD_VREL_MIN_D = 50.0
+HELD_VREL_CLOSING = -4.0
+HELD_VREL_SLOPE_MIN = -1.0
+HELD_VREL_DISAGREE = 8.0
+HELD_VREL_MIN_S = 0.3
+HELD_VREL_MARGIN = 1.0
 POST_STANDSTILL_RADAR_LEAD_PERSISTENCE_FRAMES = 3
 POST_STANDSTILL_RADAR_LEAD_URGENT_TTC = 1.5
 POST_STANDSTILL_RADAR_LEAD_URGENT_DISTANCE = 1.5
@@ -42,6 +104,12 @@ class Track:
   def __init__(self, identifier: int, v_lead: float, kalman_params: KalmanParams):
     self.identifier = identifier
     self.cnt = 0
+    self.objectStatus = 0  # Bosch-A F0 STATUS of the latest point, from card (radar_point_status); 0 = not known
+    self.range_history: deque[float] = deque(maxlen=TREND_SAMPLES)  # dRel per radard cycle, for the WeakLeadBound
+    self.direct = True                 # the parser's measured flag on the latest point (radarTracks, not this cycle's freshness)
+    self.last_direct_vrel = math.nan   # vRel of the latest point the parser marked measured
+    self.direct_age = 0                # radard cycles since then
+    self.held_vrel_cycles = 0          # radard cycles the held-vRel range-slope condition has held continuously
     self.aLeadTau = FirstOrderFilter(_LEAD_ACCEL_TAU, 0.45, DT_MDL)
     self.K_A = kalman_params.A
     self.K_C = kalman_params.C
@@ -50,6 +118,7 @@ class Track:
 
   def update(self, d_rel: float, y_rel: float, v_rel: float, v_lead: float, measured: bool, measurement_update: bool | None = None):
     self.dRel = d_rel
+    self.range_history.append(float(d_rel))
     self.yRel = y_rel
     self.vRel = v_rel
     self.vLead = v_lead
@@ -132,6 +201,66 @@ def track_matches_vision(
   return dist_sane and vel_sane and lat_sane
 
 
+def urgency_v_rel(track: Track | None) -> float | None:
+  """The vRel the bounds' urgency test uses for this track; None keeps the published vRel (see URGENT_LAST_DIRECT_S)."""
+  if track is None or track.direct:
+    return None
+  if track.direct_age * DT_MDL > URGENT_LAST_DIRECT_S or math.isnan(track.last_direct_vrel):
+    return None
+  return track.last_direct_vrel
+
+
+def held_vrel_condition(track: Track) -> bool:
+  """The held-vRel range-slope condition on one track this cycle (see HELD_VREL_*). Reads the raw track, not a lead."""
+  if track.direct or track.dRel < HELD_VREL_MIN_D or track.vRel > HELD_VREL_CLOSING:
+    return False
+  slope = range_slope(track.range_history)
+  if math.isnan(slope) or slope < HELD_VREL_SLOPE_MIN or slope - track.vRel < HELD_VREL_DISAGREE:
+    return False
+  return not urgent({'dRel': track.dRel, 'vRel': track.vRel}, urgency_v_rel(track))
+
+
+def held_vrel_active(track: Track | None) -> bool:
+  return track is not None and track.held_vrel_cycles * DT_MDL >= HELD_VREL_MIN_S - 1e-9
+
+
+def held_vrel_bound(lead: dict[str, Any], track: Track) -> dict[str, Any]:
+  """Raise the published vRel/vLead/vLeadK to min(range slope, 0) - HELD_VREL_MARGIN; never lowers, nothing else moves."""
+  v_bound = min(range_slope(track.range_history), 0.0) - HELD_VREL_MARGIN
+  delta = v_bound - float(lead['vRel'])
+  if not delta > 0.0:
+    return lead
+  out = dict(lead)
+  for key in ('vRel', 'vLead', 'vLeadK'):
+    out[key] = float(lead[key]) + delta
+  return out
+
+
+def weak_lead_distance_ratio(track: Track, lead: capnp._DynamicStructReader, model_v_ego: float) -> float:
+  # the WeakLeadBound distance tell: how far the model lead is past this track, while it calls for no braking
+  return camera_passed_ratio(track.dRel, lead.x[0] - RADAR_TO_CAMERA, model_v_ego - lead.v[0], lead.a[0])
+
+
+def weak_lead_contradiction(track: Track, camera_ranges, lead: capnp._DynamicStructReader, model_v_ego: float) -> float:
+  # the WeakLeadBound contradiction tell: how much faster this track closes than the model lead's range does
+  return camera_contradiction(track.vRel, range_slope(track.range_history), range_slope(camera_ranges),
+                              model_v_ego - lead.v[0], lead.a[0])
+
+
+def in_path_radar_keep(preferred_track: Track | None, lead: capnp._DynamicStructReader) -> bool:
+  # See the KEEP_Y_MAX/KEEP_VREL_MAX evidence block above. Only reached once the relaxed vision match has already
+  # failed; keeps a preferred track that is still in lane, still closer than the vision lead, and still closing.
+  if preferred_track is None or preferred_track.cnt < 3:
+    return False
+  if abs(preferred_track.yRel) >= KEEP_Y_MAX:
+    return False
+  if preferred_track.dRel >= lead.x[0] - RADAR_TO_CAMERA:
+    return False
+  if preferred_track.vLead <= KEEP_VLEAD_MIN:
+    return False
+  return preferred_track.vRel < KEEP_VREL_MAX
+
+
 def match_vision_to_track(
   v_ego: float,
   lead: capnp._DynamicStructReader,
@@ -147,6 +276,8 @@ def match_vision_to_track(
   if preferred_track is not None and preferred_track.cnt >= 3:
     if track_matches_vision(preferred_track, lead, v_ego, dist_scale=0.4, dist_floor=8.0, vel_limit=13.0, y_std_scale=2.0, y_floor=1.5):
       return preferred_track
+  if in_path_radar_keep(preferred_track, lead):
+    return preferred_track
   return None
 
 
@@ -252,14 +383,18 @@ class BoschALeadPolicy:
       best_track = max(self.tracks.values(), key=lambda candidate: vision_track_probability(candidate, lead, self.v_ego))
       preferred_score = vision_track_probability(preferred_track, lead, self.v_ego)
       best_score = vision_track_probability(best_track, lead, self.v_ego)
-      if best_track.identifier != preferred_id and best_score > preferred_score:
+      # A challenger that only scores better (no strict match) must not retire a track the in-path keep holds; a
+      # challenger that matches strictly already wins in match_vision_to_track.
+      if best_track.identifier != preferred_id and best_score > preferred_score and not in_path_radar_keep(preferred_track, lead):
         self.preferred_challenger_stale_counts[lead_index] += 1
       else:
         self.preferred_challenger_stale_counts[lead_index] = 0
     distance_mismatch = abs(preferred_track.dRel - (lead.x[0] - RADAR_TO_CAMERA))
     if strict_match:
       self.preferred_gross_distance_stale_counts[lead_index] = 0
-    elif distance_mismatch > HONDA_BOSCH_A_GROSS_DISTANCE_M:
+    elif distance_mismatch > HONDA_BOSCH_A_GROSS_DISTANCE_M and not in_path_radar_keep(preferred_track, lead):
+      # Gross-distance staleness is exactly "vision disagrees with the track by a lot"; that is the case the
+      # in-path keep exists for, so it must not count against the track while the keep conditions hold.
       self.preferred_gross_distance_stale_counts[lead_index] += 1
     else:
       self.preferred_gross_distance_stale_counts[lead_index] = 0
@@ -323,6 +458,11 @@ class BoschALeadPolicy:
     self._post_standstill_candidate_id = -1
     self._post_standstill_candidate_frames = 0
     self._last_tracks_frame = -1
+    self.reversal_bound = ReversalBound()
+    self.camera_slow_bound = CameraSlowBound()
+    self.camera_cap = CameraCap()  # C-012: the 1 s tapered hold is always on
+    self.weak_lead_bound = WeakLeadBound()
+    self.camera_ranges: list[deque[float]] = [deque(maxlen=TREND_SAMPLES) for _ in range(2)]  # model lead x per cycle
 
   def update_tracks(self, sm, rr, radar):
     self.ready = radar.ready
@@ -332,6 +472,7 @@ class BoschALeadPolicy:
     fresh = sm.recv_frame['radarTracks'] != self._last_tracks_frame
     self._last_tracks_frame = sm.recv_frame['radarTracks']
     points = {point.trackId: point for point in rr.points}
+    statuses = radar_point_status.read(sm)
     for identifier in list(self.tracks):
       if identifier not in points:
         del self.tracks[identifier]
@@ -342,12 +483,22 @@ class BoschALeadPolicy:
       if identifier not in self.tracks:
         self.tracks[identifier] = Track(identifier, v_lead, radar.kalman_params)
       measured = bool(point.deprecated.measured and fresh)
-      self.tracks[identifier].update(point.dRel, point.yRel, point.vRel, v_lead, measured, measured)
+      track = self.tracks[identifier]
+      track.update(point.dRel, point.yRel, point.vRel, v_lead, measured, measured)
+      track.direct = bool(point.deprecated.measured)
+      if track.direct:
+        track.last_direct_vrel = float(point.vRel)
+        track.direct_age = 0
+      else:
+        track.direct_age += 1
+      track.held_vrel_cycles = track.held_vrel_cycles + 1 if held_vrel_condition(track) else 0
+      self.tracks[identifier].objectStatus = statuses.get(identifier, 0)
 
   def leads(self, sm, radar, model_v_ego):
     leads = sm['modelV2'].leadsV3
     for index in range(2):
       self._update_honda_bosch_a_preferred_staleness(index, leads[index], radar.lead_prob_filters[index].x)
+      self.camera_ranges[index].append(float(leads[index].x[0]) if leads[index].prob >= CAMERA_PROB_MIN else math.nan)
     output = [
       get_lead(
         self.v_ego,
@@ -364,6 +515,28 @@ class BoschALeadPolicy:
       for index in range(2)
     ]
     output[0] = self._filter_post_standstill_lead(output[0])
+    lead_probs = [radar.lead_prob_filters[index].x for index in range(2)]
+    lead_tracks = [self.tracks.get(int(lead.get('radarTrackId', -1))) if lead.get('present', False) and lead.get('radar', False)
+                   else None for lead in output]
+    if HELD_VREL_SLOPE_BOUND_ENABLED:
+      # Before the weak-lead, reversal and camera bounds see the lead; track.vRel stays raw (weak_lead_contradiction reads it).
+      output = [held_vrel_bound(lead, track) if track is not None and held_vrel_active(track) else lead
+                for lead, track in zip(output, lead_tracks, strict=True)]
+    urgent_v_rels = [urgency_v_rel(track) for track in lead_tracks]
+    weak_weights = self.weak_lead_bound.update(
+      output,
+      [track.objectStatus if track is not None else 0 for track in lead_tracks],
+      [weak_lead_distance_ratio(track, leads[index], model_v_ego) if track is not None else 0.0
+       for index, track in enumerate(lead_tracks)],
+      lead_probs,
+      [weak_lead_contradiction(track, self.camera_ranges[index], leads[index], model_v_ego) if track is not None else 0.0
+       for index, track in enumerate(lead_tracks)],
+      urgent_v_rels,
+    )
+    output = self.reversal_bound.apply(output, leads, self.v_ego, model_v_ego, lead_probs, self.tracks, floor_weights=weak_weights,
+                                       urgent_v_rels=urgent_v_rels)
+    output = self.camera_slow_bound.apply(output, leads, self.v_ego, model_v_ego, lead_probs)
+    output = self.camera_cap.apply(output, leads, model_v_ego, lead_probs, self.tracks, self.camera_ranges)
     for index, lead in enumerate(output):
       if lead.get('present', False) and lead.get('radar', False):
         identifier = int(lead.get('radarTrackId', -1))

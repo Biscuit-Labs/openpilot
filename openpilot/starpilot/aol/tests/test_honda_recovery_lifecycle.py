@@ -58,8 +58,46 @@ class TestHondaCurrentCaller(unittest.TestCase):
   def test_relay_fault_during_recovered_reverse(self):
     self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, fault='relay')
 
+  # A hard driver override raises the EPS temporary fault while the driver still holds the wheel. selfdrived skips
+  # steerTempUnavailable while steering is pressed, so the latch must not depend on that event (Clarity
+  # 00000055--32067800c4 seg 9 32.4 s, 00000056--c3fdf28de7 seg 5 58.4 s: lateral waited for an LKAS press).
+  def test_nidec_civic_temporary_eps_during_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0, override=True)
+
+  def test_classic_civic_temporary_eps_during_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, override=True)
+
+  # The EPS fault can clear for a few frames mid-override and rise again while the driver still steers. The second
+  # rise must keep the latch too (Clarity 00000060--8a732b781c seg 5 34.18/34.24 s, 0000005d--9880caa2c6 seg 13
+  # 0.33/0.39 s: the latch survived the first rise and cleared on the second).
+  def test_nidec_civic_temporary_eps_refault_during_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0, override=True, refault=True)
+
+  def test_classic_civic_temporary_eps_refault_during_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, override=True, refault=True)
+
+  # Turning the wheel hard with the brake held, moving or stopped (Clarity 00000065--55e6bfe447 seg 1 44.6 s, seg 4
+  # 245.0 s: the first rise of the fault cleared the latch at a standstill with the brake down).
+  def test_nidec_civic_temporary_eps_during_braking_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0, override=True, brake_override='moving')
+
+  # A long hard override can flap the fault several times (Clarity 0000005d--9880caa2c6 seg 12 58.0-59.97 s).
+  def test_nidec_civic_temporary_eps_flapping_during_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0, override=True, refault='flap')
+
+  def test_classic_civic_temporary_eps_flapping_during_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, override=True, refault='flap')
+
+  # One fault frame, a 50 ms clear and a second rise while braking (Clarity 00000067--95d8a118bd seg 19 1152.3 s).
+  def test_nidec_civic_temporary_eps_blip_during_braking_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC, word=0, override=True, refault='blip', brake_override='moving')
+
+  def test_classic_civic_temporary_eps_blip_during_braking_override(self):
+    self.run_current_caller(candidate=CAR.HONDA_CIVIC_BOSCH, word=0, override=True, refault='blip', brake_override='moving')
+
   def run_current_caller(self, *, candidate, word, fault=None, alternate_brake=False, alpha=False, speed_mps=12.5,
-                         pedal=False, host_scenario=None, serialized=False):
+                         pedal=False, host_scenario=None, serialized=False, override=False, refault=False, brake_override=None,
+                         brake_race=False, cancel=False):
     safety = libsafety_py.libsafety
     with (
       OpenpilotPrefix(),
@@ -146,6 +184,22 @@ class TestHondaCurrentCaller(unittest.TestCase):
       previous, driven, receipt = structs.CarControl(), {}, None
       controls_published, controls_latest, driven_new = {}, {}, {}
       base = time.monotonic_ns() + 100_000_000
+      def braking(tick):   # brake_override: the brake is held through the override, moving or stopped
+        if cancel:   # CANCEL ends long at tick 50 instead of the brake; lateral must stay with the AOL latch
+          return brake_override is not None and 70 <= tick < 100
+        if brake_race:   # Card's parser first sees the brake two ticks after the panda does
+          return 52 <= tick < 57 or brake_override is not None and 70 <= tick < 100
+        return 50 <= tick < 55 or brake_override is not None and 70 <= tick < 100
+
+      def speed(tick):
+        return 0.0 if brake_override == 'stop' and 70 <= tick < 100 else speed_mps
+
+      def eps_fault(tick):   # refault: the fault clears for 50 ms mid-override, then rises again; flap: three times
+        if refault == 'flap':
+          return tick in (80, 81, 82, 83, 86, 87, 88, 89, 90, 92, 93, 94)
+        if refault == 'blip':   # one fault frame, 50 ms clear, then the rise
+          return tick == 80 or 86 <= tick < 95
+        return 80 <= tick < 95 and not (refault and 85 <= tick < 90)
       try:
         for tick in range(145):
           now = base + tick * 10_000_000
@@ -157,12 +211,13 @@ class TestHondaCurrentCaller(unittest.TestCase):
             sd.aol_settings = read_settings(saved)
           # SET press/release is the real first ordinary native grant, preceding engaged HB.
           incoming = stream.frames(
-            cruise_button=3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 0,
-            cruise=int(21 <= tick < 50 or reengage),
-            brake=50 <= tick < 55,
-            eps=6 if 80 <= tick < 95 else 0,
+            cruise_button=3 if tick == 20 or host_scenario == 'long_reengage' and tick == 130 else 2 if cancel and 50 <= tick < 53 else 0,
+            cruise=int(21 <= tick < (52 if brake_race else 50) or reengage),
+            brake=braking(tick),
+            eps=6 if eps_fault(tick) else 0,
             gear=2 if 110 <= tick < 125 else None,
-            lkas=0, speed_kph=speed_mps * 3.6,
+            lkas=0, speed_kph=speed(tick) * 3.6,
+            steer_torque=3000 if override and 78 <= tick < 97 else 0,
           )
           safety.set_timer((now // 1000) & 0xFFFF_FFFF)
           if tick == 110 and fault == 'relay':
@@ -250,14 +305,15 @@ class TestHondaCurrentCaller(unittest.TestCase):
           }
           self.assertTrue(cs.canValid, (tick, parser_observation))
           self.assertFalse(cs.canTimeout)
-          self.assertAlmostEqual(cs.vEgoRaw, speed_mps, places=5)
-          self.assertFalse(cs.standstill or cs.seatbeltUnlatched)
+          self.assertAlmostEqual(cs.vEgoRaw, speed(tick), places=5)
+          self.assertFalse(cs.seatbeltUnlatched)
+          self.assertEqual(cs.standstill, speed(tick) == 0)
           self.assertFalse(cs.steerFaultPermanent)
-          self.assertEqual(cs.steerFaultTemporary, 80 <= tick < 95)
+          self.assertEqual(cs.steerFaultTemporary, eps_fault(tick))
           self.assertEqual(cs.gearShifter, structs.CarState.GearShifter.reverse if 110 <= tick < 125 else structs.CarState.GearShifter.drive)
-          self.assertEqual(cs.brakePressed, 50 <= tick < 55)
+          self.assertEqual(cs.brakePressed, braking(tick))
           self.assertTrue(cs.cruiseState.available)
-          self.assertEqual(cs.cruiseState.enabled, 21 <= tick < 50 or reengage)
+          self.assertEqual(cs.cruiseState.enabled, 21 <= tick < (52 if brake_race else 50) or reengage)
           intent = decode_intent(published['aolIntentWire'].aolIntentWire)
           self.assertIsNotNone(intent)
           # Initial receipt is unavailable until actual negotiator completes its zero acknowledgment.
@@ -276,6 +332,15 @@ class TestHondaCurrentCaller(unittest.TestCase):
           # Held producer snapshots are only for native observation. Simulated
           # receivers get each actual new publication once, never a restamp.
           order = None
+          if brake_race and tick == 50:
+            # 00000098 seg29 1742.8 s: the panda's brake frame reaches pandad's health/native read (here the
+            # tick-50 read) before Card's CAN batch, so Card's next step sees LONG withdrawn with brakePressed False.
+            pt_dbc = ci.can_parsers[Bus.pt].dbc
+            race = stream.packers[Bus.pt].make_can_msg('POWERTRAIN_DATA', ci.can_parsers[Bus.pt].bus,
+              {'ACC_STATUS': 1, 'BRAKE_PRESSED': 1, 'BRAKE_SWITCH': 1, 'PEDAL_GAS': 0})
+            assert race[0] == pt_dbc.name_to_msg['POWERTRAIN_DATA'].address
+            self.assertTrue(safety.safety_rx_hook(libsafety_py.make_CANPacket(race[0], race[2], race[1])), (tick, race))
+            self.assertFalse(safety.get_controls_allowed())
           if tick % 10 == 0:
             receipt, order = pandad.step(driven, published, now)
           feed(controls, now, tick, enabled=sd.enabled, active=sd.active)
@@ -353,7 +418,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
             if address == steer_msg.address and bus == ci.CC.CAN.lkas:
               tx.update(torque=int(tx_parser.vl['STEERING_CONTROL']['STEER_TORQUE']), request=bool(tx_parser.vl['STEERING_CONTROL']['STEER_TORQUE_REQUEST']))
               if not accepted:
-                self.assertTrue(tick in (80, 110) or fault == "relay" and tick >= 110, row)
+                self.assertTrue(tick in (80, 110) or refault and 80 <= tick < 95 or fault == "relay" and tick >= 110, row)
                 self.assertFalse(command.latActive, row)
                 if tick in (80, 110):
                   self.assertTrue(previous.latActive, row)
@@ -367,7 +432,7 @@ class TestHondaCurrentCaller(unittest.TestCase):
                 # in-flight positive command before the new envelope arrives.
                 self.assertFalse(accepted, row)
                 self.assertTrue(previous.longActive, row)
-                self.assertFalse(command.longActive or row['controls'] or row['permission'] & 2, row)
+                self.assertFalse(command.longActive and not brake_race or row['controls'] or row['permission'] & 2, row)
               else:
                 self.assertTrue(accepted or fault == "relay" and tick >= 110, row)
               if alpha and address == 0x1DF and tick >= 52 and not reengage:
@@ -379,8 +444,9 @@ class TestHondaCurrentCaller(unittest.TestCase):
           row['events'] = [str(e.name) for e in driven['onroadEvents'].onroadEvents]
           row['fault_reason'] = str(driven['aolAxisState'].aolAxisState.faultReason)
           if tick in (45, 79, 105) or tick == 135 and fault != "relay" and host_scenario not in ("driver_lockout", "settings_off"):
-            self.assertTrue(command.latActive, row)
-            self.assertTrue(any(t.get('accepted') and t.get('request') and t.get('torque') for t in row['TX']), row)
+            if not (brake_override == 'stop' and speed(tick) == 0):   # the Civic does not steer at a standstill
+              self.assertTrue(command.latActive, row)
+              self.assertTrue(any(t.get('accepted') and t.get('request') and t.get('torque') for t in row['TX']), row)
             self.assertTrue(intent.allowedLatch, row)
           if tick == 90 or tick == 120 and fault != "relay":
             self.assertTrue(card.aol_card_intent.allowed_latch, row)

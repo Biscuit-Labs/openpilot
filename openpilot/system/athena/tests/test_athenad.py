@@ -1,8 +1,10 @@
 from functools import wraps
+from io import BytesIO
 import json
 import multiprocessing
 import os
 import requests
+import zstandard as zstd
 import shutil
 import time
 import threading
@@ -124,15 +126,13 @@ class TestAthenadMethods(OpenpilotTestCase):
 
     # out of range and non-finite coordinates are rejected without touching the destination
     for latitude, longitude in [(91, 0), (0, -181), (float('nan'), 0), (0, float('inf'))]:
-      assert set_destination(latitude, longitude)["success"] == 0, (latitude, longitude)
+      with self.assertRaises(TypeError):
+        set_destination(latitude, longitude)
       assert self.params.get("NavDestination") == destination
 
     assert dispatcher["clearNavDestination"]() == {"success": 1}
     assert dispatcher["clearNavDestination"]() == {"success": 1}
     assert self.params.get("NavDestination") is None
-
-  def test_echo(self):
-    assert dispatcher["echo"]("bob") == "bob"
 
   def test_get_message(self):
     with self.assertRaises(TimeoutError) as _:
@@ -282,6 +282,88 @@ class TestAthenadMethods(OpenpilotTestCase):
     assert resp['items'][0].get('id') is not None
     assert athenad.upload_queue.qsize() == 1
 
+  def test_upload_files_to_urls_without_headers(self, host):
+    # Konik's "upload all" batch sends allow_cellular and priority but no headers
+    fn = self._create_file('rlog.zst')
+    files_data = [{"fn": "2026-10-04--00-00-00--0/rlog.zst", "url": f"{host}/rlog.zst", "allow_cellular": False, "priority": 1},
+                  {"fn": "2026-10-04--00-00-00--0/rlog.bz2", "url": f"{host}/rlog.bz2", "allow_cellular": False, "priority": 1}]
+
+    resp = dispatcher["uploadFilesToUrls"](files_data)
+    assert resp['enqueued'] == 1
+    assert resp['failed'] == ["2026-10-04--00-00-00--0/rlog.bz2"]
+    queued = athenad.upload_queue.get_nowait()
+    assert (queued.path, queued.url, queued.headers, queued.allow_cellular, queued.priority) == (fn, f"{host}/rlog.zst", {}, False, 1)
+
+  def test_upload_files_to_urls_bad_url_does_not_stop_batch(self, host):
+    fn = self._create_file('rlog.zst')
+    bad_fn = "2026-10-04--00-00-00--0/rlog.bz2"
+    resp = dispatcher["uploadFilesToUrls"]([
+      {"fn": bad_fn, "url": "https://[invalid/0/rlog.bz2"},
+      {"fn": "2026-10-04--00-00-00--0/rlog.zst", "url": f"{host}/rlog.zst"},
+    ])
+
+    assert resp['enqueued'] == 1
+    assert resp['failed'] == [bad_fn]
+    queued = athenad.upload_queue.get_nowait()
+    assert queued.path == fn
+    assert self.params.get("AthenadUploadQueue") == [asdict(queued)]
+
+  def test_upload_file_to_url_bare_name(self, host):
+    # Konik asks for "<segment>/rlog" with an upload URL ending in rlog.zst; only rlog.zst is on disk
+    fn = self._create_file('rlog.zst')
+
+    resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": f"{host}/seg/0/rlog.zst?sig=x", "headers": {}}])
+    assert resp['enqueued'] == 1
+    assert 'failed' not in resp
+    assert athenad.upload_queue.get_nowait().path == fn
+
+    # the bare name is not mapped when the URL does not ask for the .zst file
+    resp = dispatcher["uploadFilesToUrls"]([{"fn": "2026-10-04--00-00-00--0/rlog", "url": f"{host}/seg/0/rlog", "headers": {}}])
+    assert resp['enqueued'] == 0
+    assert resp['failed'] == ["2026-10-04--00-00-00--0/rlog"]
+    assert athenad.upload_queue.empty()
+
+  @parameterized.expand([(False,), (True,)], names=("compressed_copy",))
+  def test_upload_legacy_rlog_to_zst_url(self, host, mocker, compressed_copy):
+    payload = b'legacy log'
+    fn = self._create_file('rlog', data=payload)
+    if compressed_copy:
+      payload = b'prefer the existing compressed log'
+      self._create_file('rlog.zst', data=zstd.ZstdCompressor().compress(payload))
+
+    url = f"{host}/seg/0/rlog.zst?sig=x"
+    resp = dispatcher["uploadFileToUrl"]("2026-10-04--00-00-00--0/rlog", url, {})
+    assert resp['enqueued'] == 1
+    queued = athenad.upload_queue.get_nowait()
+    assert queued.path == fn + '.zst'
+
+    def receive_body(url, *, data, headers, timeout):
+      body = data.read()
+      assert int(headers['Content-Length']) == len(body)
+      with zstd.ZstdDecompressor().stream_reader(BytesIO(body)) as stream:
+        assert stream.read() == payload
+      return requests.Response()
+
+    put = mocker.patch.object(athenad.UPLOAD_SESS, 'put', side_effect=receive_body)
+    athenad._do_upload(queued)
+    assert put.call_count == 1
+
+  def test_upload_zst_fallback_checks_source_ownership(self, host, mocker):
+    fn = self._create_file('rlog', data=b'another provider owns this file')
+    self._create_file('.cloud-rlog', data=b'konik')
+    url = f"{host}/seg/0/rlog.zst"
+    relative = "2026-10-04--00-00-00--0/rlog.zst"
+    resp = dispatcher["uploadFileToUrl"](relative, url, {})
+    assert resp == {'enqueued': 0, 'items': [], 'failed': [relative]}
+    assert athenad.upload_queue.empty()
+
+    # A cached upload must also recheck the ownership of the actual file it opens.
+    item = athenad.UploadItem(path=fn + '.zst', url=url, headers={}, created_at=0, id=None)
+    put = mocker.patch.object(athenad.UPLOAD_SESS, 'put')
+    with self.assertRaises(ValueError):
+      athenad._do_upload(item)
+    put.assert_not_called()
+
   def test_upload_file_to_url_duplicate(self, host):
     self._create_file('qlog.zst')
 
@@ -352,7 +434,7 @@ class TestAthenadMethods(OpenpilotTestCase):
   @with_upload_handler
   def test_cancel_upload(self):
     item = athenad.UploadItem(path="qlog.zst", url="http://localhost:44444/qlog.zst", headers={},
-                              created_at=int(time.time()*1000), id='id', allow_cellular=True)  # noqa: TID251
+                              created_at=int(time.time()*1000), id='0' * 40, allow_cellular=True)  # noqa: TID251
     athenad.upload_queue.put_nowait(item)
     dispatcher["cancelUpload"](item.id)
 
@@ -492,16 +574,19 @@ class TestAthenadMethods(OpenpilotTestCase):
       assert isinstance(resp[k], str), f"{k} is not a string"
       assert len(resp[k]) > 0, f"{k} has no value"
 
-  def test_jsonrpc_handler(self):
+  def test_jsonrpc_handler(self, mocker):
+    # private queues, so the shutdown wakeup below can't leak into other tests
+    for q in ('recv_queue', 'send_queue', 'log_recv_queue'):
+      mocker.patch.object(athenad, q, type(getattr(athenad, q))())
     end_event = threading.Event()
     thread = threading.Thread(target=athenad.jsonrpc_handler, args=(end_event,))
     thread.daemon = True
     thread.start()
     try:
       # with params
-      athenad.recv_queue.put_nowait(json.dumps({"method": "echo", "params": ["hello"], "jsonrpc": "2.0", "id": 0}))
+      athenad.recv_queue.put_nowait(json.dumps({"method": "cancelUpload", "params": ["0" * 40], "jsonrpc": "2.0", "id": 0}))
       _, _, resp = athenad.send_queue.get(timeout=3)
-      assert json.loads(resp) == {'result': 'hello', 'id': 0, 'jsonrpc': '2.0'}
+      assert json.loads(resp) == {'result': {'success': 0, 'error': 'not found'}, 'id': 0, 'jsonrpc': '2.0'}
       # without params
       athenad.recv_queue.put_nowait(json.dumps({"method": "getNetworkType", "jsonrpc": "2.0", "id": 0}))
       _, _, resp = athenad.send_queue.get(timeout=3)
@@ -512,6 +597,8 @@ class TestAthenadMethods(OpenpilotTestCase):
       assert json.loads(resp) == {'result': {'success': 1}, 'id': 0, 'jsonrpc': '2.0'}
     finally:
       end_event.set()
+      # wake the handler from its blocking queue get
+      athenad.recv_queue.put_nowait(json.dumps({'result': None, 'id': 0, 'jsonrpc': '2.0'}))
       thread.join()
 
   def test_get_logs_to_send_sorted(self):

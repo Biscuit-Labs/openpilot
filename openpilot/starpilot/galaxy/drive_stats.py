@@ -14,9 +14,13 @@ import stat
 import threading
 import time
 
+from openpilot.common.time_helpers import min_date, system_time_valid
 from openpilot.starpilot.galaxy.drive_history import DriveHistory, MAX_ROOT_ENTRIES, MAX_STATS_SEGMENTS_PER_ROUTE
 from openpilot.starpilot.galaxy.drive_analysis import ANALYSIS_VERSION
 from openpilot.starpilot.storage import galaxy_storage_root
+
+SOURCE_LIMITATIONS = frozenset({'Route has no observed duration', 'End of route was not recorded',
+                                'Route has missing segments or logs', 'Route samples are missing or gapped'})
 
 SCHEMA_VERSION = 1
 MAX_CACHED_ROUTES = 2048
@@ -158,7 +162,7 @@ class DriveStatsOwner:
   def __init__(self, root: Path | None = None, store: Path | None = None, history: DriveHistory | None = None,
                analyzer: Callable | None = None, permitted: Callable[[], bool] | None = None,
                clock: Callable[[], float] | None = None, monotonic: Callable[[], float] | None = None,
-               metric: Callable[[], bool] | None = None):
+               metric: Callable[[], bool] | None = None, clock_valid: Callable[[], bool] | None = None):
     self.root = Path(root) if root is not None else None
     self.store = Path(store) if store is not None else galaxy_storage_root() / 'drive-stats.json'
     self.history = history if history is not None else DriveHistory(self.root, max_segments_per_route=MAX_STATS_SEGMENTS_PER_ROUTE,
@@ -171,6 +175,7 @@ class DriveStatsOwner:
     self.permitted = permitted if permitted is not None else lambda: False
     self.clock = clock if clock is not None else lambda: datetime.now(UTC).timestamp()
     self.monotonic = monotonic if monotonic is not None else time.monotonic
+    self.clock_valid = clock_valid if clock_valid is not None else system_time_valid
     self.metric = metric if metric is not None else lambda: True
     self._lock = threading.RLock()
     self._permit_lock = threading.Lock()
@@ -267,7 +272,9 @@ class DriveStatsOwner:
       return self._permit_cached
 
   def _run(self):
-    if not self._allowed():
+    # Until GPS or NTP sets it after a cold boot, the clock reads the OS build date: analysis would reject the
+    # drive's real logged times as future ones and stamp failures with dates that later look a day old.
+    if not self._allowed() or not self.clock_valid():
       return
     assert self.root is not None
     try:
@@ -281,6 +288,7 @@ class DriveStatsOwner:
         self._pending = 0
         route_ids = {route.get('routeId') for route in routes if isinstance(route, dict) and type(route.get('routeId')) is str}
         self._failures = {key: value for key, value in self._failures.items() if key in route_ids}
+        self._drop_failures_stamped_before_the_clock_was_set()
       candidates = []
       for route in routes[:MAX_SCAN_ROUTES]:
         if not self._allowed():
@@ -306,7 +314,7 @@ class DriveStatsOwner:
             continue
           if failed and failed['signature'] == signature and failed.get('analysisVersion', 0) == ANALYSIS_VERSION:
             now = self.clock()
-            if (failed['attempts'] >= MAX_RETRY_ATTEMPTS or now - failed['firstAt'] >= MAX_RETRY_AGE_SECONDS or
+            if (failed['reason'] in SOURCE_LIMITATIONS or failed['attempts'] >= MAX_RETRY_ATTEMPTS or now - failed['firstAt'] >= MAX_RETRY_AGE_SECONDS or
                 failed['firstAt'] <= now < failed['retryAt']):
               continue
           candidates.append((route, route_id, signature, manifest))
@@ -390,6 +398,15 @@ class DriveStatsOwner:
     except Exception:
       with self._lock:
         self._scan_incomplete = True
+
+  def _drop_failures_stamped_before_the_clock_was_set(self):
+    # A failure recorded on a not-yet-set clock is retried as new: its firstAt otherwise ages it out of retries.
+    earliest = min_date().replace(tzinfo=UTC).timestamp()
+    if self.clock() < earliest:
+      return
+    stale = [key for key, failure in self._failures.items() if min(failure['firstAt'], failure['retryAt']) < earliest]
+    for key in stale:
+      del self._failures[key]
 
   def _failure(self, signature, previous, reason):
     now = self.clock()
@@ -493,6 +510,8 @@ class DriveStatsOwner:
               'aolPercent': round(100 * seconds / duration, 1) if duration else None,
               'aolDurationSeconds': duration, 'aolDrives': len(observed)}
     totals = sums(complete)
+    past_week = sums([r for r in complete if day - timedelta(days=6) <=
+                      datetime.fromtimestamp(r['startTime'], zone).date() <= day])
     totals.update(aol_sums(complete))
     week_totals = sums(week)
     week_result = {'days': [{'date': date, 'distanceMeters': daily[date]} for date in dates],
@@ -514,7 +533,7 @@ class DriveStatsOwner:
     pending = max(self._pending, int(not self._scanned))
     state = ('analyzing' if running else 'waitingParked' if pending and not self._allowed() else
              'queued' if pending else 'retrying' if any(
-               f['attempts'] < MAX_RETRY_ATTEMPTS and self.clock() - f['firstAt'] < MAX_RETRY_AGE_SECONDS
+               f['reason'] not in SOURCE_LIMITATIONS and f['attempts'] < MAX_RETRY_ATTEMPTS and self.clock() - f['firstAt'] < MAX_RETRY_AGE_SECONDS
                for f in self._failures.values()) else 'failed' if self._failures else 'ready')
     def public(record):
       return {key: value for key, value in record.items() if key not in ('sourceSignature', 'sourceManifest')}
@@ -522,14 +541,14 @@ class DriveStatsOwner:
     return {'schemaVersion': SCHEMA_VERSION, 'isMetric': is_metric,
             'analysis': {'running': running, 'pending': pending, 'state': state,
                          'failed': len(self._failures),
-                         'quarantined': sum(f['attempts'] >= MAX_RETRY_ATTEMPTS or
+                         'quarantined': sum(f['reason'] in SOURCE_LIMITATIONS or f['attempts'] >= MAX_RETRY_ATTEMPTS or
                                             self.clock() - f['firstAt'] >= MAX_RETRY_AGE_SECONDS for f in self._failures.values()),
                          'failures': [{'routeId': key, 'reason': f['reason'], 'attempts': f['attempts'],
-                                       'retryStopped': f['attempts'] >= MAX_RETRY_ATTEMPTS or
+                                       'retryStopped': f['reason'] in SOURCE_LIMITATIONS or f['attempts'] >= MAX_RETRY_ATTEMPTS or
                                                        self.clock() - f['firstAt'] >= MAX_RETRY_AGE_SECONDS}
                                       for key, f in self._failures.items()],
                          'scanIncomplete': self._scan_incomplete},
-            'totals': totals, 'week': week_result, 'lastDrive': public(included_recent[0]) if included_recent else None,
+            'totals': totals, 'pastWeek': past_week, 'week': week_result, 'lastDrive': public(included_recent[0]) if included_recent else None,
             'recentDrives': [public(r) for r in recent[:RECENT_LIMIT]], 'records': records, 'models': models,
             'coverage': {'scope': 'analyzedLocalRoutes', 'timezone': timezone, 'partialHistory': True,
                          'scanIncomplete': self._scan_incomplete, 'scanned': self._scanned,

@@ -25,6 +25,12 @@ Evidence, routes 00000352 / 00000353 (Clarity, vfn 35ddc44b, P-minus-5 firmware)
     25 mph, 0.86 above) and explains 46% of vfn's command over all engaged frames. The kf * angle * v^2
     feedforward it replaces explains 5% or less on either measure.
 
+The Ridgeline's T6Z-A110 is a V850 image of another codebase (the Pilot family) with the same structure: a target map
+indexed by the command, a P (+ D) loop on the target minus a filtered motor-speed rate feedback, the output added to
+the assist. Its PTM rev b5 runs it in this law's form, with two differences the calibration carries: an output stage
+(x655/256 after the driver-torque fades) that scale_q8 absorbs, and a P clamp (p_clamp) that binds inside its range,
+where every SH-2A image's P clamp lies past its output clamp. It has no KFF; rev b5 folds the Clarity's into its target.
+
 Firmware constants are per IMAGE, and the version string does not identify the build, so re-check the
 profile after any reflash. Every image's calibration, and what it measured and only carries over, is in
 honda_eps_calibrations.
@@ -75,6 +81,8 @@ class ColumnLoadModel:
 # - Civic Bosch C020 (tsfdo): routes 290 / 293 / 289 -0.09 / -0.15 / -0.22 s, median -0.15. Checked with it on
 #   (routes 2b7 / 2c6 / 2d4): -0.14 / -0.11 / +0.03 s, -0.045 weighted, against -0.15 without it on 289 / 290 / 294.
 # - Insight: 0.15, inferred from a LatControlPID drive (see INSIGHT_TXM_A040).
+# - CR-V A040 (RiskyBiscuit-arc): with the default 0.12 s, routes 02/03/04/05/0a/0b/15 ran -0.02..-0.15 s (5-12 m/s,
+#   all turns), -0.07 s weighted, the Nov 7/12 drives -0.11..-0.15; it takes 0.18 s. Highway not measured: none.
 # Unmeasured cars take the default, the smaller of the two, until plan_timing.py measures them.
 # Above 15 m/s, where it used to fade out, the cars run early too (2026-10-18, per speed band): the TEG 0.13-0.17 s at
 # 12-40 m/s on the TEG routes 12e-13d, the C020 0.16 s at 20-40 m/s on route 380 (no command delay), and the Clarity
@@ -140,9 +148,12 @@ class EpsFirmwareCalibration:
                                     # from its specs (honda_eps_spec_plant); when set it is the geometry, ahead of the
                                     # road curve and HondaEpsFirmwareVgr
   friction_width_v: tuple | None = None  # the friction knee at FRICTION_WIDTH_SPEED_BP, deg/s; None: FRICTION_WIDTH_V
+  p_clamp: float | None = None  # |Kp * (R5 - R6) / 1024| clamp before scale_q8, where it binds inside the output range (the
+                                # Ridgeline's 942); None: the image's P clamp lies past its output clamp (every SH-2A image)
   kp_pieces: tuple = field(init=False, repr=False, compare=False)
 
   def __post_init__(self):
+    assert self.p_clamp is None or self.kff == 0.0, "a P clamp with KFF is not modeled: no such image"
     if self.r5_per_key is not None:
       # the P row as pieces over |R5| through a constant R5-per-key, flat past the last breakpoint
       pieces = [(lo * self.r5_per_key, hi * self.r5_per_key, kp_lo, (kp_hi - kp_lo) / ((hi - lo) * self.r5_per_key))
@@ -310,10 +321,17 @@ def firmware_r6(steering_rate_deg_s: float, angle_deg: float, cal: EpsFirmwareCa
   return max(min(cal.r6_per_deg_s * gain * steering_rate_deg_s, R6_CLAMP), -R6_CLAMP)
 
 
+def firmware_law(r5: float, r6: float, kp: float, cal: EpsFirmwareCalibration) -> float:
+  """scale*(Kp*(R5-R6) + KFF*R5)/1024/256, the P term clamped where the image clamps it (D term omitted)."""
+  p = kp * (r5 - r6)
+  if cal.p_clamp is not None:
+    p = max(min(p, 1024.0 * cal.p_clamp), -1024.0 * cal.p_clamp)
+  return cal.scale_q8 * (p + cal.kff * r5) / 1024.0 / 256.0
+
+
 def firmware_output(r5: float, steering_rate_deg_s: float, cal: EpsFirmwareCalibration, angle_deg: float = 0.0) -> float:
-  """Steady-state firmware output for a target and a rate (D term omitted): scale*(Kp*(R5-R6) + KFF*R5)/1024/256."""
-  r6 = firmware_r6(steering_rate_deg_s, angle_deg, cal)
-  return cal.scale_q8 * (firmware_kp(r5, cal) * (r5 - r6) + cal.kff * r5) / 1024.0 / 256.0
+  """Steady-state firmware output for a target and a rate (D term omitted)."""
+  return firmware_law(r5, firmware_r6(steering_rate_deg_s, angle_deg, cal), firmware_kp(r5, cal), cal)
 
 
 def column_load(angle_deg: float, rate_deg_s: float, v_ego: float, roll: float,
@@ -329,8 +347,11 @@ def r5_for_motion(load: float, rate_deg_s: float, cal: EpsFirmwareCalibration, r
   that is a quadratic in R5, so solve every piece exactly and keep the root nearest `r5_guess` (more than
   one root only exists when a fast unwind outruns a small target). A fixed-point iteration is not enough
   here: it is 1-4% off after three passes from rest and need not contract during a fast unwind.
+  With a P clamp (no KFF) a load past it cannot be made; the target that just reaches the clamp is the one asked.
   """
   x = 1024.0 * load * 256.0 / cal.scale_q8
+  if cal.p_clamp is not None:
+    x = max(min(x, 1024.0 * cal.p_clamp), -1024.0 * cal.p_clamp)
   r6 = firmware_r6(rate_deg_s, angle_deg, cal)
   roots = []
   for lo, hi, kp_lo, slope in cal.kp_pieces:

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, cast
 import base64
 import ctypes
 import gc
-from functools import cached_property
+from functools import cached_property, partial
 import os
 os.environ['GMMU'] = '0' # for chestnut fast loading, noop for qcom
 os.environ.setdefault('AM_POWER_LIMIT', '100')
@@ -34,7 +34,7 @@ from msgq.visionipc import VisionIpcClient, VisionBuf
 from opendbc.car.car_helpers import get_demo_car_params
 from openpilot.common.swaglog import cloudlog
 from openpilot.common.params import Params
-from openpilot.common.hardware.usb import cable_connected
+from openpilot.common.hardware.usb import cable_connected, usb_host_connected
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import config_realtime_process, set_core_affinity, DT_MDL
 from openpilot.common.transformations.camera import DEVICE_CAMERAS
@@ -43,6 +43,8 @@ from openpilot.common.transformations.model import get_warp_matrix
 from openpilot.selfdrive.controls.lib.desire_helper import DesireHelper
 from openpilot.starpilot.lateral.lane_change_preferences import LiveLaneChangePolicy
 from openpilot.starpilot.lateral.auto_lane_change import ClockEpochGuard, auto_evidence, paired_clocks_ns, session_policy, steering_capable
+from openpilot.starpilot.lateral.blendful import Blendful
+from openpilot.starpilot.lateral.blendful_feedback import feedback_message
 from openpilot.starpilot.lateral.lane_change_status_wire import (
   Direction as StatusDirection, LaneChangeStatus, Phase as StatusPhase, encode_optional as encode_lane_status,
 )
@@ -62,6 +64,7 @@ from openpilot.selfdrive.modeld.lateral_source import lateral_source
 from openpilot.selfdrive.modeld.constants import LAT_SMOOTH_SECONDS, ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, modeld_pkl_path, load_oob, wait_for_chestnut
 
+
 SEND_RAW_PRED = os.getenv('SEND_RAW_PRED')
 
 LONG_SMOOTH_SECONDS = 0.3
@@ -70,7 +73,8 @@ BIG_MODEL_TIMEOUT = 120
 
 
 def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.ModelDataV2.Action,
-                          lat_action_t: float, long_action_t: float, v_ego: float) -> log.ModelDataV2.Action:
+                          lat_action_t: float, long_action_t: float, v_ego: float,
+                          blendful: Callable[[float], float] | None = None) -> log.ModelDataV2.Action:
   if 'action' not in model_output:
     plan = model_output['plan'][0]
     desired_accel = get_accel_from_plan(plan[:,Plan.VELOCITY][:,0],
@@ -84,7 +88,9 @@ def get_action_from_model(model_output: dict[str, np.ndarray], prev_action: log.
                                                 lat_action_t)
   else:
     desired_accel = model_output['action'][0,1]
-    desired_curvature = model_output['action'][0,0] / (max(1.0, v_ego))**2
+    desired_curvature = model_output['action'][0,0] / (max(2.5, v_ego))**2
+  if blendful is not None:
+    desired_curvature += blendful(desired_curvature)
   stop = should_stop(v_ego, desired_accel)
   desired_accel = smooth_value(desired_accel, prev_action.desiredAcceleration, LONG_SMOOTH_SECONDS)
   if v_ego > MIN_LAT_CONTROL_SPEED:
@@ -168,6 +174,13 @@ def input_view(buffer: Buffer, shape: tuple[int, ...], dtype: DType, offset: int
   return Tensor(UOp.from_buffer(view, dtype)).reshape(shape)
 
 
+def compile_copy(tensor: Tensor) -> Callable[[], Tensor]:
+  from tinygrad.engine.jit import CapturedJit
+  from tinygrad.engine.realize import compile_linear
+  jit = CapturedJit(tensor, compile_linear(tensor.schedule_linear()), [], [])
+  return lambda: jit([], {})
+
+
 class ModelState:
   lat_delay: float
   frame_drop_ratio: float
@@ -201,6 +214,7 @@ class ModelState:
       state = self.input_queues[name]
       assert all_int(state.shape)
       self.outputs[next_name] = input_view(state._buffer(), state.shape, state.dtype, 0)
+    self.copy_outputs = None if selected_legacy() else compile_copy(self.outputs['outputs'].to('CPU'))
     self.parser = Parser()
 
   def pack_inputs(self) -> None:
@@ -211,8 +225,15 @@ class ModelState:
                                    if name not in self.state_pairs and name != 'new_img'}
     npy_size = sum(round_up(math.prod(shape) * 4, 128) for shape in shapes.values())
     self.packed_input = np.zeros(npy_size + 2 * self.frame_copy_size, dtype=np.uint8)
-    self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
-    self.input_device = Tensor(self.packed_input, device=self.model_device)._buffer()
+    if selected_legacy():
+      self.input_host = Tensor(self.packed_input, device='NPY')._buffer()
+      self.input_device = Tensor(self.packed_input, device=self.model_device)._buffer()
+    else:
+      host = Tensor(self.packed_input, device='NPY')
+      device = host.to(self.model_device)
+      self.copy_inputs = compile_copy(device)
+      self.copy_inputs()
+      self.input_host, self.input_device = host._buffer(), device._buffer()
     self.npy = {}
     offset = 0
     for name, shape in shapes.items():
@@ -225,7 +246,7 @@ class ModelState:
   def slice_outputs(self, model_outputs: np.ndarray, output_slices: dict[str, slice]) -> dict[str, np.ndarray]:
     return {k: model_outputs[np.newaxis, v] for k,v in output_slices.items()}
 
-  def run(self, bufs: dict[str, VisionBuf], transforms: dict[str, np.ndarray],
+  def run(self, bufs: Mapping[str, VisionBuf | np.ndarray], transforms: dict[str, np.ndarray],
           inputs: dict[str, np.ndarray], after_enqueue: Callable[[], None] | None = None) -> dict[str, np.ndarray]:
     for i, key in enumerate(self.vision_input_names):
       np.copyto(self.frames[i], np.frombuffer(bufs[key].data, dtype=np.uint8, count=self.frame_copy_size))
@@ -238,7 +259,10 @@ class ModelState:
     self.npy['traffic_convention'][:] = inputs['traffic_convention']
     self.npy['action_t'][:] = inputs['action_t']
 
-    self.input_device.copy_from(self.input_host)
+    if selected_legacy():
+      self.input_device.copy_from(self.input_host)
+    else:
+      self.copy_inputs()
     self.input_queues['new_img'] = self.run_warp(**self.warp_inputs)
     self.run_model(output_buffers=self.outputs, **self.input_queues)
     if (self.chestnut and not selected_legacy() and
@@ -246,7 +270,11 @@ class ModelState:
       raise RuntimeError(f"chestnut failed with {err}")
     if after_enqueue is not None:
       after_enqueue()
-    model_output = self.outputs['outputs'].numpy()[0]
+    if selected_legacy():
+      model_output = self.outputs['outputs'].numpy()[0]
+    else:
+      assert self.copy_outputs is not None
+      model_output = self.copy_outputs().numpy()[0]
     if self.chestnut and not np.all(np.isfinite(model_output)):
       raise RuntimeError("model output not finite")
     outputs_dict = self.parser.parse_outputs(self.slice_outputs(model_output, self.output_slices))
@@ -289,7 +317,7 @@ def main(demo=False):
 
   from openpilot.starpilot.models.manager import resolve_runtime, requested_runtime_id
   # a Jetson, PC or phone on the port looks like a chestnut to cable_connected(): the cable counts with Jetlink off only
-  chestnut_available = chestnut_present() or (cable_connected() and not jetlink_adapter.link_on())
+  chestnut_available = chestnut_present() or (cable_connected() and not jetlink_adapter.link_on() and not usb_host_connected())
   recovery_small_only = os.getenv("STARPILOT_MODELD_RECOVERY_SMALL_ONLY") == "1"
   selection = resolve_runtime(chestnut_available=chestnut_available and not recovery_small_only, randomize=not recovery_small_only)
   requested_model_id = requested_runtime_id(chestnut_available)
@@ -332,7 +360,9 @@ def main(demo=False):
   while use_extra_client and not vipc_client_extra.connect(False):
     time.sleep(0.1)
 
-  cloudlog.warning(f"connected main cam with buffer size: {vipc_client_main.buffer_len} ({vipc_client_main.width} x {vipc_client_main.height})")
+  cam_w, cam_h = vipc_client_main.width, vipc_client_main.height
+  assert cam_w is not None and cam_h is not None
+  cloudlog.warning(f"connected main cam with buffer size: {vipc_client_main.buffer_len} ({cam_w} x {cam_h})")
   if reproject_session and (vipc_client_main.width, vipc_client_main.height) != REPROJECT_CAMERA_SIZE:
     raise RuntimeError(f"virtual comma 4 stream is {vipc_client_main.width}x{vipc_client_main.height}, expected " +
                        f"{REPROJECT_CAMERA_SIZE[0]}x{REPROJECT_CAMERA_SIZE[1]}")
@@ -367,7 +397,7 @@ def main(demo=False):
   def load_small():
     if selection.small_path is not None:
       try:
-        selected, prepared = load_verified_model(vipc_client_main.width, vipc_client_main.height,
+        selected, prepared = load_verified_model(cam_w, cam_h,
                                                  selection.small_path, selection.small_version, False,
                                                  selection.small_id, selection.small_sha256, coherent_warp=coherent_warp)
         return selected, prepared, False
@@ -377,7 +407,7 @@ def main(demo=False):
     path = shipped_default()
     if path is None:
       raise RuntimeError("Shipped RDFv4 is missing or corrupt")
-    fallback, prepared = load_verified_model(vipc_client_main.width, vipc_client_main.height,
+    fallback, prepared = load_verified_model(cam_w, cam_h,
                                              path, BY_ID[DEFAULT_SMALL].version, False,
                                              DEFAULT_SMALL, DEFAULT_SMALL_SHA256, coherent_warp=coherent_warp)
     return fallback, prepared, selection.small_id != DEFAULT_SMALL
@@ -400,10 +430,10 @@ def main(demo=False):
           wait_for_chestnut_power(CP, timeout=min(30., BIG_MODEL_TIMEOUT / 2))
         set_core_affinity([7])
         if selection.big_path is not None:
-          m, prepared = load_verified_model(vipc_client_main.width, vipc_client_main.height,
+          m, prepared = load_verified_model(cam_w, cam_h,
                                             big_path, selection.big_version, True, selection.big_id, selection.big_sha256)
         else:
-          m = ModelState(vipc_client_main.width, vipc_client_main.height, True)
+          m = ModelState(cam_w, cam_h, True)
           m.warmup()
           prepared = receipt_owner.prepare(big_path, big_artifact_identity)
         big_prepared = prepared
@@ -454,7 +484,7 @@ def main(demo=False):
   config_realtime_process(7, 54)
 
   # messaging
-  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire"] + \
+  pub_socks = ["modelIdentity", "modelV2", "drivingModelData", "cameraOdometry", "laneChangeAssistWire", "starpilotBlendfulState"] + \
     (["chestnutGpuState"] if CHESTNUT else [])
   pm = PubMaster(pub_socks)
   sm = SubMaster(["deviceState", "carState", "narrowRoadCameraState", "extrinsicsCalibration", "driverMonitoringState",
@@ -493,6 +523,14 @@ def main(demo=False):
   navigation_turn = TurnIntent(params, CP)
   lane_status_session = uuid.uuid4().hex
   lane_status_sequence = 0
+
+  # Blendful lateral policy (sunnypilot PR #2073): a curvature correction blended on top of the model's own
+  # steering. Mutual exclusion with starpilot Lane Centering: enabled only for a custom (non-default) model
+  # while the Blendful param is on and the LaneCentering param is off; the lane centering host refuses in the
+  # opposite state, so the two never apply at the same time.
+  blendful = Blendful()
+  blendful_enabled = False
+  params_ticks = 0
 
   while True:
     # Keep receiving frames until we are at least 1 frame ahead of previous extra frame
@@ -536,6 +574,11 @@ def main(demo=False):
     is_rhd = sm["driverMonitoringState"].isRHD
     frame_id = sm["narrowRoadCameraState"].frameId
     v_ego = max(sm["carState"].vEgo, 0.)
+    if params_ticks % 60 == 0:
+      model_id = getattr(model, "model_id", None)
+      custom_model = isinstance(model_id, str) and model_id not in (DEFAULT_SMALL, BUNDLED_CURRENT)
+      blendful_enabled = params.get_bool("Blendful") and not params.get_bool("LaneCentering") and custom_model
+    params_ticks += 1
     lateral_delay = scheduled_lateral_delay(lat_delay_schedule, v_ego) if lat_delay_schedule else sm["lateralDelay"].lateralDelay
     subaru_tau = subaru_smooth_seconds(v_ego, subaru_smoothing)
     lat_delay = lateral_delay + LAT_SMOOTH_SECONDS + subaru_tau
@@ -629,7 +672,10 @@ def main(demo=False):
       drivingdata_send = messaging.new_message('drivingModelData')
       posenet_send = messaging.new_message('cameraOdometry')
 
-      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      blendful_active = desire == log.Desire.none and DH.lane_change_state == log.LaneChangeState.off
+      action = model.get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego,
+                                           blendful=partial(blendful.update, model_output, v_ego, blendful_active,
+                                                            enabled=blendful_enabled))
       filter_action(action, prev_action, v_ego, subaru_tau)
       prev_action = action
       # Night Star port: the Honda EPS command delay follows where the steering comes from. It changes only when the
@@ -686,8 +732,10 @@ def main(demo=False):
 
       fill_driving_model_data(drivingdata_send, modelv2_send)
       fill_pose_msg(posenet_send, model_output, meta_main.frame_id, vipc_dropped_frames, meta_main.timestamp_eof, extrinsics_calibration_seen)
+      blendful_send = feedback_message(blendful, model_valid=bool(modelv2_send.valid), model_mono_time=modelv2_send.logMonoTime)
       receipt_owner.publish(pm, time.monotonic_ns())
       pm.send('modelV2', modelv2_send)
+      pm.send('starpilotBlendfulState', blendful_send)
       if lane_status_msg is not None:
         pm.send('laneChangeAssistWire', lane_status_msg)
       pm.send('drivingModelData', drivingdata_send)

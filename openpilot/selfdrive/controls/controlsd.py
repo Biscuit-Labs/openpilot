@@ -16,9 +16,11 @@ from openpilot.selfdrive.controls.lib.cycle_timing import ControlCycleTiming, PU
 from openpilot.common.swaglog import cloudlog
 
 from opendbc.car.car_helpers import interfaces
+from opendbc.car.honda.steer_ratio import vgr_physical_to_linear
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import MAX_LATERAL_ACCEL_NO_ROLL, clip_curvature, lateral_accel_limit
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
+from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
 from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, ModelActionRamp, get_rack_map, \
@@ -64,6 +66,7 @@ class Controls:
   # Night Star port: defaults for the Honda EPS controller's hooks, so a Controls built without __init__ (tests that set
   # their own state) runs the stock path
   rack_map = None
+  vgr_inverse = None
   lat_delay_schedule = None
   max_lateral_accel = MAX_LATERAL_ACCEL_NO_ROLL
 
@@ -168,6 +171,7 @@ class Controls:
     self.max_lateral_accel = lateral_accel_limit(self.CP.carFingerprint, honda_eps,
                                                 os.getenv("CRV_EPS_LATERAL_ACCEL_TRIAL") == "1")
     self.rack_map = get_rack_map(self.CP, self.LaC.calibration) if honda_eps else None
+    self.vgr_inverse = self.LaC.vgr_inverse if isinstance(self.LaC, LatControlAngle) else None
     self.lat_delay_schedule = lateral_delay_schedule(self.CP) if honda_eps else None
     # and keeps vfn's model-curvature smoothing: the 0.1 s low-pass's delay here, and the action ramped across each frame
     self.lat_smooth_seconds = lateral_smooth_seconds(self.CP, LAT_SMOOTH_SECONDS)
@@ -263,7 +267,8 @@ class Controls:
       sr = torque_extension.vehicle_model_ratio(sr, CS.vEgo)
     self.VM.update_params(x, sr)
 
-    steer_angle_without_offset = math.radians(CS.steeringAngleDeg - lp.angleOffsetDeg)
+    # back through the angle controller's rack map (if any), so a seeded curvature comes back as the same angle
+    steer_angle_without_offset = math.radians(vgr_physical_to_linear(CS.steeringAngleDeg - lp.angleOffsetDeg, self.vgr_inverse))
     if self.rack_map is not None:
       # the same map the controller steers through, so a held or seeded curvature comes back as the same angle
       self.curvature = self.rack_map.curvature_from_angle(CS.steeringAngleDeg - lp.angleOffsetDeg, CS.vEgo, lp.roll)

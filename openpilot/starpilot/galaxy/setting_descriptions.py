@@ -105,6 +105,8 @@ DESCRIPTIONS = {
   'HondaDriverOverrideThreshold': 'Sets the driver torque that counts as a steering override on a modified EPS.',
   'HondaMinSteerSpeed': 'Sends no steering torque below this speed.',
   'HondaOverrideTorqueScale': 'Keeps this share of the steering command while you override the wheel.',
+  'HondaOverrideFadeDownSecs': 'Eases the steering command out over this time when you override the wheel. 0 cuts it at once.',
+  'HondaOverrideFadeUpSecs': 'Brings the steering command back over this time after you let go of the wheel.',
   'HondaDriverAssistDuringOverride': 'Keeps steering assist active while you override the wheel.',
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',

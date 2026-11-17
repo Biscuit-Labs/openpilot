@@ -107,15 +107,12 @@ def aol_safety_config(CP):
 
 def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previous,
                                     source_ns, now_ns, axis_session_id) -> bool:
-  """CANCEL ends only longitudinal on a stock-AOL Honda; an armed latch keeps its granted LAT axis.
-
-  A CANCEL mapped to an AOL action is applied by the intent owner first, so a toggled-off latch is not armed here.
-  """
+  """Let the mapped intent owner apply Cancel while retaining a granted LAT axis."""
   from openpilot.starpilot.aol.intent import ButtonType
   from openpilot.starpilot.aol.runtime import (AXIS_MAX_AGE_NS, INTENT_MAX_AGE_NS, SAFETY_MAX_AGE_NS,
                                                native_inventory_matches_cp)
   try:
-    return bool(qualified_stock(cp, marked_only=True) and settings is not None and settings.enabled and
+    return bool(qualified_stock(cp, marked_only=True) and settings is not None and settings.enabled and not any(settings.cancel_actions) and
       previous is not None and previous.lateral_active and previous.native_acknowledged and
       intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
       not intent.pauseLateral and intent.producerSessionId and intent.carStateLogMonoTime == source_ns and
@@ -134,3 +131,4 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
+

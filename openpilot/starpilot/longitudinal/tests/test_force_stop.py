@@ -97,7 +97,9 @@ class ForceStopTests(unittest.TestCase):
       self.assertFalse(plan.should_stop)
 
   def test_late_light_starts_a_constant_decel_profile_instead_of_a_ceiling_step(self):
-    # 0e t=169: light first seen at 114 m while the car is at 19.9 m/s.
+    # 0e t=169: light first seen at 114 m while the car is at 19.9 m/s. The default tune: the Ioniq 6 uses
+    # Dom's distance control, which stops at its own reserve instead of the 6 m handoff.
+    self.tune = vehicle_tune('OTHER')
     speed, horizon = 19.9, 114.
     plan = self.owner.step(frame(0, speed_mps=speed, horizon_m=horizon), self.tune)
     assert plan.speed_ceiling_mps is not None

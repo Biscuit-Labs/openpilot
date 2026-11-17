@@ -203,8 +203,9 @@ class TestModelManager(unittest.TestCase):
     self.assertEqual([(row.label, row.value, row.available) for row in rows[3:6]],
                      [("Download a model", "None to download", False), ("Cancel download", "40%", True), ("Refresh catalog", "Check for new models", False)])
     self.assertEqual({row.reason for row in rows[1:3]}, {"Wait for the download to finish"})
+    # Dom selects models onroad too (except a Jetlink big model); only the running download blocks it.
     rows = model_page(status, data | {"isOnroad": True, "downloading": True}).rows
-    self.assertEqual({row.reason for row in rows[1:3]}, {"Turn the vehicle off to change models"})
+    self.assertEqual({row.reason for row in rows[1:3]}, {"Wait for the download to finish"})
 
   def _session(self, data):
     from openpilot.starpilot.ui import runtime_app

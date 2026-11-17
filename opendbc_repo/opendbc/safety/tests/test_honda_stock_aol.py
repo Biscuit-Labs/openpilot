@@ -184,7 +184,8 @@ class TestHondaStockAol(unittest.TestCase):
       self.assertTrue(self.safety.safety_rx_hook(self.packet("SCM_BUTTONS", scm)))
 
   def test_normal_engagement_then_cancel_keeps_lateral_and_main_withdraws_both(self):
-    # CANCEL ends only longitudinal, like the brake: the host's lateral request stands without a re-request.
+    # CANCEL ends only longitudinal, like the brake: the host's lateral request stands without a re-request,
+    # and its longitudinal request is dropped.
     for case in CASES:
       with self.subTest(case=case[0]):
         self.configure(case)
@@ -194,7 +195,7 @@ class TestHondaStockAol(unittest.TestCase):
         self.assertEqual(self.safety.aol_get_permission_mask(), 3 if self.scoped else 0)
         self.press_button(2)
         self.assertFalse(self.safety.get_controls_allowed())
-        self.assertEqual(self.safety.aol_get_request_mask(), 3 if self.scoped else 0)
+        self.assertEqual(self.safety.aol_get_request_mask(), 1 if self.scoped else 0)
         self.assertEqual(self.safety.aol_get_permission_mask(), 1 if self.scoped else 0)
         self.press_button(1)
         self.assertEqual(self.safety.aol_get_request_mask(), 0)

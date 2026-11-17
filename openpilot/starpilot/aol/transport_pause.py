@@ -834,11 +834,14 @@ class TransportPauseFeedback:
 
   def _honda_brake_lateral_current(self, sm, cp, cs, axis, now_ns, *, latched, brake_source_ns):
     from opendbc.car.honda.stock_aol import qualified
+    from opendbc.car.structs import car
 
     source_ns = self.honda_brake_ns or (brake_source_ns if cs.brakePressed else 0)
     # Night Star: the panda's brake can reach pandad's native read before Card's CAN batch. A LONG-only drop
     # with controls_allowed already false waits AXIS_MAX_AGE_NS from that first read for the brake edge.
-    native_first = not source_ns and not cs.brakePressed
+    # A CANCEL Card has already parsed is not that race: it belongs to _honda_cancel_lateral_current.
+    cancel = any(e.type == car.CarState.ButtonEvent.Type.cancel and e.pressed for e in cs.buttonEvents)
+    native_first = not source_ns and not cs.brakePressed and not cancel
     if native_first and latched and self.session and not self.failed and qualified(cp, marked_only=True):
       first = independent_lateral_health(sm, cp, cs, self.session, now_ns)
       if (first is not None and not first.longitudinalAllowed and first.pandaInventory and

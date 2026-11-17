@@ -91,7 +91,7 @@ class TestOffroadEqualNativeOutput(unittest.TestCase):
     legacy.test_common_state_unlimited_reference_recorded_opposite_and_original_unlimited_vetoes()
     legacy.test_unsupported_paired_projection_fails_without_advancing_candidate_native_state()
     legacy.test_honda_normalized_pre_lookup_comparison_and_modified_filter_shadow_is_pure()
-    legacy.test_honda_nonfinite_reference_and_paired_original_pressed_fail_closed()
+    # Night Star port: the modified-EPS Civic case is gone; FLM does not run on modified-EPS Hondas.
 
 
 if __name__ == '__main__':

@@ -6,7 +6,6 @@ from dataclasses import replace
 import numpy as np
 
 import openpilot.cereal.messaging as messaging
-from openpilot.cereal import log
 from opendbc.car.interfaces import ACCEL_MIN, ACCEL_MAX
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
@@ -44,14 +43,11 @@ from openpilot.selfdrive.controls.lib.longitudinal_mpc_lib.long_mpc import STOP_
 from openpilot.starpilot.longitudinal.lead_approach import LeadApproach, LeadApproachKey, project as project_approach
 from openpilot.starpilot.longitudinal import human_acceleration, human_following
 from openpilot.starpilot.longitudinal.honda_bosch_a_long import HondaBoschALongEnhancement
-from openpilot.starpilot.longitudinal.bosch_a_onset_ramp import BoschAOnsetRamp
-from openpilot.starpilot.longitudinal.bosch_a_smooth import BoschASmooth, GHOST_ARM as BOSCH_A_GHOST_ARM
-from openpilot.starpilot.longitudinal.honda_bosch_a_long import _model_lead0
+from openpilot.starpilot.longitudinal.bosch_a_release import BoschARelease
 from openpilot.starpilot.longitudinal.bosch_a_turnoff import raw_track_y
-from openpilot.starpilot.longitudinal.bosch_a_coast_first import BoschACoastFirst
-from openpilot.starpilot.longitudinal.bosch_a_release_coast import BoschAReleaseCoast
+from openpilot.starpilot.longitudinal.honda_bosch_a_long import _model_lead0
 from openpilot.starpilot.longitudinal.bosch_a_stop_gap import BoschAStopGap
-from openpilot.starpilot.longitudinal.bosch_a_toggles import OFF as BOSCH_A_OFF, BoschAToggles
+from openpilot.starpilot.longitudinal.bosch_a_toggles import vehicle_supported
 from openpilot.starpilot.lateral.lane_change_preferences import LaneChangePolicy
 
 A_CRUISE_MAX_VALS = [1.6, 1.2, 0.8, 0.6]
@@ -113,27 +109,24 @@ def get_cruise_accel(e2e, v_cruise, v_ego, a_cruise_prev, angle_steers, CP, dt, 
 
 class LongitudinalPlanner:
   def __init__(self, CP, init_v=0.0, init_a=0.0, dt=DT_MDL, clock_ns: Callable[[], int] = time.monotonic_ns,
-               *, bosch_a: BoschAToggles = BOSCH_A_OFF):
+               *, bosch_a=None):  # `bosch_a` is ignored: the Bosch-A parts have no toggles (kept so replay harnesses still call it)
     self.CP = CP
     self.mpc = LongitudinalMpc(dt=dt)
     # Optional owners (hooks): HumanFollowing/HumanAcceleration (Bosch-A Hondas, radar or vision) and the
-    # Honda Bosch A Long Enhancement (radar on). `bosch_a` holds the owner toggles plannerd read at start
-    # (BoschAHumanFollowing, BoschAStockBrakeFeel); both default Off. The upstream planner applies the same two.
-    self.human_driving = human_following.enabled_for(CP, bosch_a.human_following)
+    # Honda Bosch A Long Enhancement (radar on). All of them are always on for verified Bosch-A Hondas with openpilot
+    # longitudinal (owner 2026-11-13: no toggle); each applies its own car gate. The upstream planner applies the same.
+    self.human_driving = human_following.enabled_for(CP)
     if self.human_driving:
       human_following.install(self.mpc)
-    self.bosch_a_long = HondaBoschALongEnhancement(CP, dt, stock_brake_feel=bosch_a.stock_brake_feel)
-    self.bosch_a_smooth = BoschASmooth(CP, dt)  # always on for Bosch-A Hondas; bosch_a_smooth.py
-    self.bosch_a_coast_first = BoschACoastFirst(CP, dt)  # lift off before braking for a distant tap; bosch_a_coast_first.py
-    self.bosch_a_release_coast = BoschAReleaseCoast(CP, dt)  # lift off gas when a close radar lead's track releases; bosch_a_release_coast.py
-    self.bosch_a_onset_ramp = BoschAOnsetRamp(CP, dt)  # far-lead brake builds at 8 m/s^3; bosch_a_onset_ramp.py
+    self.bosch_a_long = HondaBoschALongEnhancement(CP, dt)  # lead(): law/coast/need floor on the lead candidate; step(): brake onset ramp; always on for Bosch-A Hondas
+    self.bosch_a_release = BoschARelease(CP, dt)  # release coast (no gas off a departing radar lead) + brake release smoothing; bosch_a_release.py
     self.bosch_a_stop_gap = BoschAStopGap(CP, dt)  # stop hold + no gas inside the stop gap; bosch_a_stop_gap.py
     self.model_lead_history = ModelLeadHistory()
     self.fcw = False
     self.dt = dt
     self.clock_ns = clock_ns
     self.allow_throttle = True
-    self.accel_boost = AccelBoost()
+    self.accel_boost = AccelBoost(lead_gate=vehicle_supported(CP))  # lead gate on Bosch-A Hondas, radar on or vision-only (owner 2026-11-13: later braking without it)
     self.encouragement = Encouragement()
     self.plan_drive_id = 0
     self.throttle_gate = ModelThrottleGate()
@@ -369,7 +362,7 @@ class LongitudinalPlanner:
 
     action_t =  self.CP.longitudinalActuatorDelay + DT_MDL
     output_a_target_mpc = get_accel_from_plan(self.v_desired_trajectory, self.a_desired_trajectory, CONTROL_N_T_IDX,
-                                              action_t=self.bosch_a_smooth.action_t(self.CP.longitudinalActuatorDelay))
+                                              action_t=self.bosch_a_release.action_t(self.CP.longitudinalActuatorDelay))
     output_should_stop_mpc = forecast_should_stop(
       self.CP, self.v_desired_trajectory, CONTROL_N_T_IDX, action_t,
       fallback=should_stop(v_ego, output_a_target_mpc))
@@ -443,10 +436,16 @@ class LongitudinalPlanner:
       blocked=bool(experimental_speed_nudge is not True or reset_state or self.fcw or not self.allow_throttle or self.force_stop_plan.forcing or
                    output_should_stop_mpc or cruise_should_stop or self.mpc.solution_status != 0 or
                    curve.effective_mps is not None or traffic_mode is not False))
+    # Stock Brake Feel depth cap and need floor shape the lead MPC candidate only, so e2e / cruise braking is never
+    # let off by a calm far lead (d2 t1297.6 red-light let-off, 2026-11-15). Every other use of output_a_target_mpc is raw.
+    lead_a = self.bosch_a_long.lead(
+      lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, target=float(output_a_target_mpc),
+      v_ego=v_ego, stopping=bool(output_should_stop_mpc or self.force_stop_plan.forcing),
+      standstill=bool(sm['carState'].standstill), reset_state=bool(reset_state), fcw=bool(self.fcw))
     manual_model = self.accel_boost.update(sm, output_a_target_e2e, output_a_target_mpc, self.a_cruise)
     output_a_target_e2e = max(manual_model, encouraged_model)
 
-    candidates = [(output_a_target_mpc, self.mpc.source, output_should_stop_mpc),
+    candidates = [(lead_a, self.mpc.source, output_should_stop_mpc),
                   (self.a_cruise, LongitudinalPlanSource.cruise, cruise_should_stop)]
     if self.force_stop_distance_braking and self.force_stop_plan.forcing and self.force_stop_plan.obstacle_m is not None:
       stop_target = distance_target(v_ego, sm['carState'].aEgo, self.force_stop_plan.obstacle_m, action_t)
@@ -526,36 +525,19 @@ class LongitudinalPlanner:
       lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, prev=float(a_prev),
       target=float(output_a_target), v_ego=v_ego,
       stopping=bool(self.output_should_stop or self.force_stop_plan.forcing),
-      standstill=bool(sm['carState'].standstill), reset_state=bool(reset_state))
-    output_a_target = self.bosch_a_coast_first.step(
-      lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, target=float(output_a_target),
-      v_ego=v_ego, follow_s=float(base_follow), fcw=bool(self.fcw), reset_state=bool(reset_state))
-    if not BOSCH_A_GHOST_ARM:  # the ghost let-off in bosch_a_smooth replaces the release coast
-      output_a_target = self.bosch_a_release_coast.update(
-        lead_one=planner_radar_state.leadOne, target=float(output_a_target),
-        lane_change_state=sm['modelV2'].meta.laneChangeState, left_blinker=bool(sm['carState'].leftBlinker),
-        right_blinker=bool(sm['carState'].rightBlinker), gas_pressed=bool(sm['carState'].gasPressed),
-        reset_state=bool(reset_state))
-    ghost_skip = (sm['modelV2'].meta.laneChangeState != log.LaneChangeState.off or bool(sm['carState'].leftBlinker) or
-                  bool(sm['carState'].rightBlinker) or bool(sm['carState'].gasPressed))
-    output_a_target = self.bosch_a_smooth.step(float(a_prev), float(output_a_target),
-                                               reset=bool(reset_state or sm['carState'].standstill),
-                                               lead_one=planner_radar_state.leadOne,
-                                               raw_y=raw_track_y(sm) if self.bosch_a_smooth.radar else None,
-                                               v_ego=float(v_ego), model_lead0=_model_lead0(sm['modelV2']),
-                                               skip=bool(ghost_skip))
-    output_a_target = self.bosch_a_onset_ramp.step(
-      lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, prev=float(a_prev),
-      target=float(output_a_target), fcw=bool(self.fcw),
-      stopping=bool(self.output_should_stop or self.force_stop_plan.forcing),
-      reset=bool(reset_state or sm['carState'].standstill))
+      standstill=bool(sm['carState'].standstill), reset_state=bool(reset_state), fcw=bool(self.fcw),
+      follow_s=float(base_follow))
+    output_a_target = self.bosch_a_release.step(
+      lead_one=planner_radar_state.leadOne, prev=float(a_prev), target=float(output_a_target),
+      lane_change_state=sm['modelV2'].meta.laneChangeState, left_blinker=bool(sm['carState'].leftBlinker),
+      right_blinker=bool(sm['carState'].rightBlinker), gas_pressed=bool(sm['carState'].gasPressed),
+      reset_state=bool(reset_state), standstill=bool(sm['carState'].standstill),
+      raw_y=raw_track_y(sm) if self.bosch_a_release.coast_enabled else None, v_ego=float(v_ego),
+      model_lead0=_model_lead0(sm['modelV2']))
     output_a_target, self.output_should_stop = self.bosch_a_stop_gap.step(
       lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, target=float(output_a_target),
       should_stop=bool(self.output_should_stop), v_ego=v_ego, standstill=bool(sm['carState'].standstill),
       reset_state=bool(reset_state))
-    output_a_target = self.bosch_a_long.need_floor(
-      lead_one=planner_radar_state.leadOne, lead_two=planner_radar_state.leadTwo, target=float(output_a_target),
-      v_ego=v_ego, reset_state=bool(reset_state))
     if self.ford_stop_approach is not None:
       output_a_target, self.output_should_stop = self.ford_stop_approach.sample(
         sm, now_ns=sample_now_ns, drive_id=drive_id, target=float(output_a_target),

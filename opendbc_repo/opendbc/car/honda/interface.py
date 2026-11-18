@@ -191,7 +191,8 @@ class CarInterface(CarInterfaceBase):
       if eps_modified:
         _modified_eps_tune(ret)
       else:
-        ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.64], [0.192]]
+        ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kpV = [[0, 10], [0.16, 0.64]]
+        ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kiV = [[0, 10], [0.048, 0.192]]
       ret.wheelSpeedFactor = 1.025
 
     elif candidate == CAR.HONDA_CRV_HYBRID:

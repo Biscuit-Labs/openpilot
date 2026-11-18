@@ -172,7 +172,10 @@ static void honda_rx_hook(const CANPacket_t *msg) {
     // the host's lateral request stands and the AOL token keeps lateral permission. MAIN still withdraws both.
     if ((button == HONDA_BTN_MAIN) || (button == HONDA_BTN_CANCEL)) {
       controls_allowed = false;
-      if ((button == HONDA_BTN_MAIN) || !honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+      if ((button == HONDA_BTN_CANCEL) && honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+        // Retain only the existing lateral request without renewing its deadline.
+        aol_host_axis_mask &= 1U;
+      } else {
         aol_set_host_request(0U);
       }
     }

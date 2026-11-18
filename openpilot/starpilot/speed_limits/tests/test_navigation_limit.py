@@ -113,12 +113,14 @@ def test_online_is_used_only_when_both_slots_have_no_limit():
   assert chosen.selected_source is sel.Source.VISION
 
 
-def test_route_limit_fills_in_and_card_applies_its_command():
-  """Peter's slots (Dashboard, Vision), no sign and no dash limit: the route's 45 mph is adopted."""
+def test_route_limit_fills_in_and_is_accepted_as_the_cruise_cap():
+  """Peter's slots (Dashboard, Vision), no sign and no dash limit: the route's 45 mph is accepted.
+
+  Dom c974c96c7d removed the SLC cruise command: an accepted limit now reaches the planner as the SLC cap.
+  """
   from opendbc.car.honda.interface import CarInterface
   from opendbc.car.honda.values import CAR
   from openpilot.starpilot.longitudinal.tests.test_cruise_ceiling import messages
-  from openpilot.starpilot.speed_limits import physical_actions
   from openpilot.starpilot.speed_limits.tests.test_runtime_replay import ReplaySM
   cp = CarInterface.get_non_essential_params(CAR.HONDA_CIVIC)
   data, _ = messages()
@@ -126,7 +128,7 @@ def test_route_limit_fills_in_and_card_applies_its_command():
   limit = 45 * MPH
   runtime = Runtime(parse({'SpeedLimitController': True, 'SLCPriority1': 'Dashboard', 'SLCPriority2': 'Vision',
                            'SLCConfirmationLower': True}), session_id='nav-drive')
-  command = None
+  state = None
   for i in range(80):  # 4 s at 20 Hz; navigation itself refreshes at 1 Hz
     dt = i * 50_000_000
     published = MONO + dt - dt % 1_000_000_000
@@ -137,15 +139,12 @@ def test_route_limit_fills_in_and_card_applies_its_command():
     sm['carState'].vEgoCluster = 15.0
     sm['carControl'].enabled = sm['carControl'].longActive = True
     out = runtime.step(sm, cp, now_ns=MONO + dt, now_boot_ns=MONO + dt)
-    if out.command is not None:
-      command, state, now = out.command.slcCruiseCommand, out.message.slcState, MONO + dt
+    if out.message.slcState.acceptedSpeedLimit > 0:
+      state = out.message.slcState
       break
-  assert command is not None and command.source == 'online'
+  assert state is not None and state.acceptedSource == 'online'
   assert dt == 0  # Testing adopts a valid automatic limit on its first observation (no SignFirst hold here)
   assert abs(state.acceptedSpeedLimit - limit) < .001
-  current = physical_actions.state_current(ReplaySM({'slcState': state}, now), None, 'card-producer', now)
-  assert physical_actions.command_applicable(command, current, None, 'card-producer', now, 40.0 / 3.6,
-                                             long_active=True, button_event=False)
 
 
 # Road speed limit add-on (navigation/road_limit.py): Mapbox limit without a destination.

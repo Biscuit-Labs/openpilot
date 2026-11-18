@@ -6,7 +6,8 @@ disabled (`HondaBoschARadar`), which is the same gate radard uses to build Bosch
 switch: Stock Brake Feel is permanent (owner 2026-11-11: "Make Stock Brake Feel permanent"; the BoschAStockBrakeFeel
 toggle and its settings row are removed). HumanFollowing and HumanAcceleration are always on too (owner 2026-11-13: no
 toggle, default for all Bosch-A cars; the HumanFollowing owner toggle is removed). Everything in this class needs the radar on
-(owner 2026-11-13; bosch_a_toggles.long_tuning_active); HumanFollowing and HumanAcceleration still run vision-only. Both longitudinal planners (StarPilot's and the upstream one) call it the
+(owner 2026-11-13; bosch_a_toggles.long_tuning_active); HumanFollowing and HumanAcceleration still run vision-only. Both longitudinal planners
+(StarPilot's and the upstream one) call it the
 same way. The D-077 birth-rail ramps (off, never wired to radard here) were removed 2026-11-11; the code and its
 evidence comment are in git at 3f26fb513c and in openpilot-radar radard.py @ 567495f4ad.
 
@@ -345,7 +346,9 @@ def projected_gap_ok(d_rel: float, v_lead: float, a_lead: float, v_ego: float, f
 # the car and is not modelled. The gate is tuned on three events; replay only, not driven, not yet scored on the corpus.
 # Frame counts are planner frames at 20 Hz.
 NEED_FLOOR_ENABLED = True       # switch; read at construction so a replay harness can set it before building the planner
-NEED_FLOOR_MULT = 1.15          # floor = -max(MULT * need, MIN); 1.3 gave -1.91, 0.9 gave -1.39 on seg 10. 1.15 (Peter 2026-11-11, replay only): seg 10 -1.75 (hold-only -2.23, 1.0 -1.52); seg 5 / seg 18 stops unchanged; ep1046 REAL -2.30 -> -2.72; 15 of 1141 episodes >0.05 deeper, onsets unchanged
+# floor = -max(MULT * need, MIN); 1.3 gave -1.91, 0.9 gave -1.39 on seg 10. 1.15 (Peter 2026-11-11, replay only): seg 10 -1.75 (hold-only
+# -2.23, 1.0 -1.52); seg 5 / seg 18 stops unchanged; ep1046 REAL -2.30 -> -2.72; 15 of 1141 episodes >0.05 deeper, onsets unchanged
+NEED_FLOOR_MULT = 1.15
 NEED_FLOOR_MIN = 0.8            # m/s^2; the shallowest the floor may be
 NEED_FLOOR_HEADWAY_S = 1.0      # s; need's gap target = vLead * this + STOP_M
 NEED_FLOOR_STOP_M = 6.0         # m
@@ -376,14 +379,16 @@ class NeedFloor:
   need = closing^2 / (2 * max(d - (max(vLead, 0) * HEADWAY_S + STOP_M), MIN_ROOM_M)), the decel that closes the speed
   difference in the room left before the headway gap. The floor only RAISES a braking target (never adds braking) and
   never touches should_stop. It applies to the nearer present planner lead (leadOne or leadTwo, vision or radar) only
-  when the lead is a radar lead (NEED_FLOOR_RADAR_ONLY), the lead is closing, v_ego >= MIN_V_EGO, d >= MIN_D, ttc > RELEASE_TTC_S, need < RELEASE_NEED, the floor is not
+  when the lead is a radar lead (NEED_FLOOR_RADAR_ONLY), the lead is closing, v_ego >= MIN_V_EGO, d >= MIN_D, ttc > RELEASE_TTC_S, need <
+  RELEASE_NEED, the floor is not
   sticky-off and the gate (vLead >= GATE_V_LEAD and aLeadK > GATE_A_LEAD for GATE_FRAMES consecutive frames on the same
   (track id, radar flag)) is open. Sticky-off: once the release fires (closing and (ttc <= RELEASE_TTC_S or need >=
   RELEASE_NEED)) or the Stock Brake Feel emergency latch is on, the floor stays off until QUIET_FRAMES frames with no
   lead closing, or the lead identity changes to one farther away than the previous frame's gap. No lead: quiet + 1, gate
   count 0, sticky clears at QUIET_FRAMES. It acts on the lead MPC candidate only (HondaBoschALongEnhancement.lead(),
   d2 t1297.6 red-light let-off, 2026-11-15), so e2e or cruise braking deeper than the lead is never lifted; that is why
-  there is no cap / stopping special case. longitudinal_planner.py only; not in starpilot/longitudinal/upstream/planner.py. Parity target: the ARM 'D' block of replay_bd.py (Job's scorecard
+  there is no cap / stopping special case. longitudinal_planner.py only; not in starpilot/longitudinal/upstream/planner.py. Parity target: the ARM 'D'
+  block of replay_bd.py (Job's scorecard
   harness), including its rounding of the lead fields (d and vRel to 0.01, aLeadK to 0.001). Replay only."""
   def __init__(self):
     """Reads NEED_FLOOR_MIN_GAP_ENABLED (module constant, on) at construction: when on, also require d >= v_ego *

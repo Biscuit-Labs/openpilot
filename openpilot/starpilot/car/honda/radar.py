@@ -515,7 +515,7 @@ class BoschALeadPolicy:
                    else None for lead in output]
     if HELD_VREL_SLOPE_BOUND_ENABLED:
       # Before the witness stages see the lead; track.vRel stays raw (the witness's camera_contradiction reads it).
-      output = [held_vrel_bound(lead, track) if held_vrel_active(track) else lead for lead, track in zip(output, lead_tracks)]
+      output = [held_vrel_bound(lead, track) if held_vrel_active(track) else lead for lead, track in zip(output, lead_tracks, strict=False)]
     urgent_v_rels = [urgency_v_rel(track) for track in lead_tracks]
     output = self.camera_witness.apply(
       output,

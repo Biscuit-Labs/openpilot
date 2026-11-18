@@ -238,7 +238,7 @@ if __name__ == "__main__":
   unittest.main()
 
 
-import pytest  # noqa: E402
+import pytest
 
 
 @pytest.fixture(autouse=True)

@@ -152,7 +152,7 @@ def _log_ghost(ghost, before, prev, target, v_ego):
   try:
     fired0, cleared0, g0, age0 = before
     g = ghost.ghost
-    common = dict(prev=round(float(prev), 2), target=round(float(target), 2), v=round(float(v_ego), 1))
+    common = {'prev': round(float(prev), 2), 'target': round(float(target), 2), 'v': round(float(v_ego), 1)}
     if g0 is not None and g is not g0:
       cloudlog.event('bosch_a_ghost', ev='end', why=ghost.end_reason, tid=g0.tid, d0=round(g0.d0, 1),
                      age=round(age0 + ghost.dt, 2), cleared=bool(g0.letoff_clear), nogas=round(ghost.nogas_s, 2), **common)
@@ -168,7 +168,8 @@ def _log_ghost(ghost, before, prev, target, v_ego):
 class BoschARelease:
   def __init__(self, CP, dt: float = DT_MDL):
     self.enabled = vehicle_supported(CP)  # smooth + action_t: radar on or off (vision-only too, as at 786d62d5d2)
-    self.coast_enabled = vehicle_supported(CP) and not bool(getattr(CP, 'radarUnavailable', True))  # == long_tuning_active(CP); coast needs the radar (owner 2026-11-13)
+    # == long_tuning_active(CP); coast needs the radar (owner 2026-11-13)
+    self.coast_enabled = vehicle_supported(CP) and not bool(getattr(CP, 'radarUnavailable', True))
     self.dt = dt
     self.hold_s = 0.0
     self.prev_lead = None  # leadOne from the previous cycle

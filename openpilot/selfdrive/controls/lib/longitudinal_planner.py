@@ -118,7 +118,8 @@ class LongitudinalPlanner:
     self.human_driving = human_following.enabled_for(CP)
     if self.human_driving:
       human_following.install(self.mpc)
-    self.bosch_a_long = HondaBoschALongEnhancement(CP, dt)  # lead(): law/coast/need floor on the lead candidate; step(): brake onset ramp; always on for Bosch-A Hondas
+    # lead(): law/coast/need floor on the lead candidate; step(): brake onset ramp; always on for Bosch-A Hondas
+    self.bosch_a_long = HondaBoschALongEnhancement(CP, dt)
     self.bosch_a_release = BoschARelease(CP, dt)  # release coast (no gas off a departing radar lead) + brake release smoothing; bosch_a_release.py
     self.bosch_a_stop_gap = BoschAStopGap(CP, dt)  # stop hold + no gas inside the stop gap; bosch_a_stop_gap.py
     self.model_lead_history = ModelLeadHistory()
@@ -126,7 +127,8 @@ class LongitudinalPlanner:
     self.dt = dt
     self.clock_ns = clock_ns
     self.allow_throttle = True
-    self.accel_boost = AccelBoost(lead_gate=vehicle_supported(CP))  # lead gate on Bosch-A Hondas, radar on or vision-only (owner 2026-11-13: later braking without it)
+    # lead gate on Bosch-A Hondas, radar on or vision-only (owner 2026-11-13: later braking without it)
+    self.accel_boost = AccelBoost(lead_gate=vehicle_supported(CP))
     self.encouragement = Encouragement()
     self.plan_drive_id = 0
     self.throttle_gate = ModelThrottleGate()

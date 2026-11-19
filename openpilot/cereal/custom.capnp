@@ -89,6 +89,12 @@ struct StarPilotCarControl @0x81c2f05a394cf4af {
       remainingDistanceMeters @4 :Float32;
       remainingDurationSeconds @5 :Float32;
       lanes @6 :List(Lane);
+      exitDegrees @7 :UInt16;  # roundabout exit angle in the direction of travel, 180 = straight through; 0 = not given
+      exitNumber @8 :UInt8;    # roundabout exit, 1 = first; 0 = not given
+      drivingLeft @9 :Bool;    # left-hand traffic (roundabouts run clockwise)
+      roadName @10 :Text;      # the road this step drives along, the one the car is on; "" = not given
+      roadRef @11 :Text;       # that road's route number(s) as Mapbox gives them ("US 75", "US 75; TX 289"); "" = none
+      toward @12 :Text;        # where the maneuver leads, the banner's secondary line ("Garland"); "" = not given
     }
     struct Lane {
       active @0 :Bool;
@@ -96,9 +102,13 @@ struct StarPilotCarControl @0x81c2f05a394cf4af {
       activeDirection @2 :Text;
     }
     version @12 :UInt16;
+    # traffic per route point, from point i to i + 1 (the worst Mapbox level on those segments; the last repeats the one
+    # before): 0 unknown, 1 low, 2 moderate, 3 heavy, 4 severe. Empty without a route or from an older navigationd.
+    routeCongestion @14 :List(UInt8);
   }
 
   phoneGps @3 :StarPilotCarState.Gps;  # sourceMonoTime is comma receive time minus the phone's fix age
+  headUnitGps @4 :StarPilotCarState.Gps;  # the car's GPS from the head unit over Android Auto; sourceMonoTime is comma receive time
 
 
   struct PreapRadarStartup {

@@ -23,6 +23,7 @@ import math
 import os
 import queue
 import socket
+import sys
 import threading
 import time
 import traceback
@@ -36,11 +37,14 @@ from openpilot.common.hardware import COMMA_HARDWARE
 from openpilot.starpilot.system.starport import (car_profiles, device_health, head_unit_fixes, identity as identity_store, new_setup, quirk_state,
                                                  reachability, setup_ladder, system_slice)
 from openpilot.starpilot.system.starport import reconnect_notice
+from openpilot.starpilot.system.starport import link_probe
 from openpilot.starpilot.system.starport.auto_connect import AutoConnectPolicy
 from openpilot.starpilot.system.starport.bootstrap import MODERN_MAJOR, NAMES, BootstrapError, BootstrapTimeout, WirelessBootstrap
 from openpilot.starpilot.system.starport.bugsink_report import PairingAttempt
 from openpilot.starpilot.system.starport.frame_source import (DEFAULT_PATH as DEFAULT_FRAME_PATH, FLAG_ASYNC_READBACK, FLAG_NV12,
                                                                   FORMAT_NV12, FrameRequest)
+from openpilot.starpilot.system.starport.nav_status import LinkLost
+from openpilot.starpilot.system.starport.scan_quiet import STREAMING_STATES
 from openpilot.starpilot.system.starport.projection_control import DEFAULT_CONTROL_SOCKET, NATIVE_FOCUS
 from openpilot.starpilot.system.starport.touch import DEFAULT_TOUCH_SOCKET
 from openpilot.starpilot.system.starport.view import CAR_FRAME_PATH, ViewSource, renderer_available
@@ -235,10 +239,20 @@ class LinkWatch:
   session; only a definite "not connected" does. The socket itself still fails fast on a real loss.
   """
 
-  def __init__(self, lease, log: Callable[..., None], interval: float = LINK_CHECK_INTERVAL):
+  PROBE_INTERVAL = 2.0
+
+  def __init__(self, lease, log: Callable[..., None], interval: float = LINK_CHECK_INTERVAL, sock=None):
     self.lease, self.log, self.interval = lease, log, interval
+    self.sock = sock
     self.lost = ""
     self.wifi_dbm: int | None = None
+    self.probe = None
+    if not isinstance(lease, (NoLease, UsbLease)):
+      try:
+        self.probe = link_probe.LinkProbe(getattr(lease, "interface", "wlan0"))
+      except Exception:
+        self.probe = None
+    self._next_probe = 0.0
     self._stop = threading.Event()
     self._thread = threading.Thread(target=self._run, name="aa_link_watch", daemon=True)
 
@@ -249,12 +263,27 @@ class LinkWatch:
   def stop(self) -> None:
     self._stop.set()  # a check stuck in D-Bus finishes on its own timeout; nothing waits for it
 
+  def sample_probe(self) -> None:
+    """One link sample for the diagnostics ring; never raises, never touches the streaming thread."""
+    if self.probe is None:
+      return
+    try:
+      self.probe.last_sock = self.sock
+      sample = self.probe.sample(self.sock)
+      if not self.wifi_dbm and sample.get("rssi"):
+        self.wifi_dbm = sample["rssi"]
+    except Exception:
+      pass
+
   def _run(self) -> None:
     check = getattr(self.lease, "still_connected", None)
     wireless = not isinstance(self.lease, (NoLease, UsbLease))
     while not self._stop.is_set():
       if wireless:
         self.wifi_dbm = _wifi_dbm(getattr(self.lease, "interface", "wlan0"))
+        if time.monotonic() >= self._next_probe:
+          self._next_probe = time.monotonic() + self.PROBE_INTERVAL
+          self.sample_probe()
       if check is not None:
         started = time.monotonic()
         try:
@@ -481,6 +510,8 @@ class Supervisor:
     self._fix_context: dict | None = None       # this session's chosen fix: selection, quirk key and head-unit labels
     self._video_seen = False                    # video was acknowledged in this session: later failures say nothing about the handshake
     self._run_started = 0.0
+    self._last_probe = None
+    self.hu_feed = None
     self.auto = AutoConnectPolicy()
     self._companion_retry_at = 0.0
     self.log = EventLog()
@@ -489,12 +520,22 @@ class Supervisor:
                           "retry_in": 0.0, "mode": None, "stats": {}, "head_unit": {}, "identity": "", "running": False,
                           "view": "", "encoder": "", "target_fps": 0, "handshake_step": "", "hangups": 0,
                           "dongle_restart": None}
+    self._stats_at = 0.0  # monotonic time of the last stats update; the stream loop sends one each second
 
   # ------------------------------------------------------------------ status
 
   def _set(self, **values) -> None:
     with self._lock:
       self._status.update(values)
+      if "stats" in values:
+        self._stats_at = time.monotonic()
+
+  def streaming_beat(self) -> float | None:
+    """Monotonic time of the stream loop's latest stats update while a projection is on the car, else None.
+
+    wifi_rejoin keeps wlan0 from scanning while this is fresh (scan_quiet); a hung or ended loop stops the beat."""
+    with self._lock:
+      return self._stats_at if self._status["state"] in STREAMING_STATES else None
 
   def _stage(self, state: str, detail: str = "") -> None:
     self._check_cancel()
@@ -1503,6 +1544,7 @@ class Supervisor:
       while not self._stop.is_set():
         started = time.monotonic()
         self._run_started = started
+        self._last_probe = None
         peer_stopped = False
         reach = reachability.OTHER  # set by a failed attempt; a clean end or a car-ended session keeps the standard wait
         self._attempt_frames = 0
@@ -1527,6 +1569,7 @@ class Supervisor:
           message = self._describe_error(stage, error)
           self._set(error=message)
           reach = reachability.classify(stage, type(error).__name__, f"{message} {error}")
+          self._log_probe_tail(stage)
           hung_up = wireless and reachability.hung_up_early(stage, type(error).__name__, f"{message} {error}", self._attempt_frames)
           if hung_up:
             self._hangups += 1
@@ -1580,6 +1623,17 @@ class Supervisor:
       self.log.close()
       self.log.capture_system()
       self._set(state="idle", detail="", running=False, retry_in=0.0, mode=None, handshake_step="")
+
+  def _log_probe_tail(self, stage: str) -> None:
+    """Link samples leading up to a streaming failure, so Wi-Fi and receiver stalls can be told apart."""
+    probe = self._last_probe
+    if stage != "streaming" or probe is None:
+      return
+    try:
+      probe.sample(getattr(probe, "last_sock", None))
+      self.log("link_probe_tail", samples=probe.tail())
+    except Exception:
+      pass
 
   @staticmethod
   def _describe_error(stage: str, error: Exception) -> str:
@@ -1995,11 +2049,39 @@ class Supervisor:
   def _adapter_address(self) -> str:
     """This comma's Bluetooth address for the head unit's pairing request; empty when BlueZ is not up."""
     try:
-      return str(self._bluez.adapter()[1].get("Address", "")).upper() if self._bluez is not None else ""
+      phone = getattr(self._bluez, "phone", self._bluez)  # LeaseAwarePhone wraps the BluezPhone
+      return str(phone.adapter()[1].get("Address", "")).upper() if phone is not None else ""
     except Exception as error:  # DBus errors vary; the pairing request is optional
       # Never silent: a missing adapter() once left every wireless session without the request (no address, no picture).
       self.log("adapter_address_unavailable", kind=type(error).__name__, error=str(error)[:120])
       return ""
+
+  def _start_phone_link(self, session) -> None:
+    """Connect the phone-calls (hands-free) link to the car the head unit named, when no car is chosen yet.
+
+    The 2019 Civic kept its own screen and answered "not paired" while the comma held only an audio link to it; its
+    own hands-free connect was refused because no car was chosen (2026-10-24, session-000007). Only the address the
+    head unit sends, already paired with the comma and offering hands-free, is admitted (prepare_companion checks).
+    """
+    car = getattr(session, "car_address", "")
+    if not car or self._shared_bluetooth_owner is None or self.config.get("companion_address") or \
+       car == self.config["receiver_address"].upper():
+      return
+    threading.Thread(target=self._connect_phone_link, args=(session, car), name="aa-phone-link", daemon=True).start()
+
+  def _connect_phone_link(self, session, car: str) -> None:
+    try:
+      device = self._shared_bluetooth_owner.prepare_companion(car, lambda: car, connect=True)
+    except Exception as error:  # BluetoothRejected, DBus errors: projection carries on without it
+      self.log("phone_link_failed", address=car, error=str(error))
+      return
+    with self._lock:
+      # Saved like Galaxy's Connect, so the next session brings the link up before it asks for the screen.
+      if not self.config.get("companion_address"):
+        self.config.update(companion_address=device["address"], companion_name=device.get("name", ""))
+        identity_store.save_config(self.config)
+    self.log("companion_car_connected", address=car, source="head_unit")
+    session.phone_link_ready = True
 
   def _project(self, result, lease, ident, connect=None, fragment_acks: bool = False) -> None:
     config = self.config
@@ -2014,12 +2096,19 @@ class Supervisor:
     if tuning["phone_services"]:
       session.phone_services = True
       session.phone_address = self._adapter_address()
+      try:
+        from openpilot.starpilot.gps.head_unit import HeadUnitGps
+        session.location = HeadUnitGps()  # the car's GPS, a backup for navigation when the comma has no fix
+      except Exception as error:  # optional; projection must never depend on it
+        self.log("head_unit_gps_unavailable", error=str(error))
+    session.hu_feed = self.hu_feed
     self._stage("authenticating")
     session.authenticate()
     self._stage("negotiating")
     self._fix_context = None
     session.on_discovered = self._choose_fixes
     mode = session.start(config["device_name"], "comma.ai")
+    self._start_phone_link(session)
     self._set(mode=mode.as_dict(), error="")
     self.log("projection_ready", mode=mode.as_dict(), head_unit_subject=session.head_unit_subject)
     try:
@@ -2058,7 +2147,9 @@ class Supervisor:
                         touch_path=self._touch_path, control_path=self._control_path, renderer_command=self._renderer_command,
                         renderer_log=identity_store.LOG_DIR / "car_ui.log")
     self._set(view=source.label, encoder=getattr(encoder, "backend", "libx264"), target_fps=fps)
-    watch = LinkWatch(lease, self.log).start()
+    watch = LinkWatch(lease, self.log, sock=getattr(session, "peer", None))
+    self._last_probe = watch.probe
+    watch.start()
     radio = None
     if getattr(lease, "dedicated", False) and getattr(lease, "interface", "wlan0") != "wlan0":
       radio = SharedRadioWatch(self.log, on_down=getattr(lease, "hold_home_wifi", None),
@@ -2088,10 +2179,12 @@ class Supervisor:
     finally:
       self._note_streamed(session)
       self._record_fix_outcome(session, car_ended)
+      if getattr(session, "hu_feed", None) is not None:
+        session.hu_feed.detach_aa()
       if session.audio is not None:
         session.audio.close()
       if getattr(session, "nav", None) is not None:
-        session.nav.close()
+        session.nav.close(sys.exc_info()[1])
       watch.stop()
       if radio is not None:
         radio.stop()
@@ -2221,6 +2314,15 @@ class Supervisor:
           self.log("nav_status_failed", error=f"{type(error).__name__}: {error}")
           nav.close()
           nav = session.nav = None
+      if session.vendor_channel is not None and getattr(session, "hu_feed", None) is not None:
+        try:
+          session.service_vendor()
+        except (OSError, TimeoutError):
+          raise
+        except Exception as error:
+          self.log("vendor_tunnel_failed", error=f"{type(error).__name__}: {error}")
+          session.hu_feed.detach_aa()
+          session.hu_feed = None
       now = time.monotonic()
       wait_for_frame = True
       if session.focused:
@@ -2267,7 +2369,7 @@ class Supervisor:
       if now >= next_check:
         next_check = now + 1.0
         if watch.lost:
-          raise RuntimeError(watch.lost)
+          raise LinkLost(watch.lost)
         label = source.label
         source.check(now, focused=session.focused)
         if source.label != label:
@@ -2281,7 +2383,10 @@ class Supervisor:
                  "uptime_s": round(now - started), "frames_from_view": source.frames, "wifi_dbm": watch.wifi_dbm}
         self._set(stats=stats)
         if int(now - started) % 30 == 0:
-          self.log("stats", **{**device_health.sample(getattr(watch.lease, "interface", "wlan0")), **stats})
+          probe = watch.probe.summary() if watch.probe is not None else {}
+          if not stats.get("wifi_dbm") and probe.get("rssi"):
+            stats = {**stats, "wifi_dbm": probe["rssi"]}
+          self.log("stats", **{**device_health.sample(getattr(watch.lease, "interface", "wlan0")), **probe, **stats})
           encode_peak = 0.0  # the peak covers each logged 30 s window
           if audio is not None:
             audio.reset_peaks()

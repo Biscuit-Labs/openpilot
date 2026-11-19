@@ -265,6 +265,22 @@ def main() -> int:
             pass
 
     threading.Thread(target=housekeeping, daemon=True).start()
+    if COMMA_HARDWARE:
+      try:
+        from openpilot.starpilot.system.starport.hu_feed import HeadUnitFeed
+        hu_feed = HeadUnitFeed(log=lambda event, **fields: print(json.dumps({"event": event, **fields}), flush=True)).start()
+        supervisor.hu_feed = hu_feed
+        cleanup.callback(hu_feed.close)
+      except Exception as error:  # the cluster map feed is optional; projection must never depend on it
+        print(json.dumps({"event": "hu_feed_unavailable", "error": str(error)}), flush=True)
+      try:
+        from openpilot.starpilot.system.starport.wifi_rejoin import CAR_JOIN_STATES, HotspotRejoin
+        rejoin = HotspotRejoin(log=lambda event, **fields: print(json.dumps({"event": event, **fields}), flush=True),
+                               car_joining=lambda: supervisor.status()["state"] in CAR_JOIN_STATES,
+                               streaming_beat=supervisor.streaming_beat).start()
+        cleanup.callback(rejoin.close)
+      except Exception as error:  # rejoining the phone hotspot for the dash map is optional too
+        print(json.dumps({"event": "wlan0_rejoin_unavailable", "error": str(error)}), flush=True)
     from openpilot.starpilot.system.starport.bugsink_report import Reporter
     cleanup.callback(Reporter(parked=lambda: _offroad() and not supervisor.status()["running"]).start().close)
     server = Server(STARPORT_SOCKET_PATH, supervisor, source_verifier, authority.configuration_allowed)

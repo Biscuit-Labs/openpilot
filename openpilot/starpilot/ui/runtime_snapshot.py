@@ -40,7 +40,7 @@ from openpilot.tools.replay.display_clock import BOOT_TIME_SERVICES
 from opendbc.car.structs import car as car_schema
 from openpilot.starpilot.ui.device_state import DeviceRequest, DeviceState
 from openpilot.starpilot.ui.home_state import DriveStatsData, HomeMode, HomeState
-from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
+from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed, home_label
 from openpilot.starpilot.ui.onroad_state import conditional_lead_from_message
 from openpilot.starpilot.ui.onroad_state import (AlertSize, BorderSignals, ObservationKind, OnroadAlert,
                                                 OnroadState, SpeedLimitObservation, is_personality_notice, speed_limit_from_message)
@@ -819,7 +819,8 @@ class RuntimeSnapshotAdapter:
                      recording_audio=bool(ui.recording_audio), bluetooth=bluetooth,
                      gpu_present=gpu_present, gpu_active=gpu_active, branch=_text(params, "GitBranch"),
                      gpu_state=getattr(getattr(ui, "chestnut_state", None), "value", "disconnected"),
-                     jetlink=jetlink)
+                     jetlink=jetlink, jetlink_label=home_label(jetlink_status),
+                     jetlink_active=jetlink_status.state == "active")
 
     settings_pages = (Destination.STAR, Destination.DEVICE, Destination.NETWORK, Destination.SOFTWARE, Destination.TOGGLES,
                       Destination.DRIVING_CONTROLS, Destination.SOUNDS, Destination.APPEARANCE,

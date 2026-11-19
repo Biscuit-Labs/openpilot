@@ -179,6 +179,11 @@ class OnroadView:
     else:
       self._compact(state)
 
+  def _now_playing_on_screen(self, state: OnroadState) -> bool:
+    """The Spotify card sits over the torque bar's spot, so the bar hides while the card shows."""
+    now_playing = getattr(self, "now_playing", None)
+    return now_playing is not None and now_playing.on_screen(state)
+
   def _slc_actions(self, state: OnroadState) -> None:
     if manual_slc_confirmation(self.fonts.profile, state):
       sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
@@ -333,7 +338,7 @@ class OnroadView:
       if state.alert.size == AlertSize.NONE:
         if placement(state.customization, profile, "steering_wheel")["enabled"]:
           submit("steering_wheel", lambda: self.steering_wheel.render(content, state))
-        if placement(state.customization, profile, "torque_bar")["enabled"]:
+        if placement(state.customization, profile, "torque_bar")["enabled"] and not self._now_playing_on_screen(state):
           submit("torque_bar", lambda: self.torque_bar.render(content, state, width if self.projection_viewport else 2160))
         if state.stopped_duration_s is not None:
           submit(STOPPED_TIMER_WIDGET, lambda: self._stopped_timer(state, state.stopped_duration_s))
@@ -412,7 +417,7 @@ class OnroadView:
         if state.alert.size == AlertSize.NONE:
           if placement(state.customization, "large", "steering_wheel")["enabled"]:
             self.steering_wheel.render(content, state)
-          if placement(state.customization, "large", "torque_bar")["enabled"]:
+          if placement(state.customization, "large", "torque_bar")["enabled"] and not self._now_playing_on_screen(state):
             self.torque_bar.render(content, state, width if self.projection_viewport else 2160)
           if state.stopped_duration_s is not None:
             self._stopped_timer(state, state.stopped_duration_s)
@@ -469,8 +474,9 @@ class OnroadView:
     render_glow(content, state, border_width=30, time_s=state.observed_ns / 1e9 if state.observed_ns else rl.get_time(),
                 phase=getattr(self, "_curve_glow_phase", None))
     rl.draw_rectangle_lines_ex(frame, 30, rl.BLACK)
-    rl.draw_rectangle_rounded_lines_ex(content, 0.12, 10, 30, edge)
-    render_large_half_borders(state, state.observed_ns / 1e9 if state.observed_ns else rl.get_time(), content, int(height))
+    if not self.projection_viewport:
+      rl.draw_rectangle_rounded_lines_ex(content, 0.12, 10, 30, edge)
+      render_large_half_borders(state, state.observed_ns / 1e9 if state.observed_ns else rl.get_time(), content, int(height))
     self._preview_badge(state)
 
   def _compact(self, state: OnroadState) -> None:
@@ -594,6 +600,8 @@ class OnroadView:
     gui_app.remove_render_prepare(self.torque_bar.prepare)
     self.torque_bar.close()
     self.navigation.close()
+    if now_playing := getattr(self, "now_playing", None):
+      now_playing.close()
     if self.fonts.profile == Profile.LARGE:
       self.unified_speed.close()
       self.steering_wheel.close()

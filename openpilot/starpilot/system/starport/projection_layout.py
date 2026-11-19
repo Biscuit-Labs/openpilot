@@ -13,7 +13,7 @@ from openpilot.starpilot.ui.onroad_stopped_timer import timer_size
 from openpilot.starpilot.ui.onroad_torque_geometry import maximum_footprint
 from openpilot.starpilot.ui.onroad_customization import (SPEED_LAYOUT_V7, migrate_speed_layout, migrate_large_sign_layout,
                                                         place_attached_slc_actions, migrate_confirmation_layout)
-from openpilot.starpilot.ui.large_speed_geometry import ACTION_X, ACTION_Y, sources_extent
+from openpilot.starpilot.ui.large_speed_geometry import sources_extent
 
 MAX_BYTES = 16384
 DOCUMENT_KEY = 'projection'
@@ -32,16 +32,9 @@ FAVORITE_ICON_SIZE = 110
 CAR_EXIT_SIZE = (96, 96)
 CAR_EXIT_MIN_OPACITY = 25
 NOW_PLAYING_WIDGET = 'now_playing'
-NOW_PLAYING_SIZE = (640, 264)
+NOW_PLAYING_SIZE = (520, 96)
 NOW_PLAYING_OPACITY = (0, 100, 85)
 JETLINK_SIZE = (420, 84)
-# The shared SET + speed-limit sign card (large_speed_geometry); Accept / Decline are their own widget below it.
-SPEED_CARD_SIZE = (488, 168)
-# Left column on the car screen, top to bottom: Jetlink pill, speed card, lead badge, curve gauge, exit button, evenly spaced.
-# 1800 x 1056 content: pill 75-159, card 207-375, badge ink 204.6 tall, gauge ink ~265, exit button top 990 -> gaps ~48.
-COLUMN_TOP_Y = 75
-SPEED_CARD_Y = 207
-CEM_GAUGE_COLUMN_Y = 676
 JETLINK_OPACITY = (0, 100, 85)
 CARD_WIDGETS = {NOW_PLAYING_WIDGET: NOW_PLAYING_OPACITY, JETLINK_WIDGET: JETLINK_OPACITY}
 # StarPort widgets the comma also draws as real editor sprites; the map stays a sketch.
@@ -83,8 +76,6 @@ def layout_metadata_for_viewport(viewport):
   for widget in widgets.values():
     for field in ('bounds', 'anchorShift', 'expandable'):
       widget.pop(field, None)
-  for key in ('speed_limit_actions', CEM_GAUGE_WIDGET):
-    widgets[key]['default']['enabled'] = False
   widgets['current_speed']['default']['x'] += (width - 1860) / 2
   widgets[MODE_WIDGET]['default']['x'] += (width - 1860) / 2
   widgets[CLOCK_WIDGET]['default']['x'] += (width - 1860) / 2
@@ -121,8 +112,7 @@ def layout_metadata_for_viewport(viewport):
                               'default': {'x': width - 30 - FAVORITE_SIZE[0], 'y': 155, 'enabled': False, 'display': 'words'}}
   widgets[NOW_PLAYING_WIDGET] = {'label': 'Now playing', 'kind': NOW_PLAYING_WIDGET,
                                  'width': NOW_PLAYING_SIZE[0], 'height': NOW_PLAYING_SIZE[1], 'colors': {},
-                                 'note': ('Spotify or phone audio over the darkened cover, with a seek bar and shuffle, previous, play, next and ' +
-                                          'repeat buttons. Opacity sets the card background.'),
+                                 'note': 'The song playing from Spotify or your phone over Bluetooth. Opacity sets the card background.',
                                  'opacity': {'min': NOW_PLAYING_OPACITY[0], 'max': NOW_PLAYING_OPACITY[1], 'default': NOW_PLAYING_OPACITY[2]},
                                  'collapseToggle': True,
                                  'default': {'x': width - 30 - NOW_PLAYING_SIZE[0], 'y': height - 30 - NOW_PLAYING_SIZE[1],
@@ -131,7 +121,7 @@ def layout_metadata_for_viewport(viewport):
                              'width': JETLINK_SIZE[0], 'height': JETLINK_SIZE[1], 'colors': {},
                              'note': 'Shown while Jetlink is on: connection, device and host processing time. Opacity sets the card background.',
                              'opacity': {'min': JETLINK_OPACITY[0], 'max': JETLINK_OPACITY[1], 'default': JETLINK_OPACITY[2]},
-                             'default': {'x': 88, 'y': COLUMN_TOP_Y, 'enabled': False, 'opacity': JETLINK_OPACITY[2]}}
+                             'default': {'x': 30, 'y': 650, 'enabled': False, 'opacity': JETLINK_OPACITY[2]}}
   exit_w, exit_h = CAR_EXIT_SIZE
   widgets[CAR_EXIT] = {'label': 'Exit to car', 'kind': CAR_EXIT, 'width': exit_w, 'height': exit_h, 'colors': {},
                        'required': True, 'frontmost': True,
@@ -143,17 +133,7 @@ def layout_metadata_for_viewport(viewport):
     widgets[key]['default'].update(opacity=opacity, background=key != CAR_EXIT)
   # Background opacity for the cruise and speed-limit card; its text stays solid.
   widgets['cruise_limits'].update(opacity={'min': 0, 'max': 100, 'default': 100})
-  # The car screen's speed card has no source rows.
-  widgets['cruise_limits'].pop('sourcesExtent', None)
-  widgets['speed_limit_actions']['note'] = ('On the car screen Accept and Decline sit in a row at the bottom of the speed card; ' +
-                                            'this only turns them on or off.')
   widgets['cruise_limits']['default'].update(opacity=100)
-  # The card sits under the Jetlink pill; Accept / Decline keep their offset from the card.
-  shift = SPEED_CARD_Y - widgets['cruise_limits']['default']['y']
-  widgets['cruise_limits']['default']['y'] = SPEED_CARD_Y
-  widgets['speed_limit_actions']['default']['y'] += shift
-  # Left column: x=30 is the leftmost the gauge box can sit (its ink then starts ~10 right of the card's left edge).
-  widgets[CEM_GAUGE_WIDGET]['default'].update(x=30, y=CEM_GAUGE_COLUMN_Y)
   profile["widgetOrder"] = [NAV_MAP, *[key for key in profile["widgetOrder"] if key not in (NAV_MAP, NAV_CARD, STOPPED_TIMER_WIDGET)],
                             STOPPED_TIMER_WIDGET, NAV_CARD, *DISPLAY_WIDGETS, NOW_PLAYING_WIDGET, JETLINK_WIDGET, CAR_EXIT]
   return profile
@@ -163,7 +143,7 @@ def layout_metadata_for_viewport(viewport):
 # the shared comma preference controls that notice on every screen.
 DISPLAY_DEFAULTS = {'blindSpotBorder': False, 'signalBorder': False, 'blindSpotCamera': False,
                     'hidePersonalityAlerts': False, 'wheelPedalFeedback': False,
-                    'leadIndicator': True, 'leadInfo': 'Distance', 'speedSources': False,
+                    'leadIndicator': False, 'leadInfo': 'Off', 'speedSources': False,
                     'speedSourcesCard': False, 'speedAlign': 'left'}
 # Lead info shown above the lead marker, in LeadInfoMode order.
 LEAD_INFO_CHOICES = ('Off', 'Distance', 'Speed')
@@ -173,8 +153,8 @@ def projection_appearance(appearance, document):
   """Apply screen-specific choices while retaining the shared personality-alert preference."""
   from dataclasses import replace
   from openpilot.starpilot.ui.appearance_preferences import LeadInfoMode
-  lead_indicator = document.get('leadIndicator', True) is True
-  lead_info = document.get('leadInfo', 'Distance')
+  lead_indicator = document.get('leadIndicator', False) is True
+  lead_info = document.get('leadInfo', 'Off')
   # Like the comma, lead info only shows with the lead marker on.
   lead_info_mode = LeadInfoMode(LEAD_INFO_CHOICES.index(lead_info)) if lead_indicator and lead_info in LEAD_INFO_CHOICES else LeadInfoMode.OFF
   # Camera View remains the shared saved choice; this layout has no camera override.
@@ -284,19 +264,6 @@ def validate_layout_for_viewport(value, viewport, *, _legacy_geometry=False):
       placement.setdefault('opacity', CARD_WIDGETS[key][2])
     if key == NOW_PLAYING_WIDGET and type(placement) is dict:
       placement.setdefault('collapse', False)
-    # Both cards grew (now playing 520x96 to 640x264, One UI 9's media card; the speed card to the car screen's
-    # own 346x460); keep a saved spot by sliding it back on screen.
-    if key in (NOW_PLAYING_WIDGET, 'cruise_limits') and type(placement) is dict and (key == NOW_PLAYING_WIDGET or value['version'] >= 5):
-      size = NOW_PLAYING_SIZE if key == NOW_PLAYING_WIDGET else SPEED_CARD_SIZE
-      actions = result['widgets'].get('speed_limit_actions')
-      attached = (key == 'cruise_limits' and type(actions) is dict and
-                  (actions.get('x'), actions.get('y')) == (placement.get('x', 0) + ACTION_X - 88, placement.get('y', 0) + ACTION_Y - 75))
-      for (axis, extent), dimension in zip((('x', 'width'), ('y', 'height')), size, strict=True):
-        if type(placement.get(axis)) in (int, float) and math.isfinite(placement[axis]):
-          moved = min(placement[axis], bounds[axis] + bounds[extent] - dimension)
-          if attached:  # attached actions move with the card, so place_attached_slc_actions still finds them
-            actions[axis] += moved - placement[axis]
-          placement[axis] = moved
     if key == 'driver_monitor' and type(placement) is dict and 'size' not in placement:
       for axis in ('x', 'y'):
         if type(placement.get(axis)) in (int, float):

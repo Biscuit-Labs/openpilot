@@ -197,7 +197,7 @@ def brake_of(car_state, car_control) -> bool:
 
 def blind_of(car_state, vasm) -> tuple[bool, bool]:
   """(left, right) blind-spot warning for the cluster car's side glow: the car's own blind-spot monitor OR the V-ASM
-  warning, as projection_theme.side_colors does. car_state None (not seen yet) adds nothing; vasm None is (False, False)."""
+  warning, as the car screen draws it. car_state None (not seen yet) adds nothing; vasm None is (False, False)."""
   left = bool(car_state.leftBlindspot) if car_state is not None else False
   right = bool(car_state.rightBlindspot) if car_state is not None else False
   vasm_left, vasm_right = (bool(vasm[0]), bool(vasm[1])) if vasm is not None else (False, False)
@@ -383,8 +383,8 @@ class CerealReader:
         pass
 
   def vasm(self, fresh: bool, car_state, now: float) -> tuple[bool, bool]:
-    """V-ASM side warnings, gated as projection_onroad._vasm_warning is (fresh drive-gear carState with canValid, saved
-    preferences readable/valid/enabled, a clock pair). Anything wrong, or any exception: (False, False)."""
+    """V-ASM side warnings, gated on a fresh drive-gear carState with canValid, saved
+    preferences readable/valid/enabled and a clock pair. Anything wrong, or any exception: (False, False)."""
     try:
       if not fresh:
         self._gate('not_fresh')

@@ -79,8 +79,6 @@ class HomeState:
   metric: bool = False
   temperature_high: bool = False
   jetlink: str = "off"
-  jetlink_label: str = ""
-  jetlink_active: bool = False
 
 
 @dataclass(frozen=True)

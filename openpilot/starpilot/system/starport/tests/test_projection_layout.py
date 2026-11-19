@@ -70,7 +70,7 @@ class TestProjectionLayout(unittest.TestCase):
         with self.subTest(viewport=viewport, separate=separate):
           document = default_layout_for_viewport(viewport, {'speedSources': True, 'speedSourcesCard': separate})
           actions = document['widgets']['speed_limit_actions']
-          self.assertEqual(actions['y'], 521 if separate else 513)
+          self.assertEqual(actions['y'], 389 if separate else 381)
           self.assertEqual(validate_layout_for_viewport(document, viewport), document)
           native = projection_customization(document, default_document())
           self.assertEqual(placement(native, 'large', 'speed_limit_actions'), actions)
@@ -93,7 +93,7 @@ class TestProjectionLayout(unittest.TestCase):
     migrated = validate_layout(document, SCREEN)
     self.assertEqual(document, before)
     self.assertEqual(migrated['version'], 6)
-    self.assertEqual(migrated['widgets']['cruise_limits']['y'], bottom - 194)
+    self.assertEqual(migrated['widgets']['cruise_limits']['y'], bottom - 214)
     self.assertEqual(migrated['widgets']['speed_limit_actions'], document['widgets']['speed_limit_actions'])
     self.assertEqual(validate_layout(migrated, SCREEN), migrated)
 
@@ -125,9 +125,9 @@ class TestProjectionLayout(unittest.TestCase):
       document = default_layout(SCREEN, {'speedSources': True, 'speedSourcesCard': separate})
       document['version'] = 5
       actions = document['widgets']['speed_limit_actions']
-      actions['y'] = 499 if separate else 491
+      actions['y'] = 367 if separate else 359
       updated = validate_layout(document, SCREEN)
-      self.assertEqual(updated['widgets']['speed_limit_actions']['y'], 521 if separate else 513)
+      self.assertEqual(updated['widgets']['speed_limit_actions']['y'], 389 if separate else 381)
       self.assertEqual(validate_layout(updated, SCREEN), updated)
       actions.update(x=600, y=400)
       self.assertEqual(validate_layout(document, SCREEN)['widgets']['speed_limit_actions'], actions)
@@ -285,9 +285,9 @@ class TestProjectionLayout(unittest.TestCase):
         self.assertIs(actual.hide_personality_alerts, shared_value)
         self.assertTrue(actual.wheel_pedal_feedback)
 
-  def test_lead_info_starts_on_distance_and_takes_only_known_choices(self):
+  def test_lead_info_starts_off_and_takes_only_known_choices(self):
     document = default_layout(SCREEN)
-    self.assertEqual((document['leadIndicator'], document['leadInfo']), (True, 'Distance'))
+    self.assertEqual((document['leadIndicator'], document['leadInfo']), (False, 'Off'))
     older = {k: v for k, v in document.items() if k not in ('leadIndicator', 'leadInfo')}
     self.assertEqual(validate_layout(older, SCREEN), document, 'older layouts get the lead defaults')
     for choice in ('Off', 'Distance', 'Speed'):
@@ -383,15 +383,9 @@ class TestProjectionLayout(unittest.TestCase):
     before = copy.deepcopy(base)
     document = default_layout(SCREEN)
     converted = projection_customization(document, base)
-    # The car screen's left column moves the speed card and curve gauge and starts Accept / Decline and the gauge off.
-    column = ('cruise_limits', 'speed_limit_actions', 'cem_gauge')
-    own = (*PROJECTION_WIDGETS, 'jetlink_status', *column)
+    own = (*PROJECTION_WIDGETS, 'jetlink_status')
     native = {key: value for key, value in converted['layouts']['large'].items() if key not in own}
     self.assertEqual(native, {key: value for key, value in base['layouts']['large'].items() if key not in own})
-    large = converted['layouts']['large']
-    self.assertEqual(large['cruise_limits'], {'x': 88, 'y': 207, 'enabled': True})
-    self.assertEqual(large['speed_limit_actions'], {'x': 112, 'y': 399, 'enabled': False})
-    self.assertEqual(large['cem_gauge'], {'x': 30, 'y': 676, 'enabled': False})
     shift = document['canvas']['width'] - 1860
     self.assertEqual(converted['layouts']['large'][NAV_MAP], {**document['widgets'][NAV_MAP], 'x': document['widgets'][NAV_MAP]['x'] - shift})
     document['widgets']['current_speed']['x'] += 100

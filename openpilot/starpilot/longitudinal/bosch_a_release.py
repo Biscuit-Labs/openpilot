@@ -148,7 +148,7 @@ def _ghost_marks(ghost):
 
 def _log_ghost(ghost, before, prev, target, v_ego):
   """cloudlog 'bosch_a_ghost' on fire / clear / end, so a drive shows what the ghost let-off did (route d1 needed an
-  offline re-run). Transitions only (a few per drive); guarded so it can never change behaviour."""
+  offline re-run). Transitions only (a few per drive); guarded so it can never change behavior."""
   try:
     fired0, cleared0, g0, age0 = before
     g = ghost.ghost
@@ -225,7 +225,7 @@ class BoschARelease:
     base = self.smooth(prev, target, reset=False)
     if jerk is None or prev >= 0.0:
       return base
-    fast = min(float(target), max(prev + BRAKE_RELEASE_JERK * self.dt, min(prev + jerk * self.dt, floor)))
+    fast = min(float(target), max(prev + BRAKE_RELEASE_JERK * self.dt, min(prev + jerk * self.dt, floor)))  # ty: ignore[invalid-argument-type]
     if fast > base:
       self.rise_ticks = BRAKE_RELEASE_DWELL_TICKS + 1
     return float(max(base, fast))

@@ -1,4 +1,4 @@
-"""Need floor (NeedFloor / HondaBoschALongEnhancement.need_floor): pure python, replay-only behaviour.
+"""Need floor (NeedFloor / HondaBoschALongEnhancement.need_floor): pure python, replay-only behavior.
 
 The parity test compares against an independent port of the ARM 'D' block of
 ~/longsim_frames/scorecard/replay_bd.py (Job's scorecard harness)."""

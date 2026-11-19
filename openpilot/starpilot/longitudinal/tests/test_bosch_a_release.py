@@ -114,7 +114,7 @@ class TestStepParity(unittest.TestCase):
                 'lane_change_state': rng.choice((None, LaneChangeState.off, LaneChangeState.laneChangeStarting)),
                 'left_blinker': rng.random() < 0.1, 'right_blinker': rng.random() < 0.1, 'gas_pressed': rng.random() < 0.1}
           prev, reset, standstill = rng.uniform(-4, 2), rng.random() < 0.05, rng.random() < 0.05
-          got = a.step(prev=prev, reset_state=reset, standstill=standstill, **kw)
+          got = a.step(prev=prev, reset_state=reset, standstill=standstill, **kw)  # ty: ignore[invalid-argument-type]
           want = b.smooth(prev, b.coast(reset_state=reset, **kw), reset=bool(reset or standstill))
           self.assertEqual(got, want)
           self.assertEqual((a.hold_s, a.rise_ticks, a.prev_lead), (b.hold_s, b.rise_ticks, b.prev_lead))

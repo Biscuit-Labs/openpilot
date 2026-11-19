@@ -209,6 +209,7 @@ class HotspotRejoin:
       self._was_up = up
     beat = self.streaming_beat()
     if scan_quiet.fresh(beat, now):
+      assert beat is not None  # fresh() is False without a beat
       scan_quiet.hold(beat + scan_quiet.STALE_AFTER, self.lease)  # expires by itself if the beat or this thread stops
       if not self._quiet_on:
         self._quiet_on = True
@@ -312,7 +313,7 @@ class HotspotRejoin:
     out = self._nmcli(["-t", "-f", "NAME,UUID,TYPE,AUTOCONNECT,TIMESTAMP", "connection", "show"])
     if out is None:
       return self._saved
-    found = []
+    found: list[dict] = []
     for line in out.splitlines():
       parts = fields(line)
       if len(parts) < 5 or parts[2] != "802-11-wireless" or parts[3] != "yes" or parts[0] == CAR_CONNECTION:

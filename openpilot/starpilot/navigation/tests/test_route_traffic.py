@@ -129,7 +129,7 @@ class Executor:
 
 def test_runtime_publishes_traffic_and_refreshes_every_five_minutes(tmp_path):
   owner = NavigationOwner(tmp_path, runtime_source=lambda: None)
-  owner._is_metric = lambda: True
+  owner._is_metric = lambda: True  # ty: ignore[invalid-assignment]
   settings = owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
   owner.select({'name': 'Destination', 'longitude': .01, 'latitude': 0.}, settings['revision'], True)
   route = NavigationRoute(route_data(congestion=['low', 'heavy', 'low', 'low']))

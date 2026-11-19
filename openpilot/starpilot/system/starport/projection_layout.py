@@ -121,8 +121,8 @@ def layout_metadata_for_viewport(viewport):
                               'default': {'x': width - 30 - FAVORITE_SIZE[0], 'y': 155, 'enabled': False, 'display': 'words'}}
   widgets[NOW_PLAYING_WIDGET] = {'label': 'Now playing', 'kind': NOW_PLAYING_WIDGET,
                                  'width': NOW_PLAYING_SIZE[0], 'height': NOW_PLAYING_SIZE[1], 'colors': {},
-                                 'note': 'Spotify or phone audio over the darkened cover, with a seek bar and shuffle, previous, play, next and '
-                                         'repeat buttons. Opacity sets the card background.',
+                                 'note': ('Spotify or phone audio over the darkened cover, with a seek bar and shuffle, previous, play, next and ' +
+                                          'repeat buttons. Opacity sets the card background.'),
                                  'opacity': {'min': NOW_PLAYING_OPACITY[0], 'max': NOW_PLAYING_OPACITY[1], 'default': NOW_PLAYING_OPACITY[2]},
                                  'collapseToggle': True,
                                  'default': {'x': width - 30 - NOW_PLAYING_SIZE[0], 'y': height - 30 - NOW_PLAYING_SIZE[1],
@@ -145,7 +145,7 @@ def layout_metadata_for_viewport(viewport):
   widgets['cruise_limits'].update(opacity={'min': 0, 'max': 100, 'default': 100})
   # The car screen's speed card has no source rows.
   widgets['cruise_limits'].pop('sourcesExtent', None)
-  widgets['speed_limit_actions']['note'] = ('On the car screen Accept and Decline sit in a row at the bottom of the speed card; '
+  widgets['speed_limit_actions']['note'] = ('On the car screen Accept and Decline sit in a row at the bottom of the speed card; ' +
                                             'this only turns them on or off.')
   widgets['cruise_limits']['default'].update(opacity=100)
   # The card sits under the Jetlink pill; Accept / Decline keep their offset from the card.

@@ -10,9 +10,9 @@ def _session(monkeypatch, tmp_path, flag=True):
   monkeypatch.setattr(S, "VENDOR_EXTENSION_PROBE_FLAG", str(flag_path))
   s = S.ProjectionSession.__new__(S.ProjectionSession)
   s.events, s.sent = [], []
-  s.event = lambda name, **v: s.events.append((name, v))
-  s.ignored = lambda name, *a, **v: s.events.append((name, v))
-  s.send = lambda ch, kind, body=b"", **kw: s.sent.append((ch, kind, body))
+  s.event = lambda name, **v: s.events.append((name, v))  # ty: ignore[invalid-assignment]
+  s.ignored = lambda name, *a, **v: s.events.append((name, v))  # ty: ignore[invalid-assignment]
+  s.send = lambda ch, kind, body=b"", **kw: s.sent.append((ch, kind, body))  # ty: ignore[invalid-assignment]
   s.vendor_channel, s.vendor_messages = None, 0
   s.audio = s.nav = s.mode = None
   s.sensor_channel = s.bluetooth_channel = None

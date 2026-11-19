@@ -3,6 +3,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 import math
+from typing import Any
 
 from openpilot.starpilot.navigation.owner import ValidationError, response_json
 
@@ -64,7 +65,7 @@ def max_speeds(data: dict, segments: int) -> list[float | None]:
     return [None] * segments
   limits = []
   for row in rows:
-    speed = row.get('speed') if isinstance(row, dict) else None
+    speed: Any = row.get('speed') if isinstance(row, dict) else None
     factor = SPEED_UNITS.get(row.get('unit')) if isinstance(row, dict) else None
     mps = speed * factor if type(speed) in (int, float) and factor is not None and math.isfinite(speed) else None
     limits.append(mps if mps is not None and 0 < mps <= MAX_SPEED_LIMIT_MPS else None)
@@ -91,7 +92,8 @@ def congestion_levels(data: dict, segments: int) -> list[int]:
 
 def roundabout(primary: dict, maneuver: dict, step: dict) -> tuple[int, int, bool]:
   """(exit angle, exit number, drives on the left) for a roundabout maneuver; zeros when Mapbox gives none."""
-  degrees, exit_number = primary.get('degrees'), maneuver.get('exit')
+  degrees: Any = primary.get('degrees')
+  exit_number = maneuver.get('exit')
   degrees = round(degrees) if type(degrees) in (int, float) and math.isfinite(degrees) and 0 < degrees <= 360 else 0
   exit_number = exit_number if type(exit_number) is int and 0 < exit_number < 256 else 0
   return degrees, exit_number, step.get('driving_side') == 'left'

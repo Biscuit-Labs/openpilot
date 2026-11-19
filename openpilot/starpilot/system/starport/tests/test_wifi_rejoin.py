@@ -300,8 +300,8 @@ class Beat:
 
 def make_quiet(fake, tmp_path, beat, joining=None, link="down"):
   logs, state = [], {"link": link, "joining": joining or (lambda: False)}
-  watch = wr.HotspotRejoin(log=lambda event, **f: logs.append((event, f)), car_joining=lambda: state["joining"](), run=fake,
-                           link=lambda: state["link"], wall=lambda: "2026-11-05T16:02:08", streaming_beat=beat,
+  watch = wr.HotspotRejoin(log=lambda event, **f: logs.append((event, f)), car_joining=lambda: state["joining"](), run=fake,  # ty: ignore[call-non-callable]
+                           link=lambda: state["link"], wall=lambda: "2026-11-05T16:02:08", streaming_beat=beat,  # ty: ignore[invalid-argument-type]
                            lease=tmp_path / "lease.json", marker=tmp_path / "paused.json",
                            session_marker=tmp_path / "session.json")
   return watch, logs, state
@@ -491,7 +491,7 @@ def test_band_bg_visible_only_on_5ghz_is_wrong_band_logged_once(tmp_path):
   assert len(wrong) == 1
   assert wrong[0]["band"] == "bg" and wrong[0]["freqs"] == [5745] and wrong[0]["connection"] == "iqpilot connection Galaxy S20 FE 5G6CC3"
   # back on 2.4 GHz: joins
-  fake.visible = [("Galaxy S20 FE 5G6CC3", 2412)]
+  fake.visible = [("Galaxy S20 FE 5G6CC3", 2412)]  # ty: ignore[invalid-assignment]
   assert watch.check(130.) == "con_up"
   assert fake.did("up")
 
@@ -549,6 +549,7 @@ def test_supervisor_streaming_beat():
   for state in ("streaming", "suspended"):
     sup._set(state=state)
     sup._set(stats={"fps": 30})
-    assert sup.streaming_beat() >= before
+    beat = sup.streaming_beat()
+    assert beat is not None and beat >= before
   sup._set(state="idle")
   assert sup.streaming_beat() is None

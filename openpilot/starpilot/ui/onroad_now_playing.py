@@ -191,7 +191,7 @@ def _repeat(center: rl.Vector2, state) -> None:
 
 def _spotify_texture(size: float) -> rl.Texture:
   from openpilot.system.ui.lib.application import gui_app  # its texture cache loads the PNG once; imported late, it is the whole UI stack
-  return gui_app.texture("icons/spotify.png", size, size)
+  return gui_app.texture("icons/spotify.png", round(size), round(size))
 
 
 def _spotify(center: rl.Vector2, r: float = 13) -> None:
@@ -364,7 +364,7 @@ class NowPlayingWidget:
     self.ticks = ticks
     self._scroll = None  # (text, start): a new name starts its scroll from the held start
     self.track = None
-    self.artwork = ('', None)  # (url, image bytes) from the feed thread
+    self.artwork: tuple[str, bytes | None] = ('', None)  # (url, image bytes) from the feed thread
     self._cover = None  # (url, blurred texture or None, accent or None), built on the render thread
     self._old_cover = None  # (texture, start): the last song's cover, fading out under the new one
     self._bare_since = None  # when the cover url went empty while a cover was up

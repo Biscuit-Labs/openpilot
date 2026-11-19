@@ -49,7 +49,7 @@ def test_the_banner_lanes_reach_the_instruction_left_to_right_as_text():
 
 def test_no_banner_lanes_means_none_sent():
   steps = copy.deepcopy(HIGHWAY)
-  del steps[0]['bannerInstructions'][1]['sub']
+  del steps[0]['bannerInstructions'][1]['sub']  # ty: ignore[invalid-argument-type, not-subscriptable]
   assert instruction(steps)['lanes'] == []
   assert instruction(steps)['toward'] == 'Garland'
 
@@ -67,7 +67,7 @@ def test_toward_comes_from_the_banner_else_the_destinations():
 
 def test_the_arrive_step_has_no_destination():
   steps = copy.deepcopy(HIGHWAY)
-  steps[1]['bannerInstructions'] = copy.deepcopy(steps[0]['bannerInstructions'])
+  steps[1]['bannerInstructions'] = copy.deepcopy(steps[0]['bannerInstructions'])  # ty: ignore[invalid-assignment]
   route = NavigationRoute({**GEOMETRY, 'legs': [{'steps': steps}]})
   assert route.steps[-1].toward == ''
   assert route.steps[0].lanes and route.steps[0].toward == 'Garland'

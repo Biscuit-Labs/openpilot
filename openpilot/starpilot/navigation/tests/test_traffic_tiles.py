@@ -91,7 +91,7 @@ class Rig:
       return self.mvt
     self.t = tt.TrafficTiles(fetch=fetch, token=lambda: self.token, clock=lambda: self.now[0], wall=lambda: 1_700_000_000.,
                              log=lambda *a, **k: self.logs.append((a, k)))
-    self.t._thread = object()  # tests drive poll() themselves, no thread
+    self.t._thread = object()  # ty: ignore[invalid-assignment]  # tests drive poll() themselves, no thread
 
   def want(self, keys):
     self.t.want(keys)

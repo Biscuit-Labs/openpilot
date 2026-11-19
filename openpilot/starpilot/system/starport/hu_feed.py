@@ -495,7 +495,7 @@ class CerealReader:
     value['nav'], held = self._guidance(str(state.status), (state.sessionId, state.revision), step, now_ns,
                                          value['speed'], stamp)
     if held:
-      value['nav'] = {**value['nav'], 'held': 1}
+      value['nav'] = {**(value['nav'] or {}), 'held': 1}  # a held step is always a dict
       route = self._route
     self._route = route if value['nav'] is not None else None
     value['route'] = self._route
@@ -845,7 +845,7 @@ class HeadUnitFeed:
       self.traffic.idle()
     if self._read is None:
       self._read = CerealReader()
-      self._read._vasm_log = self.log  # the V-ASM gate and swallowed-exception lines
+      self._read._vasm_log = self.log  # ty: ignore[invalid-assignment]  # the V-ASM gate and swallowed-exception lines
     value = self._read()
     song = value.get('media')
     media = media_of(song)
@@ -858,6 +858,7 @@ class HeadUnitFeed:
       self._send('s', {**state, 'pos': elapsed_of(song, time.time() * 1000) if media is not None else None})  # noqa: TID251 epoch-ms anchors
       self.sent_state, self.last_state = state, now
     if media is not None and media['art']:
+      assert song is not None  # media_of() gives None for anything but a song dict
       self.send_cover(song['artwork'], media['art'], now)
     route = value.get('route')
     if route is None:
@@ -931,6 +932,7 @@ class HeadUnitFeed:
     del self.sending_q[:budget]
 
   def send_tiles(self, lat: float, lon: float, now: float) -> None:
+    assert self.have is not None  # its one caller checks
     if self._aa_bulk_full(now):
       return
     if not self.sending and now - self.last_tile_scan >= TILE_SCAN_EVERY:

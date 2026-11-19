@@ -134,4 +134,5 @@ def test_map_marker_names_the_head_unit_as_car(tmp_path):
   publish(sm, tmp_path)
   with patch('openpilot.starpilot.navigation.status.gps_mode', return_value='comma'):
     position = status.map_position()
+  assert position is not None
   assert position["source"] == "car" and position["bearing"] == 90. and position["longitude"] == -110.1234567

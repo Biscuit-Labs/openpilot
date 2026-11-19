@@ -7,6 +7,7 @@ import math
 import os
 import threading
 import time
+from typing import Any
 
 STALE_NS = 2_500_000_000
 # The host's processing time for the last big-model frame (excludes USB); jetlink's runtime record does not carry it
@@ -58,7 +59,7 @@ def hud_icon(status: JetlinkStatus) -> str | None:
 def _progress(status) -> float | None:
   progress = status.progress if isinstance(status.progress, dict) else {}
   frac = progress.get('frac')
-  if str(progress.get('stage') or '') in ('', 'ready', 'failed') or type(frac) not in (int, float):
+  if str(progress.get('stage') or '') in ('', 'ready', 'failed') or frac is None or type(frac) not in (int, float):
     return None
   return float(frac) if 0. < frac < 1. else None
 
@@ -125,7 +126,7 @@ def read_status() -> JetlinkStatus:
     return JetlinkStatus()  # a Chestnut is fitted
   device = 'iPhone' if status.mode == 'ios' else 'Jetson'
   port = status.port_state if status.port_state in ('connected', 'device') else None
-  extra = {'hud': hud_state(status), 'model': status.active_model or status.model, 'progress': _progress(status)}
+  extra: dict[str, Any] = {'hud': hud_state(status), 'model': status.active_model or status.model, 'progress': _progress(status)}
   if not status.present:
     return JetlinkStatus(device, 'disconnected', port=port, **extra)
   if status.active:

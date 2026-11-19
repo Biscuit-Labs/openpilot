@@ -55,6 +55,7 @@ class GuidanceHold:
     return self.shown, True
 
   def _counted_down(self, now_ns: int) -> dict:
+    assert self.step is not None  # only reached with a held step
     step = dict(self.step)
     for name in ('distance', 'remaining'):
       if isinstance(step.get(name), (int, float)):

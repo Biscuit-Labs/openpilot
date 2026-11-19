@@ -107,7 +107,7 @@ def tcp_info(sock: Any) -> dict:
     if len(raw) < _TCP_INFO_SIZE:
       return {}
     values = struct.unpack(_TCP_INFO_FORMAT, raw[:_TCP_INFO_SIZE])
-    info = dict(zip(_TCP_INFO_U8 + _TCP_INFO_U32, values))
+    info = dict(zip(_TCP_INFO_U8 + _TCP_INFO_U32, values, strict=False))
     out = {"tcp_rtt_ms": round(info["rtt"] / 1000.0, 1), "tcp_rttvar_ms": round(info["rttvar"] / 1000.0, 1),
            "tcp_rto_ms": round(info["rto"] / 1000.0, 1), "tcp_unacked": info["unacked"], "tcp_lost": info["lost"],
            "tcp_retrans": info["retrans"], "tcp_total_retrans": info["total_retrans"], "tcp_cwnd": info["snd_cwnd"],

@@ -36,7 +36,7 @@ def make(value=None, tiles=None, cover=None):
   def read():
     reads.append(1)
     return value if value is not None else snapshot()
-  feed = hf.HeadUnitFeed(read=read, sock=sock, broadcasts=lambda: ['10.122.0.255'], tiles=tiles or (lambda key: None),
+  feed = hf.HeadUnitFeed(read=read, sock=sock, broadcasts=lambda: ['10.122.0.255'], tiles=tiles or (lambda key: None),  # ty: ignore[invalid-argument-type]
                          around=lambda lat, lon: ['1/1', '1/2'], clock=lambda: now[0], clock_ns=lambda: FIX[0] + 100_000_000,
                          cover=cover or (lambda url: None))
   return feed, sock, now, reads
@@ -113,10 +113,10 @@ def test_hello_from_outside_the_lan_is_ignored():
 
 def test_pose_carries_the_fix_forward_at_speed():
   pose = hf.carry(FIX, 20., 0., FIX[0] + 500_000_000)
-  assert pose['hdg'] == 90.0 and pose['age'] == 0.5
-  east = (pose['lon'] - FIX[2]) * hf.METERS_PER_DEG * math.cos(math.radians(FIX[1]))
-  assert abs(east - 10.) < 0.05 and abs(pose['lat'] - FIX[1]) < 1e-7
-  assert hf.carry(FIX, 20., 10., FIX[0] + 500_000_000)['hdg'] == 95.0   # right turn: compass heading grows
+  assert pose['hdg'] == 90.0 and pose['age'] == 0.5  # ty: ignore[not-subscriptable]
+  east = (pose['lon'] - FIX[2]) * hf.METERS_PER_DEG * math.cos(math.radians(FIX[1]))  # ty: ignore[not-subscriptable]
+  assert abs(east - 10.) < 0.05 and abs(pose['lat'] - FIX[1]) < 1e-7  # ty: ignore[not-subscriptable]
+  assert hf.carry(FIX, 20., 10., FIX[0] + 500_000_000)['hdg'] == 95.0   # ty: ignore[not-subscriptable]  # right turn: compass heading grows
   assert hf.carry(FIX, 20., 0., FIX[0] + int((hf.MAX_CARRY + 0.1) * 1e9)) is None
 
 
@@ -226,9 +226,9 @@ def test_vasm_logs_its_gate_once_per_change_and_the_swallowed_error_rate_limited
   from types import SimpleNamespace as NS
   logs = []
   reader = object.__new__(hf.CerealReader)
-  reader._vasm_source, reader._vasm_saved, reader._vasm_read, reader.params = None, None, -math.inf, None
-  reader._vasm_log = lambda name, **kw: logs.append((name, kw))
-  gates = lambda: [kw['gate'] for n, kw in logs if n == 'hu_feed_vasm_gate']
+  reader._vasm_source, reader._vasm_saved, reader._vasm_read, reader.params = None, None, -math.inf, None  # ty: ignore[invalid-assignment]
+  reader._vasm_log = lambda name, **kw: logs.append((name, kw))  # ty: ignore[invalid-assignment]
+  def gates(): return [kw['gate'] for n, kw in logs if n == 'hu_feed_vasm_gate']
   reader.vasm(False, NS(canValid=True), 100.)
   reader.vasm(False, NS(canValid=True), 100.1)                    # unchanged: not logged again
   reader.vasm(True, NS(canValid=False), 100.2)
@@ -266,7 +266,7 @@ def test_pip_warning_source_hands_its_swallowed_error_to_on_error(monkeypatch):
 def test_vasm_failure_is_quiet_not_fatal():
   from types import SimpleNamespace as NS
   reader = object.__new__(hf.CerealReader)
-  reader._vasm_source, reader._vasm_saved, reader._vasm_read, reader.params = None, None, -math.inf, None
+  reader._vasm_source, reader._vasm_saved, reader._vasm_read, reader.params = None, None, -math.inf, None  # ty: ignore[invalid-assignment]
   class Broken:
     @property
     def canValid(self): raise RuntimeError('boom')
@@ -357,7 +357,7 @@ def test_free_drive_at_70_mph_has_the_tiles_ahead_long_before_the_car_gets_there
     value = snapshot(speed=mph70)
     clock = [100.]
     sock = Sock()
-    feed = hf.HeadUnitFeed(read=lambda value=value: value, sock=sock, broadcasts=list,
+    feed = hf.HeadUnitFeed(read=lambda value=value: value, sock=sock, broadcasts=list,  # ty: ignore[invalid-argument-type]
                            tiles=lambda key: bytes(30_000), clock=lambda clock=clock: clock[0],
                            clock_ns=lambda clock=clock: int(clock[0] * 1e9), cover=lambda url: None)
     have: list[str] = []      # what the head unit holds, newest last (Feed.MAX_TILES 25)
@@ -437,8 +437,8 @@ def test_creeping_to_a_stop_without_a_bearing_keeps_the_heading():
 def test_a_bearing_gap_is_carried_by_the_gyro():
   heading, tenth = hf.HeadingFilter(), 100_000_000
   heading(90.0, 10.0, 0., tenth)
-  assert math.isclose(heading(None, 10.0, 10.0, 6 * tenth), 95.0)   # 0.5 s at 10 deg/s
-  assert math.isclose(heading(None, 10.0, 0., 16 * tenth), 95.0)
+  assert math.isclose(heading(None, 10.0, 10.0, 6 * tenth), 95.0)   # ty: ignore[invalid-argument-type]  # 0.5 s at 10 deg/s
+  assert math.isclose(heading(None, 10.0, 0., 16 * tenth), 95.0)  # ty: ignore[invalid-argument-type]
   assert heading(None, 10.0, 0., 28 * tenth) is None                 # a gap over MAX_GYRO_GAP: nothing to carry
 
 
@@ -493,10 +493,10 @@ def test_heading_noise_is_damped_and_the_gyro_carries_turns():
   heading, tenth = hf.HeadingFilter(), 100_000_000
   heading(90.0, 20.0, 0., tenth)
   assert heading(95.0, 20.0, 0., 2 * tenth) == 91.5       # a noisy bearing moves it 30 percent
-  assert round(heading(92.5, 20.0, 10., 3 * tenth), 6) == 92.5  # a 10 deg/s right turn over 0.1 s
+  assert round(heading(92.5, 20.0, 10., 3 * tenth), 6) == 92.5  # ty: ignore[no-matching-overload]  # a 10 deg/s right turn over 0.1 s
   wrap = hf.HeadingFilter()
   wrap(359.0, 20.0, 0., tenth)
-  assert round(wrap(9.0, 20.0, 0., 2 * tenth), 6) == 2.0  # across north the short way
+  assert round(wrap(9.0, 20.0, 0., 2 * tenth), 6) == 2.0  # ty: ignore[no-matching-overload]  # across north the short way
 
 
 def test_the_route_goes_again_as_soon_as_nav_comes_back():
@@ -530,10 +530,10 @@ def test_limit_detail_names_the_source_and_the_new_limit_waiting_for_the_driver(
   assert hf.limit_detail(N(**base)) == {'src': 'map', 'pend': None, 'psrc': '', 'auto': 0}
   waiting = {**base, 'hasPending': True, 'pendingSpeedLimit': 15.6464, 'presentationId': 7, 'pendingSource': 'vision'}
   assert hf.limit_detail(N(**waiting)) == {'src': 'map', 'pend': 15.65, 'psrc': 'vision', 'auto': 0}
-  assert hf.limit_detail(N(**{**waiting, 'automaticAdoptionPending': True}))['auto'] == 1
-  assert hf.limit_detail(N(**{**waiting, 'presentationId': 0}))['pend'] is None  # the comma shows it as unavailable
+  assert hf.limit_detail(N(**{**waiting, 'automaticAdoptionPending': True}))['auto'] == 1  # ty: ignore[not-subscriptable]
+  assert hf.limit_detail(N(**{**waiting, 'presentationId': 0}))['pend'] is None  # ty: ignore[not-subscriptable]  # the comma shows it as unavailable
   seen = {**base, 'hasAccepted': False, 'acceptedSpeedLimit': 0.}
-  assert hf.limit_detail(N(**seen))['src'] == 'vision'
+  assert hf.limit_detail(N(**seen))['src'] == 'vision'  # ty: ignore[not-subscriptable]
   assert hf.limit_detail(N(**{**seen, 'observationKind': 'unknown'})) is None
   assert hf.limit_detail(N(**{**seen, 'observationKind': 'unknown', **{k: waiting[k] for k in (
     'hasPending', 'pendingSpeedLimit', 'presentationId', 'pendingSource')}})) == {
@@ -582,9 +582,9 @@ def test_no_song_no_card():
   feed.tick()
   assert next(message for message, _ in sock.sent if message['t'] == 's')['media'] is None
   assert hf.media_of({**SONG, 'status': 'stopped'}) is None and hf.media_of({**SONG, 'title': ''}) is None
-  assert hf.media_of({**SONG, 'artwork': ''})['art'] == 0
+  assert hf.media_of({**SONG, 'artwork': ''})['art'] == 0  # ty: ignore[not-subscriptable]
   decomposed = 'Tha\u0301c Ni\u0303ng'  # a + combining acute, i + combining tilde
-  assert hf.media_of({**SONG, 'title': decomposed})['title'] == 'Th\u00e1c N\u0129ng'
+  assert hf.media_of({**SONG, 'title': decomposed})['title'] == 'Th\u00e1c N\u0129ng'  # ty: ignore[not-subscriptable]
 
 
 def test_the_song_moving_on_does_not_resend_the_state():
@@ -672,10 +672,10 @@ def test_fetch_cover_shrinks_to_a_small_jpeg(monkeypatch):
   Image.new('RGB', (640, 640), (200, 80, 40)).save(big, 'JPEG')
   class Response(io.BytesIO):
     def __enter__(self): return self
-    def __exit__(self, *_): pass
+    def __exit__(self, *_): pass  # ty: ignore[invalid-method-override]
   monkeypatch.setattr(hf.urllib.request, 'urlopen', lambda url, timeout: Response(big.getvalue()))
   out = hf.fetch_cover(ART)
-  assert out[:2] == b'\xff\xd8' and Image.open(io.BytesIO(out)).size == (hf.COVER_PX, hf.COVER_PX) and len(out) < 4000
+  assert out[:2] == b'\xff\xd8' and Image.open(io.BytesIO(out)).size == (hf.COVER_PX, hf.COVER_PX) and len(out) < 4000  # ty: ignore[invalid-argument-type, not-subscriptable]
   monkeypatch.setattr(hf.urllib.request, 'urlopen', lambda url, timeout: Response(bytes(hf.COVER_MAX_BYTES + 1)))
   assert hf.fetch_cover(ART) is None
   def down(url, timeout):
@@ -821,8 +821,8 @@ def test_vasm_reaches_the_gear_gate_without_an_import_error():
   from opendbc.car.structs import car
   logs = []
   reader = object.__new__(hf.CerealReader)
-  reader._vasm_source, reader._vasm_saved, reader._vasm_read, reader.params = None, None, -math.inf, None
-  reader._vasm_log = lambda name, **kw: logs.append((name, kw))
+  reader._vasm_source, reader._vasm_saved, reader._vasm_read, reader.params = None, None, -math.inf, None  # ty: ignore[invalid-assignment]
+  reader._vasm_log = lambda name, **kw: logs.append((name, kw))  # ty: ignore[invalid-assignment]
   assert reader.vasm(True, NS(canValid=True, gearShifter=car.CarState.GearShifter.park), 100.) == (False, False)
   assert [n for n, kw in logs if n == 'hu_feed_vasm_error'] == []
   assert [kw['gate'] for n, kw in logs if n == 'hu_feed_vasm_gate'] == ['gear']

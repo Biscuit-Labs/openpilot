@@ -128,8 +128,12 @@ This branch is Biscuit-Labs `Honda-PTM-Testing` (`7c83d1df7c`) plus StarPort's c
   `cereal/gen/cpp` and `libcereal.a` are not regenerated here; rebuild with the repo toolchain.
 - **Lanes:** PTM keeps text lanes (`directions`, `activeDirection`). `hu_feed.lane_row` maps them to the head
   unit's bitmask (straight 1 … slight left 128). Merge arrows (256/512) cannot be derived and are never sent.
-- **Not filled yet:** PTM's `navigation/route_engine.py` does not publish the new navigation fields, so the head
-  unit gets defaults for congestion, roundabout exit, road name/ref and "toward" until it does.
+- **Published by `navigation/route_engine.py` + `runtime.py`** (ported from `5044693486`): `routeCongestion` (Mapbox
+  `congestion` annotation, one level per preview point, refreshed every 5 min through Directions Refresh),
+  `exitDegrees`/`exitNumber`/`drivingLeft` (roundabout), `roadName`/`roadRef` (step name/ref) and `toward` (banner
+  secondary line, else the next road's destinations). Lanes are still PTM's text lanes. Only static and
+  stub-runner checks so far: no live Mapbox request or drive. Not ported: the fork's `endWhenOffroad` setting
+  (`runtime.end_if_offroad`, needs `owner.py`/Galaxy changes) and its intersection-lane / merge-arrow lane fallbacks.
 - **Behaviour change:** `starport/network.py` now yields the other Wi-Fi interface after joining the car's AP.
 - **Verification: static only.** Compile, import/name resolution and the added unit tests under a stub runner.
   Full pytest, a real head unit and a drive have not been run.

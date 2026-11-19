@@ -102,6 +102,7 @@
   "ScreenBrightnessOnroad",
   "ScreenTimeout",
   "ScreenTimeoutOnroad",
+  "SetSpeedAssist",
   "ShowBrakeStatus",
   "ShowCSCStatus",
   "ShowSpeedLimits",

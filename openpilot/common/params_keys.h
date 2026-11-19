@@ -235,6 +235,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AlphaLongitudinalEnabled", {PERSISTENT, BOOL}},
     {"ExperimentalMode", {PERSISTENT, BOOL}},
     {"ExperimentalSpeedNudge", {PERSISTENT, BOOL, "1"}},
+    {"SetSpeedAssist", {PERSISTENT, BOOL, "0"}},
     {"ExperimentalEngage66Mph", {PERSISTENT, BOOL, "1"}},
     {"FirmwareQueryDone", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
     {"ForcePowerDown", {PERSISTENT, BOOL}},

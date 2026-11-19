@@ -14,7 +14,7 @@ from openpilot.starpilot.speed_limits.acceptance import ObservationKind
 from openpilot.starpilot.speed_limits.vision import model
 from openpilot.starpilot.speed_limits.vision import producer
 from openpilot.starpilot.speed_limits.vision.model import Detection, VisionModelCore
-from openpilot.starpilot.speed_limits.vision.observation import MODEL_ID, vision_observation
+from openpilot.starpilot.speed_limits.vision.observation import MODEL_ID, SIGN_HOLD_NS, vision_observation
 from openpilot.starpilot.speed_limits.runtime import Runtime
 from openpilot.starpilot.speed_limits.runtime import Action
 from openpilot.starpilot.speed_limits.runtime_settings import parse
@@ -139,7 +139,10 @@ class TestVision(unittest.TestCase):
     self.assertIs(valid.kind, ObservationKind.VALID)
     self.assertAlmostEqual(valid.candidate.speed_mps, 24.5872, places=4)
     self.assertIs(vision_observation(decoded, receipt_mono_ns=1_020_000_000, now_mono_ns=1_030_000_000,
-                                     now_boot_ns=7_000_000_001, car_fingerprint='IONIQ6',
+                                     now_boot_ns=5_000_000_000 + SIGN_HOLD_NS, car_fingerprint='IONIQ6',
+                                     drive_session='drive-a').kind, ObservationKind.VALID)
+    self.assertIs(vision_observation(decoded, receipt_mono_ns=1_020_000_000, now_mono_ns=1_030_000_000,
+                                     now_boot_ns=5_000_000_000 + SIGN_HOLD_NS + 1, car_fingerprint='IONIQ6',
                                      drive_session='drive-a').kind, ObservationKind.STALE)
     self.assertIs(vision_observation(decoded, receipt_mono_ns=1_020_000_000, now_mono_ns=1_300_000_000,
                                      now_boot_ns=5_050_000_000, car_fingerprint='IONIQ6',
@@ -231,9 +234,11 @@ class TestVision(unittest.TestCase):
           'now_boot_ns': 64_100_000_000, 'car_fingerprint': 'IONIQ6', 'drive_session': 'drive-a'}
     self.assertIs(vision_observation(event, **kw).kind, ObservationKind.VALID)
     self.assertEqual(event.observedMonoTime, 1_000_000_000)
-    self.assertIs(vision_observation(event, receipt_mono_ns=59_000_000_000, now_mono_ns=kw['now_mono_ns'],
-                                     now_boot_ns=kw['now_boot_ns'], car_fingerprint=kw['car_fingerprint'],
-                                     drive_session=kw['drive_session']).kind, ObservationKind.STALE)
+    for receipt, kind in ((kw['now_mono_ns'] - SIGN_HOLD_NS, ObservationKind.VALID),
+                          (kw['now_mono_ns'] - SIGN_HOLD_NS - 1, ObservationKind.STALE)):
+      self.assertIs(vision_observation(event, receipt_mono_ns=receipt, now_mono_ns=kw['now_mono_ns'],
+                                       now_boot_ns=kw['now_boot_ns'], car_fingerprint=kw['car_fingerprint'],
+                                       drive_session=kw['drive_session']).kind, kind)
     event.cameraFrameEofBootTime = 61_000_000_000
     self.assertIs(vision_observation(event, **kw).kind, ObservationKind.STALE)
     event.status = 'unavailable'

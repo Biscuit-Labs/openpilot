@@ -206,7 +206,12 @@ class TestProjectionLayoutRuntime(unittest.TestCase):
     self.assertIs(view.customization, saved)
     self.assertIsNone(view._projection_customization, 'the cached projected layout is rebuilt')
     self.assertIs(view.camera.large_ui_gamma_trial, True)
-    self.assertIsInstance(view.map, FakeMap, 'turning the map on in Galaxy builds it without reconnecting')
+    self.assertIsInstance(view.map_feed, FakeFeed, 'turning the map on in Galaxy starts its feed without reconnecting')
+    self.assertIsNone(view.map, 'the overlay itself waits for navigation')
+    native.ui_state.started = True
+    view.map_feed.navigating = True
+    view.prepare()
+    self.assertIsInstance(view.map, FakeMap)
     self.assertEqual(view.onroad.map_layer, view._map_layer)
 
   def test_screen_writer_lock_contention_preserves_previous_receipt(self):
@@ -333,9 +338,11 @@ class TestProjectionLayoutRuntime(unittest.TestCase):
       view._camera_layer(None, rendered[-1])
       return rendered[-1].appearance.show_lead_indicator, rendered[-1].appearance.lead_info_mode, painted[-1]
 
-    self.assertEqual(lead(layout), (False, LeadInfoMode.OFF, (False, 0, False)), 'off on the car even with the comma on')
-    self.assertEqual(lead({**layout, 'leadInfo': 'Speed'}), (False, LeadInfoMode.OFF, (False, 0, False)), 'info needs the marker')
-    self.assertEqual(lead({**layout, 'leadIndicator': True}), (True, LeadInfoMode.OFF, (True, 0, False)))
+    self.assertEqual(lead(layout), (True, LeadInfoMode.DISTANCE, (True, 1, False)), 'the car screen starts with the marker and distance')
+    self.assertEqual(lead({**layout, 'leadIndicator': False}), (False, LeadInfoMode.OFF, (False, 0, False)), 'off on the car even with the comma on')
+    self.assertEqual(lead({**layout, 'leadIndicator': False, 'leadInfo': 'Speed'}), (False, LeadInfoMode.OFF, (False, 0, False)),
+                     'info needs the marker')
+    self.assertEqual(lead({**layout, 'leadIndicator': True, 'leadInfo': 'Off'}), (True, LeadInfoMode.OFF, (True, 0, False)))
     self.assertEqual(lead({**layout, 'leadIndicator': True, 'leadInfo': 'Speed'}), (True, LeadInfoMode.SPEED, (True, 2, False)))
     self.assertEqual(lead({**layout, 'leadIndicator': True, 'leadInfo': 'Distance'}), (True, LeadInfoMode.DISTANCE, (True, 1, False)))
 

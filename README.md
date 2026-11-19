@@ -117,3 +117,19 @@ Support depends on the vehicle configuration and enabled feature. An existing ve
 * Hyundai, Kia, and Genesis support includes software adapted directly from sunnypilot's HKG angle-steering branch and sunnypilot/opendbc. StarPilot preserves the applicable notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 > This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use.
+
+## Branch note: `honda-hu-dash-map-ptm` (head-unit feed on Honda-PTM-Testing)
+
+This branch is Biscuit-Labs `Honda-PTM-Testing` (`7c83d1df7c`) plus StarPort's channel-13 head-unit feed
+(`openpilot/starpilot/system/starport/hu_feed.py`) ported from fork commit `5044693486`. StarPilot-only.
+
+- **Schema (additive only):** `Navigation.routeCongestion @14`, `Instruction.exitDegrees..toward @7-@12`,
+  `StarPilotCarState.headUnitGps @4`. Ordinals differ from the fork's, so logs are not wire-compatible with it.
+  `cereal/gen/cpp` and `libcereal.a` are not regenerated here; rebuild with the repo toolchain.
+- **Lanes:** PTM keeps text lanes (`directions`, `activeDirection`). `hu_feed.lane_row` maps them to the head
+  unit's bitmask (straight 1 … slight left 128). Merge arrows (256/512) cannot be derived and are never sent.
+- **Not filled yet:** PTM's `navigation/route_engine.py` does not publish the new navigation fields, so the head
+  unit gets defaults for congestion, roundabout exit, road name/ref and "toward" until it does.
+- **Behaviour change:** `starport/network.py` now yields the other Wi-Fi interface after joining the car's AP.
+- **Verification: static only.** Compile, import/name resolution and the added unit tests under a stub runner.
+  Full pytest, a real head unit and a drive have not been run.

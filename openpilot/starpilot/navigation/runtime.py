@@ -28,7 +28,7 @@ def location(sm, now_ns: int, phone_fix=None, head_unit_fix=None):
 
 
 class RouteRuntime:
-  def __init__(self, owner: NavigationOwner, engine=None, executor=None, road_limit=None):
+  def __init__(self, owner: NavigationOwner, engine=None, executor=None, road_limit=None, refresh_executor=None):
     self.owner = owner
     if engine is None:
       from openpilot.starpilot.navigation.mapbox_budget import MonthlyBudget
@@ -40,6 +40,8 @@ class RouteRuntime:
     self.road_limit = road_limit  # StarPilot add-on: road speed limit without a destination (road_limit.py)
     self.engine = engine
     self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix='route')
+    # Traffic refreshes get their own thread so a slow one can never delay a reroute queued on `executor`.
+    self.refresh_executor = refresh_executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix='refresh')
     self.key = None
     self.route = None
     self.routes = []
@@ -144,7 +146,7 @@ class RouteRuntime:
     if self.arrived_since and now_ns - self.arrived_since >= END_ROUTE_NS:
       self._end_route(settings['revision'])
     if not arrived:
-      self._refresh_traffic(now_ns, settings['token'], progress.segment)
+      self._refresh_traffic(now_ns, settings['token'], progress.segment, bool(progress.off_route or self.off_route_since or self.future is not None))
     result.update(status='arrived' if arrived else 'guiding', instruction=progress.instruction,
                   nextManeuver=progress.next_maneuver, route=self.route.preview(),
                   routeCongestion=self.route.preview_congestion(),
@@ -152,17 +154,20 @@ class RouteRuntime:
                   speedLimit=progress.speed_limit_mps or 0.)
     return result
 
-  def _refresh_traffic(self, now_ns: int, token: str, segment: int) -> None:
-    """Every REFRESH_NS while guiding, new traffic colours for the rest of the route, on the route thread. Only
-    the route's congestion changes, and a failed refresh keeps the old one."""
+  def _refresh_traffic(self, now_ns: int, token: str, segment: int, rerouting: bool = False) -> None:
+    """Every REFRESH_NS while guiding, new traffic colours for the rest of the route, on the refresh thread. Only
+    the route's congestion changes, and a failed refresh keeps the old one. Nothing is requested while off the
+    route or while a reroute is pending: that traffic is about to be replaced and the reroute has the budget."""
     refresh = getattr(self.engine, 'refresh', None)
     if refresh is None or getattr(self.route, 'uuid', None) is None:
+      return
+    if rerouting:
       return
     if self.route is not self.refresh_route:
       self.refresh_route, self.refresh_after = self.route, now_ns + REFRESH_NS
     elif now_ns >= self.refresh_after and (self.refresh_future is None or self.refresh_future.done()):
       self.refresh_after = now_ns + REFRESH_NS
-      self.refresh_future = self.executor.submit(_quiet_refresh, refresh, token, self.route, segment)
+      self.refresh_future = self.refresh_executor.submit(_quiet_refresh, refresh, token, self.route, segment)
 
   def _end_route(self, revision: str) -> None:
     # Once per destination; a concurrent change (new destination, Galaxy edit) wins over arrival.

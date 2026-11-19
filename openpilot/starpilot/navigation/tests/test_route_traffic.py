@@ -148,13 +148,13 @@ def test_runtime_publishes_traffic_and_refreshes_every_five_minutes(tmp_path):
     calls.append((token, segment))
     row.congestion = [4] * 4
     return True
-  executor = Executor()
-  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None, refresh=refresh), executor=executor)
+  executor, fetcher = Executor(), Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None, refresh=refresh), executor=fetcher, refresh_executor=executor)
   start, drive = 10_000_000_000, 9_000_000_000
   def update(t, at=.003):
     return runtime.update(t, (t - 1_000_000, (at, 0.), 5., 90.), drive)
   update(start)
-  executor.jobs.pop()[2].set_result(route)
+  fetcher.jobs.pop()[2].set_result(route)
   result = update(start + 1_000_000_000)
   assert result['status'] == 'guiding' and result['routeCongestion'] == [1, 3, 1, 1, 1]
   assert len(result['routeCongestion']) == len(result['route'])
@@ -166,6 +166,35 @@ def test_runtime_publishes_traffic_and_refreshes_every_five_minutes(tmp_path):
   assert calls == [('pk.test', 2)]
   assert update(start + 3_000_000_000 + REFRESH_NS)['routeCongestion'] == [4] * 5
   assert not executor.jobs
+
+
+def test_traffic_refresh_never_shares_the_reroute_thread_or_runs_while_off_route(tmp_path):
+  owner = NavigationOwner(tmp_path, runtime_source=lambda: None)
+  owner._is_metric = lambda: True  # ty: ignore[invalid-assignment]
+  settings = owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
+  owner.select({'name': 'Destination', 'longitude': .01, 'latitude': 0.}, settings['revision'], True)
+  route = NavigationRoute(route_data(congestion=['low'] * 4))
+  route.uuid = 'abc'
+  refresher, fetcher = Executor(), Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None, refresh=lambda *_: True), executor=fetcher, refresh_executor=refresher)
+  start, drive = 10_000_000_000, 9_000_000_000
+  def update(t, at=.003, lat=0.):
+    return runtime.update(t, (t - 1_000_000, (at, lat), 5., 90.), drive)
+  update(start)
+  fetcher.jobs.pop()[2].set_result(route)
+  update(start + 1_000_000_000)  # starts the refresh clock
+  due = start + 1_000_000_000 + REFRESH_NS
+  update(due, lat=.01)  # far off the route: due, but no refresh while off-route
+  assert not refresher.jobs and not fetcher.jobs
+  update(due + 1_000_000_000, lat=.01)
+  update(due + 3_000_000_000, lat=.01)  # off route for 2 s: the route is dropped...
+  update(due + 3_500_000_000, lat=.01)  # ...and a reroute is queued
+  assert len(fetcher.jobs) == 1 and not refresher.jobs
+  fetcher.jobs.pop()[2].set_result(route)
+  update(due + 4_000_000_000)
+  update(due + 5_000_000_000)  # back on a route: the refresh is queued on its own executor, never on the reroute one
+  assert not fetcher.jobs
+  assert len(refresher.jobs) == 1
 
 
 def test_runtime_survives_a_refresh_that_raises(tmp_path):

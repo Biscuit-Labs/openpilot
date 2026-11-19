@@ -238,6 +238,7 @@ class ProjectionOnroad:
           self._resources.callback(self.pip_warning.close)
         self.onroad.pip_layer = self._pip_layer
       self.map = None
+      self.onroad.map_layer = None  # set only while the overlay exists (navigation)
       self.map_feed = None
       self._map_idle_since_ns = None
       self._map_lease = MapLeaseWriter()

@@ -2,6 +2,7 @@
 from types import SimpleNamespace
 import random
 import unittest
+from unittest import mock
 
 from openpilot.common.realtime import DT_MDL
 from openpilot.cereal import log
@@ -86,6 +87,12 @@ def _lead(present, d, v, track_id=39):
 
 
 class TestStep(unittest.TestCase):
+  def setUp(self):
+    # unittest runner (tools/test_runner.py) does not apply the pytest autouse fixture below; pin the coast + FastLetoff step here.
+    patcher = mock.patch.object(bs, 'GHOST_ARM', False)
+    patcher.start()
+    self.addCleanup(patcher.stop)
+
   def test_step_is_coast_then_smooth(self):
     cp = SimpleNamespace(brand="honda", carFingerprint="HONDA_CIVIC_BOSCH", openpilotLongitudinalControl=True, radarUnavailable=False)
     a, b = bs.BoschARelease(cp), bs.BoschARelease(cp)
@@ -101,6 +108,12 @@ class TestStep(unittest.TestCase):
 
 
 class TestStepParity(unittest.TestCase):
+  def setUp(self):
+    # unittest runner (tools/test_runner.py) does not apply the pytest autouse fixture below; pin the coast + FastLetoff step here.
+    patcher = mock.patch.object(bs, 'GHOST_ARM', False)
+    patcher.start()
+    self.addCleanup(patcher.stop)
+
   """Self-contained: one instance driven through step() vs a twin driven through coast() then smooth(), random cycles."""
   def test_random_cycles_match_twin(self):
     rng = random.Random(7)

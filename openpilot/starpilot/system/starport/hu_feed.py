@@ -1,6 +1,6 @@
 """Turn guidance, openpilot's mode and the car's position for the head unit's cluster map (tools/head_unit/aaroad).
 
-The cluster map colours the route by what openpilot is doing (exp orange, chill green, lateral-only blue,
+The cluster map colors the route by what openpilot is doing (exp orange, chill green, lateral-only blue,
 white when openpilot is not driving) and draws the car on the road map around it. Android Auto's own nav
 channel carries only the next turn as text and a picture, about once a second, and only while the comma is
 the head unit's Android Auto source, so this rides on the LAN the two share instead.
@@ -29,8 +29,8 @@ Every datagram is one JSON object with "v" (VERSION) and "t" (kind):
      more about it: {"src": where limit came from ("vision", "map", "dashboard", "online", or ""), "pend": a new limit
      (m/s) waiting for the driver's Accept/Decline on the cruise buttons or about to be adopted, else null, "psrc": the
      pend's source, "auto": 1 when pend adopts by itself}; media is the song playing or paused, else null:
-     {"status": "playing"|"paused", "title", "artist", "source": "spotify"|"phone", "art", "dur"}, art the id of its
-     cover (crc32 of the cover URL) or 0 without one, dur the song length in ms or 0. pos is how far into the song it
+     {"status": "playing"|"paused", "title", "artist", "source": "spotify"|"phone", "art", "dur"}, art the id of its  # codespell:ignore dur
+     cover (crc32 of the cover URL) or 0 without one, dur the song length in ms or 0. pos is how far into the song it  # codespell:ignore dur
      is (ms) when sent, or null; it is left out of the change check, so a playing song does not resend every tick.
   r  route, on change and every ROUTE_EVERY s: {"id", "i", "n", "pts": [[lat, lon], ...], "c": [level, ...]}, n datagrams;
      c is the traffic on each point's stretch to the next, one per pts entry (0 unknown, 1 low, 2 moderate, 3 heavy,
@@ -279,7 +279,7 @@ def tile_for(raw: bytes, version: int) -> bytes:
 
 
 def tiles_around(lat: float, lon: float) -> list[str]:
-  """The tile under the car and its eight neighbours, nearest first."""
+  """The tile under the car and its eight neighbors, nearest first."""
   from openpilot.starpilot.navigation.road_tiles import world_xy
   x, y = world_xy(lat, lon)
   cx, cy = int(x), int(y)
@@ -304,12 +304,12 @@ def elapsed_of(song: dict | None, now_ms: float) -> int | None:
   """How far into the song it is, in ms, for the ring round the play button; None when the player gives no position."""
   if not isinstance(song, dict) or not isinstance(song.get('position'), dict):
     return None
-  p, dur = song['position'], song.get('durationMs')
+  p, duration = song['position'], song.get('durationMs')
   try:
     value = p['ms'] + max(0.0, now_ms - p['at']) * p.get('speed', 1.0) if song.get('status') == 'playing' else p['ms']
   except (KeyError, TypeError):
     return None
-  return int(max(0, min(dur, value) if isinstance(dur, int) and dur > 0 else value))
+  return int(max(0, min(duration, value) if isinstance(duration, int) and duration > 0 else value))
 
 
 def nfc(text) -> str:

@@ -151,7 +151,7 @@ def _java_round(x: float) -> int:
 
 
 def cluster_distance(meters: float) -> tuple[tuple[int, int], tuple[int, int]]:
-  """What a Honda head unit draws on the cluster, in feet/miles and in metres/km.
+  """What a Honda head unit draws on the cluster, in feet/miles and in meters/km.
 
   It ignores our rounded display value and redoes the rounding from distance_meters
   (NavigationFocusManager.getRemainingDistance, static read of the Mitsubishi firmware):

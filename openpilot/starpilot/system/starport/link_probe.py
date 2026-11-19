@@ -1,4 +1,4 @@
-"""Link diagnostics for the Android Auto Wi-Fi link: logging only, never behaviour.
+"""Link diagnostics for the Android Auto Wi-Fi link: logging only, never behavior.
 
 Everything here is exception-safe (a failed probe yields {} or None) and bounded by short socket timeouts.
 Nothing logged identifies a network: no MACs, BSSIDs, IPs or SSIDs. Call only from background threads.

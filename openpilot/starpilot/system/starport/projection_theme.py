@@ -357,7 +357,7 @@ def _shade(*stops):
 def _fill(points, color_at):
   """Convex polygon (clockwise on screen) as a triangle fan with a per-vertex vertical gradient."""
   # rl_color4ub and RL_TRIANGLES come from the native _raylib_extra helper (2026-11-05), so this draws into the
-  # same raylib_nb context as everything else; the old pyray path was a second, uninitialised raylib.
+  # same raylib_nb context as everything else; the old pyray path was a second, uninitialized raylib.
   mx, my = sum(x for x, _ in points) / len(points), sum(y for _, y in points) / len(points)
   rl.rl_begin(rl.RL_TRIANGLES)
   for i in range(len(points)):

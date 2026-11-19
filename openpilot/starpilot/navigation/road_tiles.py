@@ -317,7 +317,7 @@ def decode_mvt_road_detail(data: bytes) -> MvtRoads:
 
   The points are (x, y, kind) in 0..EXTENT tile units, from the road layer's point features of class
   ``traffic_signals`` (OSM highway=traffic_signals nodes). Points in the tile's buffer, outside
-  0..EXTENT, are left to the neighbouring tile so a signal near an edge is not stored twice.
+  0..EXTENT, are left to the neighboring tile so a signal near an edge is not stored twice.
 
   The flags are BRIDGE or TUNNEL from the ``structure`` tag (Mapbox Streets v8: none, bridge, tunnel
   or ford), 0 otherwise, plus ONEWAY from ``oneway`` "true". The numeric ``layer`` (stacking order, clipped

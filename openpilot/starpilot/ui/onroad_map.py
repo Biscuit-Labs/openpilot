@@ -84,7 +84,7 @@ ROUTE_GLOW = (150, 110, 255, 90)
 ROUTE_CORE = (178, 150, 255, 255)
 ROUTE_DONE = (118, 104, 150, 200)
 # Traffic on the route line (Navigation.routeCongestion: 0 unknown, 1 low, 2 moderate, 3 heavy, 4 severe), the
-# head unit's dash-map colours. Unknown and low keep ROUTE_CORE and ROUTE_GLOW; a slow stretch's glow takes its colour
+# head unit's dash-map colors. Unknown and low keep ROUTE_CORE and ROUTE_GLOW; a slow stretch's glow takes its color
 # at the glow's alpha, so the whole width of the line shows the traffic (Peter 2026-10-31).
 # Severe is #e53935, one shade brighter than the head unit's #c62828: on this dark map #c62828 is only ~2.5:1 against
 # the road background and reads as a dark gap in the line; #e53935 is ~3.3:1 and still distinct from heavy orange.
@@ -248,7 +248,7 @@ def route_guidance(route, request: CanvasRequest, latitude: float, levels: np.nd
   """Build only the remaining route; the road canvas never bakes in a driven tail.
 
   ``levels`` is the traffic on each of the route's segments (len(route) - 1), or None for a plain route. Glow and core
-  are each one strip per traffic colour (runs of the same colour batched); every glow is drawn before any core, so a
+  are each one strip per traffic color (runs of the same color batched); every glow is drawn before any core, so a
   neighbour's glow never covers a core.
   """
   if route is None or len(route) < 2:
@@ -272,7 +272,7 @@ def route_guidance(route, request: CanvasRequest, latitude: float, levels: np.nd
 
 
 def core_colors(keep: np.ndarray, levels: np.ndarray | None) -> list[tuple[tuple[int, int, int, int], np.ndarray]]:
-  """(colour, segment mask) for the route core, bottom to top: ROUTE_CORE, then moderate, heavy, severe.
+  """(color, segment mask) for the route core, bottom to top: ROUTE_CORE, then moderate, heavy, severe.
 
   Without traffic, or with levels that do not match the segments, it is the plain route: one ROUTE_CORE mask.
   """
@@ -600,7 +600,7 @@ class MapOverlay:
       levels = segment_levels(route, congestion)
       if not (levels is None and self._route_levels is None or
               levels is not None and self._route_levels is not None and np.array_equal(levels, self._route_levels)):
-        self._guidance_key = None                              # new traffic colours: rebuild the guidance strips
+        self._guidance_key = None                              # new traffic colors: rebuild the guidance strips
       self._route_levels = levels
     self._route_key, self._congestion_key = route, congestion
 

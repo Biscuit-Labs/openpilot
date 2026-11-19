@@ -157,7 +157,7 @@ class RouteRuntime:
     return result
 
   def _refresh_traffic(self, now_ns: int, token: str, segment: int, rerouting: bool = False) -> None:
-    """Every REFRESH_NS while guiding, new traffic colours for the rest of the route, on the refresh thread. Only
+    """Every REFRESH_NS while guiding, new traffic colors for the rest of the route, on the refresh thread. Only
     the route's congestion changes, and a failed refresh keeps the old one. Nothing is requested while off the
     route or while a reroute is pending: that traffic is about to be replaced and the reroute has the budget."""
     self._apply_refresh()
@@ -174,7 +174,7 @@ class RouteRuntime:
       self.refresh_future = self.refresh_executor.submit(_quiet_refresh, refresh, token, self.route, segment)
 
   def _apply_refresh(self) -> None:
-    """Take a finished refresh's colours, but only for the route it was started for; after a reroute or a switch
+    """Take a finished refresh's colors, but only for the route it was started for; after a reroute or a switch
     to an alternative the result is dropped."""
     if self.refresh_future is None or not self.refresh_future.done():
       return
@@ -199,7 +199,7 @@ class RouteRuntime:
 
 def _quiet_refresh(refresh, token: str, route, segment: int) -> list[int] | None:
   """The refreshed congestion, computed on a copy so the live route is only changed by the runtime, and only if
-  it is still current. None when it failed: the old colours stay."""
+  it is still current. None when it failed: the old colors stay."""
   try:
     scratch = copy.copy(route)
     return list(scratch.congestion) if refresh(token, scratch, segment) else None

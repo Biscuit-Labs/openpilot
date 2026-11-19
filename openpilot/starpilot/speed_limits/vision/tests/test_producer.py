@@ -14,7 +14,7 @@ from openpilot.common.constants import CV
 from openpilot.common.params import Params
 from openpilot.starpilot.speed_limits.vision import producer
 from openpilot.starpilot.speed_limits.vision.model import Detection, VisionModelCore
-from openpilot.starpilot.speed_limits.vision.observation import vision_observation
+from openpilot.starpilot.speed_limits.vision.observation import SIGN_HOLD_NS, vision_observation
 from openpilot.starpilot.speed_limits.acceptance import ObservationKind
 
 place_inference = producer._place_inference
@@ -590,7 +590,7 @@ class TestVisionProducer(unittest.TestCase):
     self.assertTrue(all(b[1]-a[1] >= producer.INFERENCE_INTERVAL_NS for a, b in zip(heartbeats, heartbeats[1:], strict=False)))
     # No background heartbeat can hide an actually stopped or blocked producer.
     final, receipt = messages[-1]
-    stopped = receipt + 1_000_000_001
+    stopped = receipt + SIGN_HOLD_NS + 1
     self.assertIs(vision_observation(final, receipt_mono_ns=receipt, now_mono_ns=stopped,
                                     now_boot_ns=stopped+4_000_000_000,
                                     car_fingerprint='IONIQ6', drive_session='drive').kind, ObservationKind.STALE)

@@ -117,3 +117,23 @@ Support depends on the vehicle configuration and enabled feature. An existing ve
 * Hyundai, Kia, and Genesis support includes software adapted directly from sunnypilot's HKG angle-steering branch and sunnypilot/opendbc. StarPilot preserves the applicable notices in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 > This project uses software from Haibin Wen and SUNNYPILOT LLC and is licensed under a custom license requiring permission for use.
+
+## Branch note: `honda-hu-dash-map-ptm` (head-unit feed on Honda-PTM-Testing)
+
+This branch is Biscuit-Labs `Honda-PTM-Testing` (`7c83d1df7c`) plus StarPort's channel-13 head-unit feed
+(`openpilot/starpilot/system/starport/hu_feed.py`) ported from fork commit `5044693486`. StarPilot-only.
+
+- **Schema (additive only):** `Navigation.routeCongestion @14`, `Instruction.exitDegrees..toward @7-@12`,
+  `StarPilotCarState.headUnitGps @4`. Ordinals differ from the fork's, so logs are not wire-compatible with it.
+  `cereal/gen/cpp` and `libcereal.a` are not regenerated here; rebuild with the repo toolchain.
+- **Lanes:** PTM keeps text lanes (`directions`, `activeDirection`). `hu_feed.lane_row` maps them to the head
+  unit's bitmask (straight 1 … slight left 128). Merge arrows (256/512) cannot be derived and are never sent.
+- **Published by `navigation/route_engine.py` + `runtime.py`** (ported from `5044693486`): `routeCongestion` (Mapbox
+  `congestion` annotation, one level per preview point, refreshed every 5 min through Directions Refresh),
+  `exitDegrees`/`exitNumber`/`drivingLeft` (roundabout), `roadName`/`roadRef` (step name/ref) and `toward` (banner
+  secondary line, else the next road's destinations). Lanes are still PTM's text lanes. Only static and
+  stub-runner checks so far: no live Mapbox request or drive. Not ported: the fork's `endWhenOffroad` setting
+  (`runtime.end_if_offroad`, needs `owner.py`/Galaxy changes) and its intersection-lane / merge-arrow lane fallbacks.
+- **Behaviour change:** `starport/network.py` now yields the other Wi-Fi interface after joining the car's AP.
+- **Verification: static only.** Compile, import/name resolution and the added unit tests under a stub runner.
+  Full pytest, a real head unit and a drive have not been run.

@@ -15,6 +15,7 @@ desktop head unit over TCP; here the transport is the head unit's Wi-Fi TCP port
 from __future__ import annotations
 
 import math
+import os
 import re
 import select
 import ssl
@@ -77,7 +78,16 @@ SENSOR_EVENT = 0x8003
 BLUETOOTH_PAIRING_REQUEST = 0x8001
 BLUETOOTH_PAIRING_RESPONSE = 0x8002
 BLUETOOTH_AUTH_DATA = 0x8003
-SENSOR_NIGHT, SENSOR_DRIVING_STATUS = 10, 13
+SENSOR_LOCATION, SENSOR_NIGHT, SENSOR_DRIVING_STATUS = 1, 10, 13
+
+# Vendor extension service (field 12 of a channel descriptor). The 2019 Civic offers one named
+# "com.honda.mdve.protocol.VendorExtension" (session-000175). Probe only: open it and log what comes back, send nothing.
+# On while this file exists; remove it to turn the probe off without a code change.
+VENDOR_EXTENSION_SERVICE = 12
+VENDOR_EXTENSION_PROBE_FLAG = "/data/starport/probe_vendor_extension"
+VENDOR_TUNNEL_KIND = 0x5350  # 'SP' prefix for aaroad VendorTunnel frames on the raw vendor channel
+VENDOR_TUNNEL_BURST = 8
+VENDOR_TUNNEL_BULK_BURST = 2
 
 CODEC_H264_BP = 3
 CODEC_H265 = 7          # MediaCodecType VIDEO_H265, offered by some head units instead of H.264
@@ -288,6 +298,7 @@ class Session:
     self.handshake_timeout = self._timeout(handshake_timeout)
     self.authenticated = False
     self.head_unit_subject: str = ""
+    self.protocol: tuple[int, int] | None = None  # negotiated (major, minor), set by the version exchange
     self.incoming = ssl.MemoryBIO()
     self.outgoing = ssl.MemoryBIO()
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -474,6 +485,7 @@ class Session:
     # Android Auto 17.6 answers any request above 1.7 with its own maximum and success;
     # newer head units (e.g. 2025 Honda, 4.1) hang up on anything else.
     reply = (1, min(minor, 5)) if (major, minor) <= (1, 7) else PHONE_MAX_VERSION
+    self.protocol = reply
     self.event("version", major=major, minor=minor, reply=f"{reply[0]}.{reply[1]}")
     self.send(0, MSG_VERSION_RESPONSE, struct.pack(">HHH", *reply, 0), encrypted=False)
     while True:
@@ -555,6 +567,24 @@ class Session:
           item["navigation"] = parse_navigation(one(fields, NAVIGATION_SERVICE))
         except ValueError:
           item["navigation"] = {}
+      if isinstance(one(fields, SENSOR_SERVICE), bytes):
+        try:
+          offered = parse_fields(one(fields, SENSOR_SERVICE)).get(1, [])
+          item["sensors"] = [one(parse_fields(s), 1) for s in offered if isinstance(s, bytes)]
+        except ValueError:
+          item["sensors"] = []
+      if isinstance(one(fields, BLUETOOTH_SERVICE), bytes):
+        try:
+          item["bluetooth"] = parse_bluetooth(one(fields, BLUETOOTH_SERVICE))
+        except ValueError:
+          item["bluetooth"] = {}
+      if isinstance(one(fields, VENDOR_EXTENSION_SERVICE), bytes):
+        try:
+          vendor = parse_fields(one(fields, VENDOR_EXTENSION_SERVICE))
+          item["vendor_extension"] = {"name": str(one(vendor, 1, b"").decode(errors="replace") if isinstance(one(vendor, 1), bytes) else ""),
+                                      "fields": describe_fields(vendor)}
+        except ValueError:
+          item["vendor_extension"] = {}
       if isinstance(one(fields, 4), bytes):
         item["input"] = True
         try:
@@ -658,7 +688,8 @@ class ProjectionSession(Session):
   # 2.5 s on 2026-11-02 (hotspot join, home join, mesh roam). While that happens, wait this long before reconnecting.
   ACK_GRACE_TIMEOUT = 8.0
   ACK_DRAIN_SECONDS = 0.1  # before calling an ACK late, read what already arrived, for at most this long
-  MAX_WINDOW = 2
+  # The car's offered window, as on the wired path (3393941be): at 2 the Civic acked one message and went silent.
+  MAX_WINDOW = 30
   nav = None
   grace_frame: float | None = None  # send time of the frame whose late ack is being waited out
   grace_focus_lost = False
@@ -702,6 +733,7 @@ class ProjectionSession(Session):
     self.phone_address = ""  # this comma's Bluetooth address, for the pairing request
     self.sensor_channel: int | None = None
     self.sensor_events: dict[int, int] = {}
+    self.location = None  # HeadUnitGps, attached by the supervisor; takes the car's own GPS fixes
     self.bluetooth_channel: int | None = None
     self.phone_status_channel: int | None = None
     self.vendor_channel: int | None = None
@@ -710,6 +742,10 @@ class ProjectionSession(Session):
     self.fix_actions: tuple[str, ...] = ()
     self.focus_requested_at: float | None = None
     self.focus_granted_at: float | None = None
+    self.vendor_messages = 0
+    self.hu_feed = None  # HeadUnitFeed, attached by the supervisor to tunnel dash-map frames over channel 13
+    self.car_address = ""  # the car's Bluetooth address, from its Bluetooth service descriptor
+    self.phone_link_ready = False  # set by the supervisor's thread once the hands-free link to the car is up
     self.nav = None  # NavStatus, attached by the supervisor when the head unit offers turn-by-turn
     self.audio = None  # MediaAudio, attached by the supervisor when Spotify plays through Android Auto
     self.input_events = 0
@@ -797,6 +833,7 @@ class ProjectionSession(Session):
     """Open the car-data and Bluetooth channels before asking for the screen, as a phone does. Failures are not fatal."""
     self._open_sensors()
     self._open_bluetooth(pair=True)
+    self._probe_vendor_extension()  # the aaroad tunnel for hu_feed, only when a feed is attached or the probe flag is set
 
   def _open_sensors(self) -> bool:
     sensors = next((ch for ch in self.channels if "sensors" in ch), None)
@@ -805,6 +842,8 @@ class ProjectionSession(Session):
     self.sensor_channel = sensors["id"]
     # Only what decides whether the screen may project; location would put the car's position in the session log.
     wanted = [kind for kind in (SENSOR_DRIVING_STATUS, SENSOR_NIGHT) if kind in sensors["sensors"]]
+    if self.location is not None and SENSOR_LOCATION in sensors["sensors"]:
+      wanted.append(SENSOR_LOCATION)  # the car's GPS, for navigation; fixes go to the GPS handoff only, never the session log
     for kind in wanted:
       self.send(sensors["id"], SENSOR_START_REQUEST, field(1, kind) + field(2, 0))
     self.event("sensors_opened", channel=sensors["id"], requested=wanted)
@@ -816,13 +855,17 @@ class ProjectionSession(Session):
       return False
     self.bluetooth_channel = bluetooth["id"]
     methods = bluetooth["bluetooth"].get("pairing_methods") or []
+    self.car_address = str(bluetooth["bluetooth"].get("car_address", "")).upper()
     if pair:
       self._send_pairing_request(methods)
     self.event("bluetooth_opened", channel=bluetooth["id"], phone_address_sent=bool(pair and self.phone_address),
                has_car_address=bool(bluetooth["bluetooth"].get("car_address")), pairing_methods=methods)
     return True
 
-  def _send_pairing_request(self, methods: list[int]) -> None:
+  def _send_pairing_request(self, methods: list[int] | None = None) -> None:
+    if methods is None:
+      channel = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {})
+      methods = (channel.get("bluetooth") or {}).get("pairing_methods") or []
     if self.phone_address and self.bluetooth_channel is not None:
       self.send(self.bluetooth_channel, BLUETOOTH_PAIRING_REQUEST, field(1, self.phone_address) + field(2, methods[0] if methods else 2))
 
@@ -854,6 +897,51 @@ class ProjectionSession(Session):
           self._send_pairing_request((bluetooth.get("bluetooth") or {}).get("pairing_methods") or [])
           done = True
       self.event("fix_action", action=action, done=done)
+
+  def _probe_vendor_extension(self) -> None:
+    """Open the head unit's vendor extension channel for the aaroad tunnel (or diagnostic probe)."""
+    hu_feed = getattr(self, "hu_feed", None)
+    probing = os.path.exists(VENDOR_EXTENSION_PROBE_FLAG)
+    if hu_feed is None and not probing:
+      return
+    vendor = next((ch for ch in self.channels if "vendor_extension" in ch), None)
+    if vendor is None:
+      if probing:
+        self.event("vendor_extension_absent")
+      return
+    try:
+      self.send(vendor["id"], MSG_CHANNEL_OPEN_REQUEST, field(1, 0) + field(2, vendor["id"]), control=True)
+      opened = parse_fields(self.wait_for(vendor["id"], MSG_CHANNEL_OPEN_RESPONSE, timeout=3.0))
+      status = signed(one(opened, 1, 0))
+      self.event("vendor_extension_open_response", channel=vendor["id"], status=status,
+                 service=vendor["vendor_extension"].get("name", ""), response=describe_fields(opened))
+      if status == 0:
+        self.vendor_channel = vendor["id"]
+        if hu_feed is not None:
+          hu_feed.attach_aa()
+    except (TimeoutError, ValueError) as error:
+      self.event("vendor_extension_unavailable", channel=vendor["id"], error=str(error))
+
+  def service_vendor(self) -> None:
+    """Non-blocking: drain queued hu_feed datagrams onto the raw vendor extension channel."""
+    hu_feed = getattr(self, "hu_feed", None)
+    if self.vendor_channel is None or hu_feed is None:
+      return
+    bulk_limit = VENDOR_TUNNEL_BULK_BURST if self.can_send() else 0
+    for payload in hu_feed.drain_aa(VENDOR_TUNNEL_BURST, bulk_limit=bulk_limit):
+      self.send(self.vendor_channel, VENDOR_TUNNEL_KIND, payload)
+
+  def retry_phone_link(self) -> None:
+    """The hands-free link to the car came up after setup: tell the car again and ask for the screen again.
+
+    The 2019 Civic answered the first pairing request "not paired" (status 1) and kept its own screen while that link
+    was down (2026-10-24, session-000007).
+    """
+    self.phone_link_ready = False
+    self._send_pairing_request()
+    if self.mode is not None and not self.focused:
+      self.request_projection()
+    self.event("phone_link_retry", focused=self.focused)
 
   def request_projection(self) -> None:
     """Ask for display focus; the Mazda donor needed this, DHU grants it unsolicited."""
@@ -950,8 +1038,12 @@ class ProjectionSession(Session):
         for number, values in fields.items():
           first = number not in self.sensor_events
           self.sensor_events[number] = self.sensor_events.get(number, 0) + len(values)
-          if first:
-            self.event("sensor_event", field=number, data=describe_fields(fields))
+          if number == SENSOR_LOCATION:
+            present = self._location(values)
+            if first:  # which LocationData fields this head unit fills in, never their values
+              self.event("sensor_event", field=number, present=present)
+          elif first:  # one line per kind of car data; the counts go in stats
+            self.event("sensor_event", field=number, data=describe_fields({number: values}))
       else:
         self.ignored("sensor_ignored", channel, kind, data)
     elif channel is not None and channel == self.bluetooth_channel:
@@ -961,6 +1053,16 @@ class ProjectionSession(Session):
         self.event("bluetooth_auth_data", data=describe_fields(fields))
       else:
         self.ignored("bluetooth_ignored", channel, kind, data)
+    elif channel is not None and channel == self.vendor_channel:
+      hu_feed = getattr(self, "hu_feed", None)
+      if kind == VENDOR_TUNNEL_KIND and hu_feed is not None:
+        hu_feed.receive_aa(data)
+      else:
+        # Probe: the first 20 messages in full (bounded by describe), then counts only.
+        self.vendor_messages += 1
+        if self.vendor_messages <= 20:
+          self.event("vendor_extension_message", channel=channel, kind=kind, bytes=len(data), data=data[:256].hex(),
+                     message=describe(data), n=self.vendor_messages)
     else:
       self.ignored("channel_ignored", channel, kind, data)
 
@@ -1058,6 +1160,8 @@ class ProjectionSession(Session):
     return bool(self.focused and self.pending and now - self.pending[0] > self.ACK_TIMEOUT)
 
   def check_progress(self, now: float | None = None) -> None:
+    if self.phone_link_ready:
+      self.retry_phone_link()
     measured = now is None
     now = time.monotonic() if measured else now
     if self.grace_focus_lost:
@@ -1136,4 +1240,20 @@ class ProjectionSession(Session):
     return {"frames_sent": self.frames_sent, "frames_acked": self.acked, "pending": self.unacked,
             "focus_epoch": self.focus_epoch, "focused": self.focused, "max_ack_ms": round(self.max_ack_seconds * 1000),
             "input_events": self.input_events, "touch": self.touch is not None,
-            "sensor_events": sum(self.sensor_events.values())}
+            "sensor_events": sum(self.sensor_events.values()),
+            **({"location": self.location.stats()} if self.location is not None else {})}
+
+  def _location(self, values: list) -> list[int]:
+    """Hand each LocationData to the GPS handoff; returns the field numbers the first one carries."""
+    present: list[int] = []
+    for value in values:
+      if not isinstance(value, bytes):
+        continue
+      try:
+        location = parse_fields(value)
+      except ValueError:
+        continue
+      present = present or sorted(location)
+      if self.location is not None:
+        self.location.publish(location)
+    return present

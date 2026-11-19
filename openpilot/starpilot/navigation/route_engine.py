@@ -3,6 +3,7 @@ from __future__ import annotations
 from bisect import bisect_right
 from dataclasses import dataclass
 import math
+from typing import Any
 
 from openpilot.starpilot.navigation.owner import ValidationError, response_json
 
@@ -10,6 +11,9 @@ EARTH_RADIUS = 6371007.2
 MAX_POINTS = 20000
 SPEED_UNITS = {'km/h': 1 / 3.6, 'mph': 0.44704}
 MAX_SPEED_LIMIT_MPS = 160 / 3.6
+# Mapbox congestion per geometry segment -> the level published in Navigation.routeCongestion
+CONGESTION = {'unknown': 0, 'low': 1, 'moderate': 2, 'heavy': 3, 'severe': 4}
+REFRESH_URL = 'https://api.mapbox.com/directions-refresh/v1/mapbox/driving-traffic/'
 
 
 def point(value) -> tuple[float, float]:
@@ -61,12 +65,50 @@ def max_speeds(data: dict, segments: int) -> list[float | None]:
     return [None] * segments
   limits = []
   for row in rows:
-    speed = row.get('speed') if isinstance(row, dict) else None
+    speed: Any = row.get('speed') if isinstance(row, dict) else None
     factor = SPEED_UNITS.get(row.get('unit')) if isinstance(row, dict) else None
-    ok = isinstance(speed, (int, float)) and not isinstance(speed, bool) and factor is not None and math.isfinite(speed)
-    mps = speed * factor if ok else None
+    mps = speed * factor if type(speed) in (int, float) and factor is not None and math.isfinite(speed) else None
     limits.append(mps if mps is not None and 0 < mps <= MAX_SPEED_LIMIT_MPS else None)
   return limits
+
+
+def congestion_rows(rows, segments: int) -> list[int] | None:
+  """Levels from a Mapbox congestion list of `segments` entries; None when it is missing, short or not a list."""
+  if not isinstance(rows, list) or len(rows) != segments:
+    return None
+  return [CONGESTION.get(row, 0) if isinstance(row, str) else 0 for row in rows]
+
+
+def congestion_levels(data: dict, segments: int) -> list[int]:
+  """Traffic per route segment from Mapbox's congestion annotation: 0 unknown, 1 low, 2 moderate, 3 heavy,
+  4 severe. A missing or mismatched annotation leaves every segment unknown."""
+  try:
+    rows = data['legs'][0]['annotation']['congestion']
+  except (KeyError, TypeError, IndexError):
+    return [0] * segments
+  levels = congestion_rows(rows, segments)
+  return levels if levels is not None else [0] * segments
+
+
+def roundabout(primary: dict, maneuver: dict, step: dict) -> tuple[int, int, bool]:
+  """(exit angle, exit number, drives on the left) for a roundabout maneuver; zeros when Mapbox gives none."""
+  degrees: Any = primary.get('degrees')
+  exit_number = maneuver.get('exit')
+  degrees = round(degrees) if type(degrees) in (int, float) and math.isfinite(degrees) and 0 < degrees <= 360 else 0
+  exit_number = exit_number if type(exit_number) is int and 0 < exit_number < 256 else 0
+  return degrees, exit_number, step.get('driving_side') == 'left'
+
+
+def toward(banners: list, upcoming: dict, text: str) -> str:
+  """Where the maneuver leads ("Garland"): the banner's secondary line, else the next road's destinations after
+  the colon ("I 635 East: Garland" -> "Garland"). '' when not given or the instruction already says it."""
+  banner = banners[0] if isinstance(banners, list) and banners and isinstance(banners[0], dict) else {}
+  value = str((banner.get('secondary') or {}).get('text') or '')
+  if not value:
+    value = str(upcoming.get('destinations') or '')
+    value = value.split(':', 1)[1] if ':' in value else value
+  value = ' '.join(value.split())
+  return '' if not value or 'toward' in text.lower() or value.lower() in text.lower() else value[:80]
 
 
 @dataclass(frozen=True)
@@ -77,7 +119,13 @@ class Step:
   text: str
   maneuver_type: str
   modifier: str
-  lanes: tuple = ()
+  exit_degrees: int = 0  # roundabout exit angle, 180 = straight through; 0 = not given
+  exit_number: int = 0
+  driving_left: bool = False
+  road: str = ''  # the road this step drives along (Mapbox step name, else its ref); '' = not given
+  ref: str = ''  # that road's route number(s), the Mapbox step ref ("US 75; TX 289"); '' = none
+  lanes: tuple = ()  # ((active, directions, active_direction), ...) before this step's maneuver, see lane_guidance()
+  toward: str = ''  # where the maneuver leads ("Garland"); '' = not given
 
 
 MAX_LANES = 8
@@ -107,6 +155,7 @@ class Progress:
   off_route: bool
   arrived: bool
   speed_limit_mps: float | None = None  # Mapbox posted limit on the matched segment
+  segment: int = 0  # the matched geometry segment
 
 
 class NavigationRoute:
@@ -126,14 +175,19 @@ class NavigationRoute:
       offset = 0.
       for index, step in enumerate(steps):
         end = offset + number(step['distance'])
-        maneuver = steps[min(index + 1, len(steps) - 1)]['maneuver']
+        upcoming = steps[min(index + 1, len(steps) - 1)]
+        maneuver = upcoming['maneuver']
         banners = step.get('bannerInstructions', [])
         primary = banners[0].get('primary', {}) if banners else {}
         text = str(primary.get('text') or maneuver.get('instruction', ''))[:256]
-        self.steps.append(Step(offset, end, number(step['duration']), text,
-                               str(primary.get('type') or maneuver['type'])[:40],
-                               modifier(primary.get('modifier') or maneuver.get('modifier', 'none'))[:40],
-                               lane_guidance(banners)))
+        maneuver_type = str(primary.get('type') or maneuver['type'])[:40]
+        maneuver_modifier = modifier(primary.get('modifier') or maneuver.get('modifier', 'none'))[:40]
+        last = index == len(steps) - 1  # the arrive step: no maneuver ahead, so no destination
+        self.steps.append(Step(offset, end, number(step['duration']), text, maneuver_type, maneuver_modifier,
+                               *roundabout(primary, maneuver, upcoming),
+                               str(step.get('name') or step.get('ref') or '')[:80], str(step.get('ref') or '')[:80],
+                               lane_guidance(banners),
+                               '' if last else toward(banners, upcoming, text)))
         offset = end
       self.total_distance = number(data['distance'])
       self.total_duration = number(data['duration'])
@@ -141,15 +195,29 @@ class NavigationRoute:
         raise ValidationError('The route is empty')
       self.starts = [step.start for step in self.steps]
       self.speed_limits = max_speeds(data, len(self.points) - 1)
+      # replaced whole (never edited in place) by MapboxRouteEngine.refresh on the route thread
+      self.congestion = congestion_levels(data, len(self.points) - 1)
+      self.uuid = None      # the Directions response's uuid, for refreshes; None without enable_refresh
+      self.route_index = 0  # this route's place in that response
     except (KeyError, TypeError, IndexError, AttributeError):
       raise ValidationError('The map service returned an incomplete route') from None
 
-  def preview(self) -> list[dict]:
+  def preview_indices(self) -> list[int]:
     stride = max(1, math.ceil((len(self.points) - 1) / 511))
-    points = self.points[::stride]
-    if points[-1] != self.points[-1]:
-      points.append(self.points[-1])
-    return [{'longitude': x, 'latitude': y} for x, y in points]
+    indices = list(range(0, len(self.points), stride))
+    if indices[-1] != len(self.points) - 1:
+      indices.append(len(self.points) - 1)
+    return indices
+
+  def preview(self) -> list[dict]:
+    return [{'longitude': self.points[i][0], 'latitude': self.points[i][1]} for i in self.preview_indices()]
+
+  def preview_congestion(self) -> list[int]:
+    """One level per preview() point: the worst on the segments from that point to the next (the last point
+    repeats the one before it)."""
+    levels, indices = self.congestion, self.preview_indices()
+    result = [max(levels[a:b], default=0) for a, b in zip(indices, indices[1:], strict=False)]
+    return result + result[-1:] if result else [0] * len(indices)
 
   def progress(self, position, speed: float | None, bearing: float | None = None) -> Progress:
     best = (float('inf'), 0., 0)
@@ -168,8 +236,11 @@ class NavigationRoute:
     duration += sum(row.duration for row in self.steps[index + 1:])
     instruction = {'text': step.text, 'maneuverType': step.maneuver_type, 'maneuverModifier': step.modifier,
                        'distanceMeters': remaining, 'remainingDistanceMeters': max(0., self.steps[-1].end - along),
-                       'remainingDurationSeconds': duration,
-                       'lanes': [{'active': a, 'directions': list(d), 'activeDirection': ad} for a, d, ad in step.lanes]}
+                       'remainingDurationSeconds': duration, 'exitDegrees': step.exit_degrees,
+                       'exitNumber': step.exit_number, 'drivingLeft': step.driving_left, 'roadName': step.road,
+                       'roadRef': step.ref,
+                       'lanes': [{'active': a, 'directions': list(d), 'activeDirection': ad} for a, d, ad in step.lanes],
+                       'toward': step.toward}
     upcoming = self.steps[min(index + 1, len(self.steps) - 1)]
     next_maneuver = {'maneuverType': upcoming.maneuver_type, 'maneuverModifier': upcoming.modifier,
                          'distanceMeters': max(0., upcoming.end - along)}
@@ -189,7 +260,7 @@ class NavigationRoute:
     arrived = known_speed and speed < 2 and distance(position, self.points[-1]) < 40 and instruction['remainingDistanceMeters'] < 40
     off_route = separation > threshold or misaligned
     return Progress(instruction, next_maneuver, off_route, arrived,
-                    None if off_route else self.speed_limits[segment])
+                    None if off_route else self.speed_limits[segment], segment)
 
 
 class MapboxRouteEngine:
@@ -204,7 +275,7 @@ class MapboxRouteEngine:
     url = ('https://api.mapbox.com/directions/v5/mapbox/driving-traffic/' +
            f'{position[0]},{position[1]};{destination["longitude"]},{destination["latitude"]}')
     params = {'access_token': token, 'geometries': 'geojson', 'steps': 'true', 'overview': 'full', 'banner_instructions': 'true', 'alternatives': 'true',
-              'annotations': 'maxspeed'}
+              'annotations': 'maxspeed,congestion', 'enable_refresh': 'true'}
     if exclusions:
       params['exclude'] = ','.join(exclusions)
     if bearing is not None:
@@ -213,5 +284,43 @@ class MapboxRouteEngine:
     if data.get('code') != 'Ok' or not data.get('routes'):
       raise ValidationError('No driving route was found')
     routes = [NavigationRoute(row) for row in data['routes'][:3]]
+    response_uuid = data.get('uuid')
+    # it goes into the refresh URL's path
+    usable = isinstance(response_uuid, str) and 0 < len(response_uuid) <= 128 and response_uuid.isascii() and \
+      all(c.isalnum() or c in '-_' for c in response_uuid)
+    for index, route in enumerate(routes):
+      route.uuid, route.route_index = (response_uuid if usable else None), index
     routes[0].alternatives = routes
     return routes[0]
+
+  def refresh(self, token: str, route: NavigationRoute, geometry_index: int) -> bool:
+    """Fresh traffic for the rest of the route from Directions Refresh. Only route.congestion changes; on any
+    error it keeps the old levels and returns False. Geometry, steps and guidance are never touched."""
+    segments = len(route.points) - 1
+    if route.uuid is None or not 0 <= geometry_index < segments:
+      return False
+    if self.budget is not None:
+      self.budget.spend(enforce=False)  # counted with directions, never refused
+    url = f'{REFRESH_URL}{route.uuid}/{route.route_index}/0'
+    try:
+      data = response_json(self.session, url, {'access_token': token, 'current_route_geometry_index': geometry_index})
+      if data.get('code') != 'Ok':
+        return False
+      legs = data['route']['legs']
+      # Congestion is kept for the first leg only (as parsed in NavigationRoute), so a multi-leg answer cannot be
+      # spliced onto it without misaligning; keep the old levels.
+      if len(legs) != 1:
+        return False
+      rows = legs[0]['annotation']['congestion']
+    except (ValidationError, KeyError, TypeError, IndexError, AttributeError):
+      return False
+    # The refreshed annotation starts at geometry_index; a full-length one is taken whole.
+    tail = congestion_rows(rows, segments - geometry_index)
+    if tail is not None:
+      route.congestion = route.congestion[:geometry_index] + tail
+      return True
+    full = congestion_rows(rows, segments)
+    if full is not None:
+      route.congestion = full
+      return True
+    return False

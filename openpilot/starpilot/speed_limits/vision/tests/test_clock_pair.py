@@ -56,7 +56,9 @@ class TestClockPair(unittest.TestCase):
     args = {'receipt_mono_ns': pair[0], 'now_mono_ns': pair[0], 'now_boot_ns': pair[1],
             'car_fingerprint': 'car', 'drive_session': 'drive'}
     self.assertIs(observation.vision_observation(event, **args).kind, ObservationKind.VALID)
-    event.cameraFrameEofBootTime = pair[1] - observation.MAX_RESULT_AGE_NS - 1
+    event.cameraFrameEofBootTime = pair[1] - observation.SIGN_HOLD_NS
+    self.assertIs(observation.vision_observation(event, **args).kind, ObservationKind.VALID)
+    event.cameraFrameEofBootTime = pair[1] - observation.SIGN_HOLD_NS - 1
     self.assertIs(observation.vision_observation(event, **args).kind, ObservationKind.STALE)
     event.cameraFrameEofBootTime = pair[1] - 1_000_000
     event.validUntilMonoTime = pair[0] - 1

@@ -4,9 +4,12 @@ Only head units that advertise the navigation status service receive it, and onl
 guiding. The route is polled on its own thread; the session loop just compares and sends.
 
 Wire facts: mrmees/open-android-auto ``oaa/navigation`` and ``oaa/control/ChannelDescriptorData`` (reference only).
+The legacy turn/distance pair and the cluster type follow opencardev/aasdk ``aap_protobuf/service/navigationstatus``
+(NavigationNextTurnEvent, NavigationStatusService), which matches the captured phone distance packet.
 """
 from __future__ import annotations
 
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -28,21 +31,39 @@ NAV_NOTIFICATION = 0x8006
 NAV_CURRENT_POSITION = 0x8007
 
 NAVIGATION_SERVICE = 8  # ChannelDescriptor.navigation_channel
-TYPE_ENUM, TYPE_IMAGE = 1, 2
+TYPE_IMAGE, TYPE_ENUM = 1, 2  # NavigationStatusService.InstrumentClusterType
 STATUS_ACTIVE, STATUS_INACTIVE, STATUS_REROUTING = 1, 2, 3
-SIDE_LEFT, SIDE_RIGHT, SIDE_UNSPECIFIED = 1, 2, 0
+SIDE_LEFT, SIDE_RIGHT, SIDE_UNSPECIFIED = 1, 2, 3
 (EVENT_DEPART, EVENT_NAME_CHANGE, EVENT_SLIGHT_TURN, EVENT_TURN, EVENT_SHARP_TURN, EVENT_U_TURN, EVENT_ON_RAMP,
  EVENT_OFF_RAMP, EVENT_FORK, EVENT_MERGE, EVENT_ROUNDABOUT_ENTER, EVENT_ROUNDABOUT_EXIT,
  EVENT_ROUNDABOUT_ENTER_AND_EXIT, EVENT_STRAIGHT) = range(1, 15)
 EVENT_DESTINATION = 19
 UNIT_METERS, UNIT_KILOMETERS, UNIT_KILOMETERS_P1, UNIT_MILES, UNIT_MILES_P1, UNIT_FEET = 1, 2, 3, 4, 5, 6
 
+# Head units below protocol 2 predate NavigationState (0x8006/0x8007); a phone sends them the legacy pair only.
+# Peter's 2019 Civic (1.3, image cluster 480x480) showed the arrow and distance but never the road name while
+# 0x8006 followed every legacy turn (session-000044, 2026-10-27; road text was set, e.g. 'East Plano Parkway').
+MODERN_MIN_PROTOCOL = (2, 0)
+
+# The Civic cluster reads the legacy turn/distance pair. Session-000036 (2026-10-26) dropped video ~6 s
+# after it 3 of 3 times, but that turn had the side and event in each other's fields and a modern maneuver number
+# (36 = straight) where the legacy event belongs; this encoder fixes that. If projection still ends within
+# LEGACY_PROBATION of the first legacy turn, the pair is switched off until the daemon restarts.
+# Losing the car's Wi-Fi does not count: session-000055 (2026-10-29) lost it 0.9 s after a legacy turn while the
+# head unit rebooted, and the block left the cluster blank for every drive until the comma restarted.
+SEND_LEGACY = True
+LEGACY_PROBATION = 20.0
+_legacy_blocked = False
 STEP_TIMEOUT = 3.0
 START_GRACE = 2.0  # some head units never send the start request
 CHECK_EVERY = 0.25
 MIN_INTERVAL = 1.0
 STALE_AFTER = 3.0
 FALLBACK_SPEED = 13.4  # m/s, for the time to the turn when the route gives no pace
+
+
+class LinkLost(RuntimeError):
+  """The car's Wi-Fi network went away; it says nothing about what the head unit made of a turn."""
 
 
 def navigation_channel(channels: list[dict]) -> dict | None:
@@ -61,16 +82,26 @@ def _normal(value: str) -> str:
   return (value or '').replace(' ', '').replace('_', '').lower()
 
 
-def maneuver_event(maneuver_type: str, modifier: str) -> tuple[int, int]:
-  """Mapbox maneuver -> (event, turn side)."""
+ROUNDABOUTS = ('roundabout', 'rotary')
+# Exit angle from the modifier when Mapbox gives no degrees, right-hand traffic; mirrored for left-hand.
+EXIT_ANGLES = {'sharpright': 45, 'right': 90, 'slightright': 135, 'straight': 180, 'slightleft': 225, 'left': 270,
+               'sharpleft': 315, 'uturn': 360}
+
+
+def maneuver_event(maneuver_type: str, modifier: str, driving_left: bool = False) -> tuple[int, int]:
+  """Mapbox maneuver -> (event, turn side).
+
+  The Civic cluster (head unit NavigationFocusManager, jadx, static) draws on/off ramps, merges and forks as a
+  slight arrow whatever the modifier, and gives them the same point class as a plain turn, so ramps and merges go
+  out as the turn their modifier says. Forks keep their own class. Mapbox's 'roundabout turn' is a small
+  roundabout it says to show as an ordinary turn. For roundabouts the side is the traffic side, not the exit side.
+  """
   kind, mod = _normal(maneuver_type), _normal(modifier)
   side = SIDE_LEFT if 'left' in mod else SIDE_RIGHT if 'right' in mod else SIDE_UNSPECIFIED
-  if kind in ('roundabout', 'rotary', 'roundaboutturn'):
-    return EVENT_ROUNDABOUT_ENTER_AND_EXIT, side
-  if kind in ('exitroundabout', 'exitrotary'):
-    return EVENT_ROUNDABOUT_EXIT, side
-  fixed = {'depart': EVENT_DEPART, 'arrive': EVENT_DESTINATION, 'merge': EVENT_MERGE, 'onramp': EVENT_ON_RAMP,
-           'offramp': EVENT_OFF_RAMP, 'fork': EVENT_FORK}
+  if kind in ROUNDABOUTS or kind in ('exitroundabout', 'exitrotary'):
+    return (EVENT_ROUNDABOUT_ENTER_AND_EXIT if kind in ROUNDABOUTS else EVENT_ROUNDABOUT_EXIT,
+            SIDE_LEFT if driving_left else SIDE_RIGHT)
+  fixed = {'depart': EVENT_DEPART, 'arrive': EVENT_DESTINATION, 'fork': EVENT_FORK}
   if kind in fixed:
     return fixed[kind], side
   if mod == 'uturn':
@@ -82,6 +113,21 @@ def maneuver_event(maneuver_type: str, modifier: str) -> tuple[int, int]:
   if 'left' in mod or 'right' in mod:
     return EVENT_TURN, side
   return (EVENT_NAME_CHANGE if kind == 'newname' else EVENT_STRAIGHT), SIDE_UNSPECIFIED
+
+
+def roundabout_exit(maneuver_type: str, modifier: str, degrees: int = 0, driving_left: bool = False) -> int | None:
+  """Exit angle for a roundabout turn event, or None for anything else.
+
+  Mapbox and Android Auto both measure it in the direction of travel with 180 = straight through. The head unit
+  turns it into the arrow (right-hand traffic: 90 = right, 270 = left); with no angle it draws the arrow pointing
+  back, which is what every roundabout showed before this was sent.
+  """
+  if _normal(maneuver_type) not in ROUNDABOUTS:
+    return None
+  if 0 < degrees <= 360:
+    return degrees
+  angle = EXIT_ANGLES.get(_normal(modifier), 180)
+  return 360 - angle if driving_left and angle != 360 else angle
 
 
 def display_distance(meters: float, metric: bool) -> tuple[int, int]:
@@ -98,6 +144,26 @@ def display_distance(meters: float, metric: bool) -> tuple[int, int]:
     return round(feet / step) * step * 1000, UNIT_FEET
   miles = feet / 5280
   return (round(miles) * 1000, UNIT_MILES) if miles >= 10 else (round(miles * 10) * 100, UNIT_MILES_P1)
+
+
+def _java_round(x: float) -> int:
+  return math.floor(x + 0.5)  # Math.round, not Python's round-half-even
+
+
+def cluster_distance(meters: float) -> tuple[tuple[int, int], tuple[int, int]]:
+  """What a Honda head unit draws on the cluster, in feet/miles and in meters/km.
+
+  It ignores our rounded display value and redoes the rounding from distance_meters
+  (NavigationFocusManager.getRemainingDistance, static read of the Mitsubishi firmware):
+  100 ft steps under 1000 ft then 0.1 mi, or 10 m steps under 1000 m then 0.1 km. The
+  progress-bar buckets (getSegmentPercentage) change only where these numbers do. The
+  unit comes from the car's own setting, which we cannot see, so both are returned.
+  """
+  sent = max(0, round(meters))  # field 1 of the distance message
+  feet = _java_round(int(sent / 0.3048) / 100) * 100
+  imperial = (feet, 3) if feet < 1000 else (_java_round(feet / 5280 * 10), 4)
+  metric = (_java_round(sent / 10) * 10, 0) if sent < 1000 else (_java_round(sent / 100), 1)
+  return imperial, metric
 
 
 @lru_cache(maxsize=64)
@@ -123,8 +189,14 @@ def status_message(status: int) -> bytes:
   return field(1, status)
 
 
-def turn_message(road: str, event: int, side: int, image: bytes | None = None) -> bytes:
-  return (field(1, road[:128]) + field(2, event) + field(3, side) + (field(4, image) if image else b''))
+def turn_message(road: str, event: int, side: int, image: bytes | None = None, angle: int | None = None,
+                 exit_number: int = 0) -> bytes:
+  # NavigationNextTurnEvent: road = 1, turn_side = 2, event = 3 (legacy NextTurnEnum), image = 4,
+  # turn_number = 5, turn_angle = 6 (roundabouts only). Field numbers from the head unit's own Protos.java
+  # (TURN_NUMBER_FIELD_NUMBER = 5, TURN_ANGLE_FIELD_NUMBER = 6; Peter's AndroidAuto.odex decompile 2026-11-16). They were
+  # swapped here before: the head unit read the exit number as the angle and drew the roundabout arrow pointing back.
+  return (field(1, road[:128]) + field(2, side) + field(3, event) + (field(4, image) if image else b'') +
+          (field(5, exit_number) if angle is not None and exit_number else b'') + (field(6, angle) if angle is not None else b''))
 
 
 def distance_message(meters: float, seconds: float, metric: bool) -> bytes:
@@ -161,8 +233,10 @@ def modern_maneuver(maneuver_type: str, modifier: str) -> int:
 
 
 def notification_message(road: str, maneuver: int) -> bytes:
-  # NavigationNotification.steps[].{maneuver.type, instruction.text}
-  return field(1, field(1, field(1, maneuver)) + field(2, field(1, road[:128])))
+  # NavigationState.steps[].{maneuver.type, road.name, cue.alternate_text}. Head units that draw their
+  # own cluster text (Honda) read the cue, not road.name: with road.name alone the arrow showed blank.
+  road = road[:128]
+  return field(1, field(1, field(1, maneuver)) + field(2, field(1, road)) + (field(4, field(1, road)) if road else b''))
 
 
 def current_position_message(meters: float, seconds: float, metric: bool) -> bytes:
@@ -188,22 +262,32 @@ class NavFeed:
     from openpilot.starpilot.navigation.wire import navigation_state
     if self._sm is None:
       from openpilot.cereal import messaging
-      self._sm = messaging.SubMaster(['starpilotNavigation'])
+      from openpilot.starpilot.navigation.guidance_hold import GuidanceHold
+      self._sm = messaging.SubMaster(['starpilotNavigation', 'carState'])
+      self._guidance = GuidanceHold()
     self._sm.update(0)
+    now_ns = time.monotonic_ns()
     stamp = self._sm.logMonoTime['starpilotNavigation']
-    if not self._sm.valid['starpilotNavigation'] or not 0 < stamp <= time.monotonic_ns() <= stamp + int(STALE_AFTER * 1e9):
-      return None
-    state = navigation_state(self._sm['starpilotNavigation'])
-    if state is None or state.status not in ('guiding', 'routing'):
+    state = navigation_state(self._sm['starpilotNavigation']) if self._sm.valid['starpilotNavigation'] else None
+    if state is None or not 0 < stamp <= now_ns <= stamp + int(STALE_AFTER * 1e9):
+      self._guidance.clear()
       return None
     from openpilot.common.params import Params
-    snapshot = {'state': state.status, 'metric': Params().get_bool('IsMetric')}
+    metric = Params().get_bool('IsMetric')
+    step = None
     if state.status == 'guiding':
       instruction = state.instruction
-      snapshot.update(road=instruction.text, type=instruction.maneuverType, modifier=instruction.maneuverModifier,
-                      distance=float(instruction.distanceMeters), remaining=float(instruction.remainingDistanceMeters),
-                      duration=float(instruction.remainingDurationSeconds))
-    return snapshot
+      step = {'state': 'guiding', 'road': instruction.text, 'type': instruction.maneuverType,
+              'modifier': instruction.maneuverModifier, 'distance': float(instruction.distanceMeters),
+              'remaining': float(instruction.remainingDistanceMeters),
+              'duration': float(instruction.remainingDurationSeconds), 'degrees': int(instruction.exitDegrees),
+              'exit': int(instruction.exitNumber), 'driving_left': bool(instruction.drivingLeft)}
+    # A GPS gap keeps the cluster on the last turn, counted down at the car's speed (guidance_hold).
+    speed = float(self._sm['carState'].vEgo) if self._sm.seen['carState'] else 0.
+    step, _ = self._guidance(str(state.status), (state.sessionId, state.revision), step, now_ns, speed, stamp)
+    if step is not None:
+      return {**step, 'metric': metric}
+    return {'state': 'routing', 'metric': metric} if state.status == 'routing' else None
 
   def _run(self) -> None:
     while not self._stop.is_set():
@@ -240,6 +324,9 @@ class NavStatus:
     self.next_distance = 0.0
     self.focus_requested = False
     self.focus = None
+    self.legacy_since = None  # first legacy turn this session
+    protocol = getattr(session, 'protocol', None)
+    self.modern_supported = protocol is None or tuple(protocol) >= MODERN_MIN_PROTOCOL
     self._reset()
 
   def _reset(self) -> None:
@@ -286,7 +373,20 @@ class NavStatus:
         self.focus_requested = False
         self.log('nav_focus_requested', focus=FOCUS_NATIVE)
 
+  def _legacy(self) -> bool:
+    return SEND_LEGACY and not _legacy_blocked
+
+  def _modern(self) -> bool:
+    return self.modern_supported or not self._legacy()  # the newer pair is the fallback when legacy is off
+
   def _send(self, kind: int, body: bytes) -> None:
+    if kind in (NAV_TURN, NAV_DISTANCE):
+      if not self._legacy():
+        return
+      if self.legacy_since is None:
+        self.legacy_since = self.clock()
+    elif kind in (NAV_NOTIFICATION, NAV_CURRENT_POSITION) and not self._modern():
+      return
     self.session.send(self.channel_id, kind, body)
 
   def _update(self, snap: dict | None, now: float) -> None:
@@ -304,19 +404,24 @@ class NavStatus:
       self.shown_turn, self.shown_distance = None, None
       self._send(NAV_STATUS, status_message(STATUS_ACTIVE))
       self.sent_status = STATUS_ACTIVE
-    turn = (snap['road'], snap['type'], snap['modifier'])
+    degrees, exit_number, driving_left = snap.get('degrees', 0), snap.get('exit', 0), snap.get('driving_left', False)
+    turn = (snap['road'], snap['type'], snap['modifier'], degrees, exit_number, driving_left)
     if turn != self.shown_turn:
-      _, side = maneuver_event(snap['type'], snap['modifier'])
-      event = modern_maneuver(snap['type'], snap['modifier'])
+      legacy_event, side = maneuver_event(snap['type'], snap['modifier'], driving_left)
+      angle = roundabout_exit(snap['type'], snap['modifier'], degrees, driving_left)
+      maneuver = modern_maneuver(snap['type'], snap['modifier'])
       image = turn_image(snap['type'], snap['modifier'], *self.image_size) if self.image_size else None
       # Older receivers use the flat messages; newer ones consume 0x8006/0x8007.
-      # Discovery does not expose a reliable PDK version, so publish both formats.
-      self._send(NAV_TURN, turn_message(snap['road'], event, side, image))
-      self._send(NAV_NOTIFICATION, notification_message(snap['road'], event))
-      self.log('nav_guidance_sent', maneuver=event, legacy=True, modern=True, image=image is not None)
+      self._send(NAV_TURN, turn_message(snap['road'], legacy_event, side, image, angle, exit_number))
+      self._send(NAV_NOTIFICATION, notification_message(snap['road'], maneuver))
+      legacy = self._legacy()
+      # Not event=: that is the log record's own name, and it hid every one of these lines on the drive.
+      self.log('nav_guidance_sent', maneuver=maneuver, legacy_event=legacy_event, side=side, angle=angle, legacy=legacy,
+               modern=self._modern(), image=legacy and image is not None, road_chars=len(snap['road']))
       self.shown_turn, self.shown_distance = turn, None
     metric = bool(snap.get('metric'))
-    shown = display_distance(snap['distance'], metric)
+    # Send whenever either the cluster's number or our own rounded value would change, at most once per interval.
+    shown = (display_distance(snap['distance'], metric), cluster_distance(snap['distance']))
     if shown != self.shown_distance and (self.shown_distance is None or now >= self.next_distance):
       pace = snap['remaining'] / snap['duration'] if snap.get('duration', 0) > 0 and snap.get('remaining', 0) > 0 else FALLBACK_SPEED
       seconds = snap['distance'] / max(pace, 1.0)
@@ -351,6 +456,11 @@ class NavStatus:
       self._reset()
     return True
 
-  def close(self) -> None:
+  def close(self, error: BaseException | None = None) -> None:
+    global _legacy_blocked
+    if (error is not None and not isinstance(error, LinkLost) and self.legacy_since is not None
+        and self.clock() - self.legacy_since < LEGACY_PROBATION):
+      _legacy_blocked = True
+      self.log('nav_legacy_blocked', after_s=round(self.clock() - self.legacy_since, 1), error=f'{type(error).__name__}: {error}')
     if hasattr(self.feed, 'close'):
       self.feed.close()

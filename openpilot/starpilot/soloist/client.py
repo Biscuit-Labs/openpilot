@@ -33,6 +33,12 @@ def _name(entity: Any) -> str:
 
 
 def _artwork(entity: dict) -> str:
+  """The track's own cover, else its album's: songs usually carry the picture only on the album (parent)."""
+  parent = ((entity.get('decorations') or {}).get('parent') or {}).get('entity')
+  return _cover(entity) or (_cover(parent) if isinstance(parent, dict) else '')
+
+
+def _cover(entity: dict) -> str:
   covers = ((entity.get('decorations') or {}).get('visual_identity') or {}).get('cover') or []
   ranked = {'default': 0, 'large': 1, 'small': 2, 'xlarge': 3}
   for cover in sorted((c for c in covers if isinstance(c, dict)), key=lambda c: ranked.get(c.get('size'), 9)):
@@ -77,7 +83,7 @@ class PlayerState:
 
   def reset(self) -> None:
     self.value: dict[str, Any] = {'connected': False, 'loggedIn': False, 'active': False, 'deviceName': '', 'status': 'idle', 'track': None,
-                  'position': None, 'volume': None, 'shuffle': False, 'repeat': 'off', 'actions': [], 'updated': 0.0}
+                  'position': None, 'volume': None, 'shuffle': False, 'smartShuffle': False, 'repeat': 'off', 'modes': [], 'actions': [], 'updated': 0.0}
 
   def apply(self, message: dict) -> None:
     kind = message.get('type')
@@ -126,6 +132,12 @@ class PlayerState:
     if isinstance(options, dict):
       self.value['shuffle'] = options.get('shuffle') is True
       self.value['repeat'] = options.get('repeat') if options.get('repeat') in REPEATS else 'off'
+      # Undocumented playback modes (smart shuffle may surface here); names only, for the status log.
+      modes = options.get('modes')
+      self.value['modes'] = sorted(_text(key)[:40] for key in modes)[:8] if isinstance(modes, dict) else []
+      # Smart Shuffle reads {"context_enhancement": "RECOMMENDATION"} (plain shuffle or off: "NONE"). Soloist 1.3.10 has
+      # no command to set it (set_shuffle ignores extra fields), so the car can show it and turn it off, not turn it on.
+      self.value['smartShuffle'] = isinstance(modes, dict) and modes.get('context_enhancement') == 'RECOMMENDATION'
 
 
 def commands(action: str, args: dict) -> list[dict]:

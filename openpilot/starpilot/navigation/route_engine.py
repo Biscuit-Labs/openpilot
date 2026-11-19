@@ -306,7 +306,12 @@ class MapboxRouteEngine:
       data = response_json(self.session, url, {'access_token': token, 'current_route_geometry_index': geometry_index})
       if data.get('code') != 'Ok':
         return False
-      rows = data['route']['legs'][0]['annotation']['congestion']
+      legs = data['route']['legs']
+      # Congestion is kept for the first leg only (as parsed in NavigationRoute), so a multi-leg answer cannot be
+      # spliced onto it without misaligning; keep the old levels.
+      if len(legs) != 1:
+        return False
+      rows = legs[0]['annotation']['congestion']
     except (ValidationError, KeyError, TypeError, IndexError, AttributeError):
       return False
     # The refreshed annotation starts at geometry_index; a full-length one is taken whole.

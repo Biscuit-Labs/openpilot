@@ -111,6 +111,15 @@ def test_refresh_errors_keep_the_old_colours(body):
   assert route.congestion == [1, 2, 1, 1]
 
 
+def test_refresh_keeps_the_old_colours_for_a_multi_leg_answer():
+  route = NavigationRoute(route_data(congestion=['low', 'moderate', 'low', 'low']))
+  route.uuid = 'abc'
+  leg = {'annotation': {'congestion': ['heavy', 'heavy']}}
+  body = {'code': 'Ok', 'route': {'legs': [leg, leg]}}
+  assert not MapboxRouteEngine(Session(body)).refresh('pk.test', route, 2)
+  assert route.congestion == [1, 2, 1, 1]
+
+
 def test_refresh_needs_a_uuid_and_an_index_on_the_route():
   route, session = NavigationRoute(route_data()), Session()
   assert not MapboxRouteEngine(session).refresh('pk', route, 0) and not session.calls

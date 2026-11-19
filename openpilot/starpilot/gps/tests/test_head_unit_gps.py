@@ -65,12 +65,18 @@ def test_publisher_counts_repeats_and_rejections_without_positions(tmp_path):
   assert read_head_unit_gps(clock[0], tmp_path / "gps.json")[0] == clock[0]
 
 
-def test_without_timestamps_an_identical_moving_fix_is_a_repeat(tmp_path):
-  sink = HeadUnitGps(path=tmp_path / "gps.json", mono_clock=lambda: NOW)
+def test_without_timestamps_an_identical_fix_is_a_repeat_even_when_stopped(tmp_path):
+  clock = [NOW]
+  path = tmp_path / "gps.json"
+  sink = HeadUnitGps(path=path, mono_clock=lambda: clock[0])
   assert sink.publish(location({1: None}))
   assert not sink.publish(location({1: None}))
   assert sink.publish(location({1: None, 6: 0}))
-  assert sink.publish(location({1: None, 6: 0}))  # parked: the same position is still a fresh fix
+  clock[0] += 2_000_000_000
+  assert not sink.publish(location({1: None, 6: 0}))  # stopped: not restamped as fresh, it keeps its first receive time
+  assert read_head_unit_gps(NOW + HEAD_UNIT_MAX_AGE_NS, path)[0] == NOW
+  assert read_head_unit_gps(NOW + HEAD_UNIT_MAX_AGE_NS + 1, path) is None
+  assert sink.publish(location({1: None, 6: 0, 2: 401_234_999}))  # a moved fix is new
 
 
 def test_handoff_expires_and_ignores_damage(tmp_path):

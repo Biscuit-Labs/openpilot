@@ -89,10 +89,11 @@ class HeadUnitGps:
         self.last_error = str(error)
         return False
       # A head unit that has lost its own fix may keep sending the last one. A repeated timestamp, or (without
-      # one) an identical fix while moving, is not new, so it must not keep the stamp fresh.
+      # one) an identical fix, is not new, so it must not keep the stamp fresh: the first copy keeps its receive
+      # time and ages out, even while stopped.
       key = (gps["latitude"], gps["longitude"], gps["speed"], gps["bearingDeg"])
       if self._last is not None and ((timestamp and timestamp == self._last[0]) or
-                                     (not timestamp and key == self._last[1] and gps["speed"] >= MIN_BEARING_SPEED)):
+                                     (not timestamp and key == self._last[1])):
         self.repeated += 1
         return False
       self._last = (timestamp, key)

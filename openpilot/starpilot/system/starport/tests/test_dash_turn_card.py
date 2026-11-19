@@ -52,7 +52,7 @@ def _hex(s: str) -> str:
 @pytest.fixture(scope='module')
 def java(tmp_path_factory):
   if shutil.which('javac') is None or shutil.which('java') is None:
-    pytest.skip('no JDK')
+    pytest.skip(reason='no JDK')
   d = tmp_path_factory.mktemp('turn')
   (d / 'TurnDriver.java').write_text(DRIVER)
   subprocess.run(['javac', '-d', str(d), str(SRC), str(d / 'TurnDriver.java')], check=True, capture_output=True)

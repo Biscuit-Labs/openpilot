@@ -6,8 +6,7 @@ already turned to the right, my car slammed on the brake". The car ahead (radar 
 fused as leadOne, the command reached -3.43 as the radar released it, and the brake then let off at 2.5 m/s^3, so aEgo
 peaked at -4.15 after the lead was gone.
 
-Replay evidence (Job, open loop, bob-turnoff-arms3 @ 816b95048f arm A5C on the bob-unify base, scored per dir
-2026-11-13; on this branch it runs from BoschASmooth.step):
+Replay evidence (Job, open loop, bob-turnoff-arms3 @ 816b95048f arm A5C, scored per dir 2026-11-13):
   cc event: min target unchanged (-3.49); the brake reaches 0 by 926.8 s where the base is still at -1.37.
   main 1141 / second 99 episodes: score.py changed 0, harder 0, real_softer 0; fires on the real exits 9e s24, 7b s5,
   82 s6; does not fire on the radar dropouts 84 s7 and a2 s42 (lead still closing at about 1.25 m off centre);

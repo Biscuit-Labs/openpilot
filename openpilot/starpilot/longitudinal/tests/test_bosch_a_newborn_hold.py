@@ -1,5 +1,5 @@
-"""Newborn lead aLeadK bound (D-080, NEWBORN_HOLD_ENABLED): pure python. The class and bound_newborn_leads are unchanged
-on this branch; they had no unit tests (only an ad hoc fuzz), so these are new. Replay only."""
+"""Newborn lead aLeadK bound (D-080, NEWBORN_HOLD_ENABLED): pure python. The class and bound_newborn_leads were restored
+verbatim from 44f382face; the original had no unit tests (only an ad hoc fuzz), so these are new. Replay only."""
 from types import SimpleNamespace
 
 import pytest
@@ -167,8 +167,8 @@ def test_far_fast_closer_with_braking_range_keeps_authority():
 
 def _steps_beyond_plain_hold(out, ref):
   """Largest frame step in `out` above what the plain D-080 hold (no camera) already has on the same track, and above 0.5."""
-  return max(max(abs(b - a) - max(abs(rb - ra), 0.5), 0.0)
-             for (a, b), (ra, rb) in zip(zip(out, out[1:], strict=False), zip(ref, ref[1:], strict=False), strict=True))
+  pairs = zip(zip(out, out[1:], strict=False), zip(ref, ref[1:], strict=False), strict=False)
+  return max(max(abs(b - a) - max(abs(rb - ra), 0.5), 0.0) for (a, b), (ra, rb) in pairs)
 
 
 def test_no_step_over_half_m_s2_across_match_loss_and_urgent_bypass():

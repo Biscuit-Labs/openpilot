@@ -14,7 +14,6 @@ from openpilot.starpilot.conditional_mode.projection import paired_clocks_ns
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
 from openpilot.starpilot.feature_runtime import slc_transport_capable
 from openpilot.starpilot.longitudinal.upstream.planner import LongitudinalPlanner
-from openpilot.starpilot.longitudinal.bosch_a_toggles import read_toggles as read_bosch_a_toggles  # BOSCH-A HOOK
 from openpilot.starpilot.speed_limits.planner_host import (
   SLC_ACTIONS, SLC_CRUISE_EVENTS, SavedSlcLifecycle, action_from_message, cruise_event_from_message, receive_slc_events,
 )
@@ -30,8 +29,7 @@ def main():
   cloudlog.info("plannerd got CarParams: %s", CP.brand)
 
   ldw = LaneDepartureWarning()
-  # BOSCH-A HOOK: owner toggles (Stock Brake Feel, Human Following), read once, default Off.
-  longitudinal_planner = LongitudinalPlanner(CP, bosch_a=read_bosch_a_toggles(params))
+  longitudinal_planner = LongitudinalPlanner(CP)
   replay = 'REPLAY' in os.environ
   conditional = ConditionalPlannerHost(params) if feature_enabled(params, CP, 'conditional', os.environ) else None
   slc = SavedSlcLifecycle(params, CP, os.environ) if slc_transport_capable(CP, os.environ) else None

@@ -11,9 +11,6 @@ import time
 
 from openpilot.starpilot.system.starport.wire import one, signed
 
-# The Android Auto LocationData accuracy field is optional. A built-in car receiver is good to a few metres in the
-# open; without a figure, claim one just inside the 25 m usable limit so any real figure above it is still refused.
-NOMINAL_ACCURACY_M = 20.0
 # Car receivers keep the last heading at a stop; trust a heading only while moving.
 MIN_BEARING_SPEED = 1.0
 NOMINAL_BEARING_ACCURACY_DEG = 15.0
@@ -39,7 +36,10 @@ def head_unit_gps(fields, now_ns):
   if not (-90 <= latitude <= 90 and -180 <= longitude <= 180) or (latitude == 0 and longitude == 0):
     raise ValueError("Invalid position")
   accuracy = one(fields, 4)
-  accuracy = accuracy / 1e3 if isinstance(accuracy, int) and accuracy > 0 else NOMINAL_ACCURACY_M
+  # The accuracy field is optional, but a fix of unknown quality must not pass the usable-accuracy gate.
+  if not isinstance(accuracy, int) or accuracy <= 0:
+    raise ValueError("Unknown accuracy")
+  accuracy /= 1e3
   if not accuracy <= 10_000:
     raise ValueError("Invalid accuracy")
   speed = _optional(one(fields, 6), 1e3, 0, 100)

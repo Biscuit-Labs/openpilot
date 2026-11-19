@@ -4,7 +4,7 @@ from unittest.mock import patch
 import pytest
 
 from openpilot.cereal import messaging
-from openpilot.starpilot.gps.head_unit import NOMINAL_ACCURACY_M, HeadUnitGps, head_unit_gps, read_head_unit_gps
+from openpilot.starpilot.gps.head_unit import HeadUnitGps, head_unit_gps, read_head_unit_gps
 from openpilot.starpilot.gps.source import HEAD_UNIT_MAX_AGE_NS, select_location, select_source
 from openpilot.starpilot.gps.tests.test_phone_gps import FIX as PHONE_FIX, Bus, Messages
 from openpilot.starpilot.gps.phone import PhoneGpsPublisher, read_phone_gps
@@ -35,9 +35,13 @@ def test_location_data_is_scaled_and_signed():
   assert math.isfinite(gps["bearingAccuracyDeg"]) and math.isnan(gps["verticalAccuracy"]) and math.isnan(gps["speedAccuracy"])
 
 
-def test_missing_accuracy_claims_a_usable_nominal_one():
-  assert head_unit_gps(location({4: None}), NOW)[0]["horizontalAccuracy"] == NOMINAL_ACCURACY_M
-  assert head_unit_gps(location({4: 0}), NOW)[0]["horizontalAccuracy"] == NOMINAL_ACCURACY_M
+@pytest.mark.parametrize("accuracy", [None, 0])
+def test_unknown_accuracy_is_refused_not_claimed_usable(tmp_path, accuracy):
+  with pytest.raises(ValueError, match="Unknown accuracy"):
+    head_unit_gps(location({4: accuracy}), NOW)
+  sink = HeadUnitGps(path=tmp_path / "gps.json", mono_clock=lambda: NOW)
+  assert not sink.publish(location({4: accuracy})) and sink.stats()["rejected"] == 1
+  assert read_head_unit_gps(NOW, tmp_path / "gps.json") is None
 
 
 def test_heading_is_trusted_only_while_moving():

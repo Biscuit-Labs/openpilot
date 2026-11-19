@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import copy
 import hashlib
 import math
 import time
@@ -55,6 +56,7 @@ class RouteRuntime:
     self.refresh_route = None  # the route the refresh clock runs for
     self.refresh_after = 0
     self.refresh_future = None
+    self.refresh_job_route = None  # the route the in-flight refresh was started for
     self.session = uuid.uuid4().hex
 
   def update(self, now_ns: int, position, drive_id: int) -> dict:
@@ -158,6 +160,7 @@ class RouteRuntime:
     """Every REFRESH_NS while guiding, new traffic colours for the rest of the route, on the refresh thread. Only
     the route's congestion changes, and a failed refresh keeps the old one. Nothing is requested while off the
     route or while a reroute is pending: that traffic is about to be replaced and the reroute has the budget."""
+    self._apply_refresh()
     refresh = getattr(self.engine, 'refresh', None)
     if refresh is None or getattr(self.route, 'uuid', None) is None:
       return
@@ -167,7 +170,18 @@ class RouteRuntime:
       self.refresh_route, self.refresh_after = self.route, now_ns + REFRESH_NS
     elif now_ns >= self.refresh_after and (self.refresh_future is None or self.refresh_future.done()):
       self.refresh_after = now_ns + REFRESH_NS
+      self.refresh_job_route = self.route
       self.refresh_future = self.refresh_executor.submit(_quiet_refresh, refresh, token, self.route, segment)
+
+  def _apply_refresh(self) -> None:
+    """Take a finished refresh's colours, but only for the route it was started for; after a reroute or a switch
+    to an alternative the result is dropped."""
+    if self.refresh_future is None or not self.refresh_future.done():
+      return
+    congestion, route = self.refresh_future.result(), self.refresh_job_route
+    self.refresh_future = self.refresh_job_route = None
+    if congestion is not None and route is not None and route is self.route and len(congestion) == len(route.congestion):
+      route.congestion = congestion
 
   def _end_route(self, revision: str) -> None:
     # Once per destination; a concurrent change (new destination, Galaxy edit) wins over arrival.
@@ -183,11 +197,14 @@ class RouteRuntime:
       self.ended_revision = revision
 
 
-def _quiet_refresh(refresh, token: str, route, segment: int) -> bool:
+def _quiet_refresh(refresh, token: str, route, segment: int) -> list[int] | None:
+  """The refreshed congestion, computed on a copy so the live route is only changed by the runtime, and only if
+  it is still current. None when it failed: the old colours stay."""
   try:
-    return bool(refresh(token, route, segment))
+    scratch = copy.copy(route)
+    return list(scratch.congestion) if refresh(token, scratch, segment) else None
   except Exception:
-    return False  # the old colours stay
+    return None
 
 
 def gps_dict(fix) -> dict | None:

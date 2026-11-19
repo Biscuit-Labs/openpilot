@@ -201,4 +201,33 @@ def test_runtime_survives_a_refresh_that_raises(tmp_path):
   from openpilot.starpilot.navigation.runtime import _quiet_refresh
   def broken(*_):
     raise OSError('offline')
-  assert _quiet_refresh(broken, 'pk', None, 0) is False
+  assert _quiet_refresh(broken, 'pk', None, 0) is None
+
+
+def test_a_refresh_for_a_replaced_route_is_dropped(tmp_path):
+  owner = NavigationOwner(tmp_path, runtime_source=lambda: None)
+  owner._is_metric = lambda: True  # ty: ignore[invalid-assignment]
+  settings = owner.configure({'enabled': True, 'token': 'pk.test'}, '0', True)
+  owner.select({'name': 'Destination', 'longitude': .01, 'latitude': 0.}, settings['revision'], True)
+  old, new = (NavigationRoute(route_data(congestion=['low'] * 4)) for _ in range(2))
+  for route in (old, new):
+    route.uuid = 'abc'
+  def refresh(token, row, segment):
+    row.congestion = [4] * 4
+    return True
+  refresher, fetcher = Executor(), Executor()
+  runtime = RouteRuntime(owner, engine=SimpleNamespace(fetch=None, refresh=refresh), executor=fetcher, refresh_executor=refresher)
+  start, drive = 10_000_000_000, 9_000_000_000
+  def update(t):
+    return runtime.update(t, (t - 1_000_000, (.003, 0.), 5., 90.), drive)
+  update(start)
+  fetcher.jobs.pop()[2].set_result(old)
+  update(start + 1_000_000_000)
+  update(start + 1_000_000_000 + REFRESH_NS)
+  fn, args, future = refresher.jobs.pop()
+  assert update(start + 2_000_000_000 + REFRESH_NS)['routeCongestion'] == [1] * 5  # still in flight
+  runtime.routes = [new]  # a reroute / alternative took over while the request was out
+  future.set_result(fn(*args))
+  assert update(start + 3_000_000_000 + REFRESH_NS)['routeCongestion'] == [1] * 5
+  assert old.congestion == [1] * 4 and new.congestion == [1] * 4  # the stale answer touched neither route
+  assert runtime.route is new

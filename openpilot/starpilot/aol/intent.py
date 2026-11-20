@@ -28,6 +28,8 @@ class AolSettings:
   mode_actions: tuple[int, int, int] = (0, 0, 0)
   custom_actions: tuple[int, int, int] = (0, 0, 0)
   default_physical_buttons: bool = True
+  # AolLateralButtonOnly: main cruise and SET never engage lateral; only a Toggle AOL button press does
+  lateral_button_only: bool = False
 
 
 def _button_value(params, key: str) -> int | None:
@@ -64,6 +66,7 @@ def read_settings(params) -> AolSettings:
     enabled=params.get_bool('AlwaysOnLateral') and valid_pause, pause_brake_mps=pause_mps if valid_pause else 0.0,
     lkas_action=_axis_action(lkas), main_action=_axis_action(main),
     default_physical_buttons=lkas == 0 and main == 0,
+    lateral_button_only=params.get_bool('AolLateralButtonOnly'),
     distance_actions=(_button_action(params, 'DistanceButtonControl'),
                       _button_action(params, 'LongDistanceButtonControl'),
                       _button_action(params, 'VeryLongDistanceButtonControl')),
@@ -181,7 +184,18 @@ class AolCardIntent:
 
   @property
   def lkas_action(self) -> int:
-    return self.settings.lkas_action if self.lkas_button_supported else 0
+    if not self.lkas_button_supported:
+      return 0
+    # Lateral-button-only: an unassigned LKAS becomes the steering toggle, the only way to turn lateral on
+    if self.settings.lateral_button_only and self.settings.enabled and self.settings.lkas_action == 0:
+      return AOL_TOGGLE
+    return self.settings.lkas_action
+
+  def hold_lateral_for_button(self) -> None:
+    """Lateral-button-only: until a button arms the latch, lateral stays paused, so a full engagement (SET)
+    gets longitudinal alone. runtime.decide drops lateral on pauseLateral even while ordinarily engaged."""
+    if self.settings.lateral_button_only and self.settings.enabled and not self.allowed_latch:
+      self.pause_lateral = True
 
   def _record_latch_clear(self, reason: str) -> None:
     if self.allowed_latch:
@@ -263,6 +277,8 @@ class AolCardIntent:
     self._arm_from_full_engagement(CS, source_ns=source_ns)
 
   def _arm_from_full_engagement(self, CS, *, source_ns: int) -> None:
+    if self.settings.lateral_button_only:
+      return
     self.allowed_latch = True
     self.pause_lateral = False
     self._last_latch_edge_ns = source_ns
@@ -314,7 +330,9 @@ class AolCardIntent:
     elif self.settings.enabled and not self.explicit_latch and not lkas_managed and not main_managed:
       if not CS.cruiseState.available:
         self._record_latch_clear('cruise_unavailable')
-      self.allowed_latch = bool(CS.cruiseState.available)
+        self.allowed_latch = False
+      elif not self.settings.lateral_button_only:
+        self.allowed_latch = True
     elif not self.explicit_latch and not CS.cruiseState.available:
       self._record_latch_clear('cruise_unavailable')
       self.allowed_latch = False
@@ -411,6 +429,7 @@ class AolCardIntent:
           self._perform(actions[1], now_ns)
         elif self._timers[button] == CRUISE_LONG_PRESS * 5:
           self._perform(actions[2], now_ns)
+    self.hold_lateral_for_button()
 
   def observe_calibration(self, CS, *, events=None, standard_enabled: bool = False) -> None:
     if self.explicit_latch:

@@ -109,6 +109,7 @@ DESCRIPTIONS = {
   'HondaTorqueOutputRateLimit': 'Fastest the torque command may change when the limiter ramps.',
   'HondaTorqueOutputHardLimit': 'Largest torque command sent when the limiter hard-clamps.',
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",
+  'AolLateralButtonOnly': 'Main cruise and SET engage speed control only; the LKAS button turns steering on and off.',
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',
   'IgnoreIgnitionLine': 'Uses GM CAN ignition instead of the harness ignition signal.',

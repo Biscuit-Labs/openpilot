@@ -406,6 +406,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // fixed by design; no settings UI
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
+    {"AolLateralButtonOnly", {PERSISTENT, BOOL, "0"}},  // Night Star: main cruise and SET never engage lateral; LKAS toggles it (starpilot/aol/intent.py)
     {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "1"}},  // on unless set off (vfn seeded it on at first start)
     {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.01"}},
     {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.07"}},

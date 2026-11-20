@@ -31,7 +31,7 @@ HONDA_EPS_PRESERVED_KEYS = frozenset({
   "HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
   "HondaDriverAssistDuringOverride", "HondaSteerDeltaLimiter", "HondaSteerDeltaUp", "HondaSteerDeltaDown",
   "HondaTorqueOutputLimiter", "HondaTorqueOutputLimitMode", "HondaTorqueOutputRateLimit", "HondaTorqueOutputHardLimit",
-  "DisableSeatbeltCheck",
+  "DisableSeatbeltCheck", "AolLateralButtonOnly",
 })
 
 

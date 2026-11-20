@@ -40,7 +40,7 @@ class HondaStockCardIntent(AolCardIntent):
           self.cancel_held = False
           self.cancel_ticks = 0
       elif event.type in (ButtonType.mainCruise, ButtonType.lkas):
-        action = self.settings.main_action if event.type == ButtonType.mainCruise else self.settings.lkas_action
+        action = self.settings.main_action if event.type == ButtonType.mainCruise else self.lkas_action
         if action == AOL_TOGGLE:
           events.append(structs.CarState.ButtonEvent(**event.to_dict()))
         elif event.pressed:
@@ -68,7 +68,8 @@ class HondaStockCardIntent(AolCardIntent):
       engaged = bool(kwargs.get('standard_enabled', False))
       if not available or first:
         self.main_neutral = True
-      elif self.auto_main and self.main_neutral and not self.main_available and not engaged:
+      elif (self.auto_main and not self.settings.lateral_button_only and self.main_neutral and not self.main_available and
+            not engaged):
         events.append(structs.CarState.ButtonEvent(type=ButtonType.mainCruise, pressed=True))
         self.main_pulse = True
         self.main_neutral = False
@@ -86,6 +87,7 @@ class HondaStockCardIntent(AolCardIntent):
     super().update(CS, **kwargs)
     if not available:
       self.allowed_latch = False
+    self.hold_lateral_for_button()
     if self.cancel_held:
       self.cancel_ticks += 1
       if self.cancel_ticks == CRUISE_LONG_PRESS:

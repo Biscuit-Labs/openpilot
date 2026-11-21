@@ -206,12 +206,7 @@ class TestProjectionLayoutRuntime(unittest.TestCase):
     self.assertIs(view.customization, saved)
     self.assertIsNone(view._projection_customization, 'the cached projected layout is rebuilt')
     self.assertIs(view.camera.large_ui_gamma_trial, True)
-    self.assertIsInstance(view.map_feed, FakeFeed, 'turning the map on in Galaxy starts its feed without reconnecting')
-    self.assertIsNone(view.map, 'the overlay itself waits for navigation')
-    native.ui_state.started = True
-    view.map_feed.navigating = True
-    view.prepare()
-    self.assertIsInstance(view.map, FakeMap)
+    self.assertIsInstance(view.map, FakeMap, 'turning the map on in Galaxy builds it without reconnecting')
     self.assertEqual(view.onroad.map_layer, view._map_layer)
 
   def test_screen_writer_lock_contention_preserves_previous_receipt(self):

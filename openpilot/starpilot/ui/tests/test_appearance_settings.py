@@ -627,7 +627,7 @@ class AppearanceSettingsTests(unittest.TestCase):
       from openpilot.starpilot.ui.tests.test_unified_speed_native import foreground_calls
       x, y = foreground_calls(fonts.draw)[0].args[3:5]
       self.assertAlmostEqual(x, 175)
-      self.assertAlmostEqual(y, 86.07, places=2)
+      self.assertAlmostEqual(y, 125.55, places=2)  # SET centers on the sign beside it
     for profile in (Profile.LARGE, Profile.COMPACT):
       view = onroad.OnroadView.__new__(onroad.OnroadView)
       view._fade = Mock()
@@ -668,7 +668,7 @@ class AppearanceSettingsTests(unittest.TestCase):
         view.alert.render.assert_called()
         if profile == Profile.LARGE:
           self.assertEqual(view.unified_speed.render.call_count, 2)
-          self.assertEqual(slc.call_count, 2)
+          slc.assert_not_called()  # No pending limit: feedback draws with the card, not the chooser.
           view.current_speed.render.assert_called_once()
           view.steering_wheel.render.assert_called_once()
         for alert_size in (AlertSize.SMALL, AlertSize.MID, AlertSize.FULL):

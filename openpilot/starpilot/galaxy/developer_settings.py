@@ -6,7 +6,7 @@ from openpilot.starpilot.longitudinal.voacc import KEY, DESCRIPTION
 from openpilot.starpilot.ui.calibration_reset import calibration_reset
 from openpilot.starpilot.saved_document import commit_exact
 from openpilot.starpilot.saved_source import read_saved
-from openpilot.starpilot.system.starport import head_unit_fixes, new_setup
+from openpilot.starpilot.system.starport import head_unit_fixes
 from openpilot.starpilot.ui.feature_settings_state import HEADING_PREFIX, FeatureRow, FeatureSettingsState
 
 
@@ -16,9 +16,6 @@ STARPORT_WIFI_DESCRIPTION = ("Experimental. Join the car's Wi-Fi on a second int
 CALIBRATION_RESET = "reset_calibration"
 CALIBRATION_RESET_DESCRIPTION = "Clear camera and steering calibration. The device recalibrates on the next drive."
 STARPORT_HEADING_KEY = HEADING_PREFIX + "starport"
-STARPORT_NEW_SETUP_KEY = "StarPortNewSetup"
-STARPORT_NEW_SETUP_DESCRIPTION = ("Guided StarPort setup with a live checklist of what is being tried. Turn off to use the classic " +
-                                  "setup screens. Applies the next time the setup screen opens.")
 STARPORT_HEVC_KEY = "StarPortAllowHevc"
 STARPORT_HEVC_DESCRIPTION = ("Experimental. Only for a car that offers H.265 and no H.264 video. Cars that offer H.264 are not " +
                              "affected. Applies from the next StarPort connection.")
@@ -47,13 +44,9 @@ class DeveloperSettingsOwner:
       return None  # the service is off; there is nothing to configure
 
   def _starport_rows(self, parked):
-    """The StarPort section. The switch back to classic setup is always listed; the daemon's settings only while it runs."""
-    new_setup_on = new_setup.enabled()
+    """The StarPort section: the daemon's settings, listed only while it runs."""
     held = "Park the vehicle to change this setting."
-    rows = [FeatureRow(STARPORT_HEADING_KEY, "StarPort", "", available=False),
-            FeatureRow(STARPORT_NEW_SETUP_KEY, "New pairing experience", "On" if new_setup_on else "Off",
-                       b"1" if new_setup_on else b"0", ("Off", "On"), available=parked,
-                       reason=STARPORT_NEW_SETUP_DESCRIPTION if parked else held, default_value="On")]
+    rows = [FeatureRow(STARPORT_HEADING_KEY, "StarPort", "", available=False)]
     status = self._starport_status()
     if status is not None:
       enabled, hevc = bool(status.get("dedicated_wifi_interface")), bool(status.get("allow_hevc"))
@@ -138,8 +131,6 @@ class DeveloperSettingsOwner:
       return self._apply_starport(request, "head_unit_experiments", "set_head_unit_experiments")
     if request.key.startswith(STARPORT_EXPERIMENT_PREFIX):
       return self._apply_experiment_rule(request)
-    if request.key == STARPORT_NEW_SETUP_KEY:
-      return self._apply_new_setup(request)
     if request.key != KEY or request.value not in ("Off", "On") or request.expected not in (None, b"0", b"1"):
       return False
     result = commit_exact(self.params, key=request.key, max_bytes=8, raw=b"1" if request.value == "On" else b"0",
@@ -173,9 +164,3 @@ class DeveloperSettingsOwner:
       return False
     status = self._starport_status()
     return status is not None and (rule_id in (status.get("head_unit_experiment_rules") or ())) == (request.value == "On")
-
-  def _apply_new_setup(self, request):
-    current = new_setup.enabled()
-    if request.value not in ("Off", "On") or request.expected != (b"1" if current else b"0") or not self.authorized():
-      return False
-    return new_setup.set_enabled(request.value == "On")

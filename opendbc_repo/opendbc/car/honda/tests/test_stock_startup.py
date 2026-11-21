@@ -32,7 +32,7 @@ EPS_CASES = (
 )
 
 
-def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firmware=()):
+def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firmware=(), pedal=False):
   from opendbc.can.dbc import DBC as CANDBC
   from opendbc.car import Bus, car_helpers
   from openpilot.cereal import messaging
@@ -55,6 +55,8 @@ def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firm
   gear = messages.get("GEARBOX_AUTO") or messages.get("GEARBOX_CVT")
   assert gear is not None
   fingerprint[1 if classic else 0][gear.address] = gear.size
+  if pedal:
+    fingerprint[0][0x201] = 6   # GAS_SENSOR: a pedal interceptor on the powertrain bus
   with OpenpilotPrefix():
     saved = Params()
     for key, value in (("OpenpilotEnabledToggle", True), ("AlwaysOnLateral", aol),
@@ -75,6 +77,8 @@ def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firm
       expected["safetyConfigs"][0]["safetyParam"] = base_word | 2080
     if aol and identity == CAR.HONDA_ODYSSEY_TWN:
       expected["safetyConfigs"][0]["safetyParam"] = 260
+    if aol and pedal:
+      expected["safetyConfigs"][0]["safetyParam"] = base_word | int(HondaSafetyFlags.NIDEC_PEDAL_AOL)
     subscriber = messaging.sub_sock("carParams", timeout=100, conflate=True)
     intent_subscriber = messaging.sub_sock("aolIntentWire", timeout=100, conflate=True)
     card = ci = controls = None
@@ -89,6 +93,9 @@ def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firm
       ci = card.CI
       assert card.CP.to_dict() == expected
       assert ci.CP is card.CP and ci.CC is not None
+      if pedal:   # the pedal gets commands (0x200) only with a qualified interceptor
+        from opendbc.car.honda.nidec_interceptor import qualified as interceptor_qualified
+        assert interceptor_qualified(card.CP) and ci.CC.nidec_interceptor is not None
       assert card.aol_qualified is aol
       if aol:
         assert card.aol_card_intent.explicit_latch is True
@@ -131,7 +138,9 @@ def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firm
       command, lateral_log = controls.state_control()
       assert not command.enabled and not command.latActive and not command.longActive
       controls.publish(command, lateral_log)
-      ci.apply(command.as_reader(), now)
+      _, sent = ci.apply(command.as_reader(), now)
+      if pedal:   # 11-21 parity drive: no 0x200 at all -> pedal timeout (STATE 5) -> gasPressed on every frame
+        assert any(frame[0] == 0x200 for frame in sent)
     finally:
       del controls, card, ci, subscriber, intent_subscriber
       gc.collect()
@@ -141,6 +150,17 @@ def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firm
 @pytest.mark.parametrize("aol", (False, True))
 def test_actual_stock_owner_card_publication_and_disabled_controls(identity, alpha, release, word, aol, monkeypatch):
   exercise_startup(identity, alpha, release, aol, word, monkeypatch)
+
+
+def test_clarity_angle_mode_with_a_pedal_keeps_stock_aol_and_the_interceptor(monkeypatch):
+  # the owner's car (11-21 parity drive: no lateral): Clarity on the modified EPS with a pedal interceptor, angle mode on
+  # by default, Always On Lateral. Before angle mode route f7 ran hondaNidec 544, alternativeExperience 32; with angle
+  # mode it must be 544 | 4096 = 4640 with 32, and the interceptor must still get commands.
+  firmware = (structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1,
+                                     subAddress=0, fwVersion=b"39990-TRW,A020\x00\x00", brand="honda"),)
+  word = int(HondaSafetyFlags.GAS_INTERCEPTOR | HondaSafetyFlags.CLARITY_ANGLE)
+  assert word == 4128
+  exercise_startup(CAR.HONDA_CLARITY, False, False, True, word, monkeypatch, firmware, pedal=True)
 
 
 @pytest.mark.parametrize("identity,version", EPS_CASES)

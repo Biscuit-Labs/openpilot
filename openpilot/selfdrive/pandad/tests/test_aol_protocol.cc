@@ -569,6 +569,26 @@ int main() {
     assert(!aol_capable(stock_honda, 1U, VEHICLE_REGISTRY));
   }
 
+  // Clarity angle mode adds the panda angle-rule bit (4096) to the Nidec word: 544 | 4096 = 4640 (the owner's pedal
+  // Clarity). Nidec accepts word | 4096 exactly when it accepts word; Bosch words are unchanged (none has the bit).
+  for (uint16_t word = 0U; word < 4096U; ++word) {
+    auto angle_honda = status();
+    angle_honda.safety_mode = 1U;
+    angle_honda.safety_param = static_cast<uint16_t>(word | 4096U);
+    const bool nidec = word == 0U || word == 4U || word == 260U || word == 544U || word == 548U || word == 804U;
+    assert(aol_capable(angle_honda, 1U, VEHICLE_REGISTRY) == nidec);
+    assert(aol_runtime_enabled(false, angle_honda, VEHICLE_REGISTRY) == nidec);
+    angle_honda.safety_mode = 20U;
+    assert(!aol_capable(angle_honda, 20U, VEHICLE_REGISTRY));
+    assert(!aol_runtime_enabled(false, angle_honda, VEHICLE_REGISTRY));
+  }
+  {
+    auto owner = status();
+    owner.safety_mode = 1U;
+    owner.safety_param = 4640U;
+    assert(aol_capable(owner, 1U, VEHICLE_REGISTRY) && aol_runtime_enabled(false, owner, VEHICLE_REGISTRY));
+  }
+
   for (const uint16_t word : {1058U, 1059U, 1570U, 1571U, 2082U, 2083U, 2211U}) {
     auto marked_alt_honda = status();
     marked_alt_honda.safety_mode = 20U;

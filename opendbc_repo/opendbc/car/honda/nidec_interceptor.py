@@ -4,7 +4,7 @@ import numpy as np
 
 from opendbc.car import structs
 from opendbc.car.can_definitions import CanData
-from opendbc.car.honda.values import CAR, HondaFlags
+from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 
 LongCtrlState = structs.CarControl.Actuators.LongControlState
 NIDEC_INTERCEPTOR_CARS = frozenset((
@@ -29,16 +29,24 @@ NIDEC_INTERCEPTOR_CARS = frozenset((
 ))
 
 
+# Clarity angle mode's panda bit (honda.h HONDA_PARAM_ANGLE) only tightens 0xE4; it is masked out of the exact param
+# match and must be set exactly when angle mode is (without this the pedal got no commands on the 11-21 parity build)
+_ANGLE_BIT = int(HondaSafetyFlags.CLARITY_ANGLE)
+
+
 def qualified(cp):
   configs = [config for config in cp.safetyConfigs if config.safetyModel != structs.CarParams.SafetyModel.noOutput]
+  if len(configs) != 1 or bool(configs[0].safetyParam & _ANGLE_BIT) != bool(cp.flags & HondaFlags.CLARITY_ANGLE_MODE):
+    return False
+  param = configs[0].safetyParam & ~_ANGLE_BIT
   return (cp.brand == "honda" and cp.carFingerprint in NIDEC_INTERCEPTOR_CARS and
           not cp.flags & HondaFlags.BOSCH and cp.flags & HondaFlags.GAS_INTERCEPTOR and
           cp.openpilotLongitudinalControl and not cp.pcmCruise and
           not cp.passive and not cp.dashcamOnly and not cp.notCar and len(configs) == 1 and
           configs[0].safetyModel == structs.CarParams.SafetyModel.hondaNidec and
-          (configs[0].safetyParam == (36 if cp.flags & HondaFlags.NIDEC_ALT_SCM_MESSAGES else 32) or
+          (param == (36 if cp.flags & HondaFlags.NIDEC_ALT_SCM_MESSAGES else 32) or
            (len(cp.safetyConfigs) == 1 and cp.alternativeExperience == 32 and
-            configs[0].safetyParam == ((36 if cp.flags & HondaFlags.NIDEC_ALT_SCM_MESSAGES else 32) | 512 |
+            param == ((36 if cp.flags & HondaFlags.NIDEC_ALT_SCM_MESSAGES else 32) | 512 |
                                       (256 if cp.carFingerprint == CAR.HONDA_ODYSSEY_TWN else 0)))))
 
 

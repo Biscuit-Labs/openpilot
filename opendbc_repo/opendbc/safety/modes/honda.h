@@ -568,7 +568,7 @@ static safety_config honda_nidec_init(uint16_t param_raw) {
   } else {
     SET_TX_MSGS(HONDA_N_TX_MSGS, ret);
   }
-  ret = honda_stock_aol_configure(param, true, enable_nidec_alt, 0U, ret);
+  ret = honda_stock_aol_configure(param, true, enable_nidec_alt, 0U, honda_angle_mode, ret);
 
   return ret;
 }
@@ -727,7 +727,7 @@ static safety_config honda_bosch_init(uint16_t param) {
     ret.tx_msgs = NULL;
     ret.tx_msgs_len = 0;
   }
-  ret = honda_stock_aol_configure(param, false, false, honda_get_pt_bus(), ret);
+  ret = honda_stock_aol_configure(param, false, false, honda_get_pt_bus(), false, ret);
   return ret;
 }
 

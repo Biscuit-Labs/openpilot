@@ -110,8 +110,9 @@ def qualified(cp, *, marked_only=False):
     if fingerprint == CAR.HONDA_ODYSSEY_TWN and cp.alternativeExperience == 32:
       expected |= 256
     angle = bool(flags & int(HondaFlags.CLARITY_ANGLE_MODE))
-    # angle mode + pedal needs 7 panda RX checks; panda's stock AOL switches itself off above 6 (honda_stock_aol.h)
-    return (not (angle and pedal) and bool(cp.pcmCruise) == (not pedal) and cp.openpilotLongitudinalControl and
+    # angle mode + pedal: panda installs 7 RX checks + the AOL pair (honda_stock_aol.h, 9-entry workspace), so it
+    # qualifies exactly as the pedal alone did (the owner's Clarity: 544 | 4096, alternativeExperience 32)
+    return (bool(cp.pcmCruise) == (not pedal) and cp.openpilotLongitudinalControl and
             safety.safetyModel == _HONDA_NIDEC and (safety.safetyParam & ~NIDEC_ANGLE_BIT) == expected and
             bool(safety.safetyParam & NIDEC_ANGLE_BIT) == angle)
   if fingerprint in CLASSIC_BOSCH and flags & _BOSCH and not flags & _BOSCH_RADARLESS:

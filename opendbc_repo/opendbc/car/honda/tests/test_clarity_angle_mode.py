@@ -364,9 +364,11 @@ def test_angle_mode_sets_the_panda_angle_bit():
   assert not qualified(off)
 
 
-def test_angle_mode_with_a_pedal_is_not_aol_qualified():
-  # angle mode + pedal interceptor needs 7 panda RX checks and panda's stock AOL turns itself off above 6
+def test_angle_mode_with_a_pedal_qualifies_like_the_pedal_alone():
+  # the owner's Clarity (11-21 parity drive: no lateral): panda now installs 7 RX checks + the AOL pair, so angle mode +
+  # pedal must qualify exactly as the pedal alone did (544 -> 544 | 4096, alternativeExperience 32)
   from opendbc.car.honda.stock_aol import qualified
+  from opendbc.car.honda.nidec_interceptor import qualified as interceptor_qualified
   from opendbc.car.honda.values import HondaFlags, HondaSafetyFlags
   cps = [cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(MODIFIED)]), angle) for angle in (False, True)]
   for cp in cps:
@@ -374,7 +376,12 @@ def test_angle_mode_with_a_pedal_is_not_aol_qualified():
     cp.flags |= HondaFlags.GAS_INTERCEPTOR.value
     cp.safetyConfigs[-1].safetyParam |= int(HondaSafetyFlags.GAS_INTERCEPTOR | HondaSafetyFlags.NIDEC_PEDAL_AOL)
     cp.pcmCruise = False
-  assert qualified(cps[0]) and not qualified(cps[1])
+  assert [cp.safetyConfigs[-1].safetyParam for cp in cps] == [544, 4640]
+  assert qualified(cps[0]) and qualified(cps[1])
+  assert interceptor_qualified(cps[0]) and interceptor_qualified(cps[1])
+  # the angle bit must match the flag, on both checks
+  cps[1].safetyConfigs[-1].safetyParam &= ~int(HondaSafetyFlags.CLARITY_ANGLE)
+  assert not qualified(cps[1]) and not interceptor_qualified(cps[1])
 
 
 def test_torque_mode_frames_unchanged():

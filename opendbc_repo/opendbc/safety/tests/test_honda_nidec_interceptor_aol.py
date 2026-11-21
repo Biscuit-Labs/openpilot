@@ -143,5 +143,68 @@ class TestHondaNidecInterceptorAol(TestHondaInterceptor):
     self.assertEqual(self.safety.aol_get_permission_mask(), 0)
 
 
+ANGLE_AOL_WORD = AOL_WORD | int(HondaSafetyFlags.CLARITY_ANGLE)
+
+
+class TestHondaNidecInterceptorAolClarityAngle(TestHondaNidecInterceptorAol):
+  """The owner's Clarity (11-21 parity drive had no lateral): pedal interceptor + stock AOL + angle mode = hondaNidec
+  544 | 4096 with alternativeExperience 32. Panda installs 7 RX checks (baseline 5, 0x14A, interceptor) plus the AOL
+  EPS/gear pair. Every pedal-AOL case runs on that word; steering frames are angle frames at the measured wheel."""
+
+  def setup_aol(self, word=ANGLE_AOL_WORD, ticks=20):
+    super().setup_aol(word, ticks)
+
+  def gesture(self):
+    if self.safety_word & int(HondaSafetyFlags.NIDEC_PEDAL_AOL) and self.safety_word & 32:
+      self.rx("SCM_FEEDBACK", 0, {"MAIN_ON": 0})
+      self.step()
+
+  def feed(self, tick, angle=True, **kw):
+    super().feed(tick, **kw)
+    if angle:
+      self.rx("STEERING_SENSORS", 0, {"STEER_ANGLE": 0})
+      self.safety.safety_tick()
+
+  def steer(self, torque=0x100):
+    # an angle frame at the measured wheel (0); with the angle bit a torque frame (request, no payload) is refused.
+    # Words without the angle bit keep the parent's torque frame (a target of 0 is "no torque" to the torque rule).
+    if not self.safety_word & int(HondaSafetyFlags.CLARITY_ANGLE):
+      return super().steer(torque)
+    values = {"STEER_TORQUE": 0, "STEER_TORQUE_REQUEST": 1, "SET_ME_X00": 0x20, "SET_ME_X00_2": 0x07}
+    return self.tx(self.packer.make_can_msg("STEERING_CONTROL", 0, values))
+
+  def test_plain_interceptor_word_has_no_aol(self):
+    self.setup_aol(word=32 | int(HondaSafetyFlags.CLARITY_ANGLE))
+    self.safety.aol_set_host_request(3)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 0)
+    self.assertFalse(self.steer())
+    self.step(button=3)
+    self.step(button=0)
+    self.assertTrue(self.safety.get_controls_allowed())
+    self.assertTrue(self.steer())
+    self.assertTrue(self.tx(self.command()))
+
+  def test_angle_word_installs_all_rx_checks_and_the_aol_pair(self):
+    self.setup_aol()
+    self.safety.aol_set_host_request(1)
+    self.assertEqual(self.safety.aol_get_permission_mask(), 1)   # stock AOL configured (it needs the EPS/gear pair)
+    self.assertTrue(self.steer())
+    # the angle rule still applies: a target away from the wheel, or a torque frame, is refused
+    far = {"STEER_TORQUE": 400, "STEER_TORQUE_REQUEST": 1, "SET_ME_X00": 0x20, "SET_ME_X00_2": 0x07}
+    self.assertFalse(self.tx(self.packer.make_can_msg("STEERING_CONTROL", 0, far)))
+    torque = {"STEER_TORQUE": 0x100, "STEER_TORQUE_REQUEST": 1}
+    self.assertFalse(self.tx(self.packer.make_can_msg("STEERING_CONTROL", 0, torque)))
+
+  def test_angle_word_without_steering_sensors_never_steers(self):
+    self.init(ANGLE_AOL_WORD)
+    self.safety.set_aol_test_heartbeat(True)
+    for tick in range(20):
+      self.feed(tick, angle=False)
+    self.tick = 20
+    self.gesture()
+    self.safety.aol_set_host_request(1)
+    self.assertFalse(self.steer())
+
+
 if __name__ == "__main__":
   unittest.main()

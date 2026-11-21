@@ -173,8 +173,8 @@ class LaneChangeFeature:
       # Hidden entirely without a vehicle whose parameters report a blind-spot monitor.
       bsm_row = replace(common, key=ABORT, label="Abort Lane Change for Blind Spot",
                         value="On" if policy.abort_on_blindspot else "Off", choices=("Off", "On"), available=allowed,
-                        reason="Aborts a lane change during its first two seconds if the target-side blind spot lights; " +
-                               "afterward it only warns, and the driver must signal again to retry.")
+                        reason="Cancels a lane change during its first three seconds if the target-side blind spot lights and " +
+                               "tells the driver to take control, since the car may keep moving; the driver must signal again to retry.")
       rows.insert(next(index for index, row in enumerate(rows) if row.key == ONE) + 1, bsm_row)
 
     defaults = LaneChangePolicy()

@@ -31,7 +31,7 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
     policy = LaneChangePolicy(abort_on_blindspot=True)
     for side, spot in (("left", "leftBlindspot"), ("right", "rightBlindspot")):
       with self.subTest(side=side):
-        for frames in (10, 38):  # 0.5 s and 1.9 s into the maneuver
+        for frames in (10, 38, 50, 58):  # 0.5, 1.9, 2.5 and 2.9 s into the maneuver
           helper = starting(policy, side)
           for _ in range(frames - 1):
             helper.update(car(**{"leftBlinker": side == "left", "rightBlinker": side == "right"}), True, 1.0)
@@ -43,18 +43,16 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
           self.assertTrue(helper.lane_change_performed)
           self.assertTrue(helper.aborted_alert_active)
 
-  def test_late_blindspot_only_warns(self):
+  def test_blindspot_past_the_abort_window_is_ignored(self):
     helper = starting(LaneChangePolicy(abort_on_blindspot=True))
-    for _ in range(41):  # 2.05 s
+    for _ in range(64):  # 3.2 s
       helper.update(car(leftBlinker=True), True, 1.0)
-    helper.update(car(leftBlinker=True, leftBlindspot=True), True, 1.0)  # 2.10 s
-    self.assertEqual((helper.lane_change_state, helper.lane_change_direction, helper.desire),
-                     (log.LaneChangeState.laneChangeStarting, log.LaneChangeDirection.left, log.Desire.laneChangeLeft))
-    self.assertTrue(helper.late_blindspot)
+    helper.update(car(leftBlinker=True, leftBlindspot=True), True, 1.0)  # 3.25 s: past the abort window
+    self.assertEqual(helper.lane_change_state, log.LaneChangeState.laneChangeStarting)
     self.assertFalse(helper.abort_latched)
-    self.assertFalse(helper.aborted_alert_active)
-    helper.update(car(leftBlinker=True), True, 1.0)
-    self.assertFalse(helper.late_blindspot)  # the late flag is per-frame
+    helper.update(car(leftBlinker=True, leftBlindspot=True), True, 0.01)  # normal completion
+    self.assertEqual((helper.lane_change_state, helper.lane_change_direction),
+                     (log.LaneChangeState.off, log.LaneChangeDirection.none))
 
   def test_opposite_side_blindspot_is_ignored(self):
     helper = starting(LaneChangePolicy(abort_on_blindspot=True), "left")
@@ -62,7 +60,6 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
       helper.update(car(leftBlinker=True), True, 1.0)
     helper.update(car(leftBlinker=True, rightBlindspot=True), True, 1.0)
     self.assertEqual(helper.lane_change_state, log.LaneChangeState.laneChangeStarting)
-    self.assertFalse(helper.late_blindspot)
     self.assertFalse(helper.abort_latched)
 
   def test_toggle_off_keeps_today_behavior(self):
@@ -71,7 +68,6 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
       helper.update(car(leftBlinker=True), True, 1.0)
     helper.update(car(leftBlinker=True, leftBlindspot=True), True, 1.0)
     self.assertEqual(helper.lane_change_state, log.LaneChangeState.laneChangeStarting)
-    self.assertFalse(helper.late_blindspot)
     self.assertFalse(helper.abort_latched)
     self.assertFalse(helper.aborted_alert_active)
 
@@ -123,15 +119,15 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
     self.assertFalse(helper.abort_latched)
     self.assertFalse(helper.aborted_alert_active)
 
-  def test_abort_alert_lastes_about_two_seconds(self):
+  def test_abort_alert_lastes_about_three_seconds(self):
     helper = starting(LaneChangePolicy(abort_on_blindspot=True))
     for _ in range(9):
       helper.update(car(leftBlinker=True), True, 1.0)
     helper.update(car(leftBlinker=True, leftBlindspot=True), True, 1.0)
-    for _ in range(30):  # 1.5 s after the abort
+    for _ in range(50):  # 2.5 s after the abort
       helper.update(car(leftBlinker=True, leftBlindspot=True), True, 1.0)
     self.assertTrue(helper.aborted_alert_active)
-    for _ in range(11):  # 2.1 s after the abort
+    for _ in range(12):  # 3.1 s after the abort
       helper.update(car(leftBlinker=True, leftBlindspot=True), True, 1.0)
     self.assertFalse(helper.aborted_alert_active)
     self.assertEqual(helper.abort_alert_timer, 0.0)

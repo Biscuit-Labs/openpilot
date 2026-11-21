@@ -5,7 +5,7 @@ from openpilot.starpilot.lateral.lane_change_preferences import LaneChangePolicy
 from openpilot.starpilot.lateral.lane_change_status_wire import Direction, LaneChangeStatus, Phase, decode as wire_decode, \
   encode as wire_encode
 from openpilot.starpilot.lateral.lane_change_abort_alerts import (
-  ABORTED_ALERT_TYPE, ABORTED_EVENT_TYPE, LATE_ALERT_TYPE, LATE_EVENT_TYPE, lane_change_abort_alert,
+  ABORTED_ALERT_TYPE, ABORTED_EVENT_TYPE, lane_change_abort_alert,
 )
 
 
@@ -34,7 +34,11 @@ def test_abort_field_rejects_non_bool():
 
 
 def test_wire_roundtrips_the_new_phases():
-  for phase, direction in ((Phase.ABORTED_BLINDSPOT, Direction.NONE), (Phase.LATE_BLINDSPOT, Direction.LEFT)):
+  assert not hasattr(Phase, "LATE_BLINDSPOT")  # the late phase is gone; the numbering is stable
+  assert int(Phase.ABORTED_BLINDSPOT) == 4
+  for phase, direction in ((Phase.MANUAL_REQUIRED, Direction.NONE), (Phase.WAITING_FOR_DELAY, Direction.LEFT),
+                           (Phase.LANE_UNAVAILABLE, Direction.RIGHT), (Phase.BLINDSPOT_BLOCKED, Direction.LEFT),
+                           (Phase.ABORTED_BLINDSPOT, Direction.NONE)):
     status = LaneChangeStatus("s", 3, 9, 10, 20, 30, phase, direction, False, True)
     raw = wire_encode(status)
     assert wire_decode(raw) == status
@@ -46,16 +50,11 @@ def test_abort_alert_module_maps_phases_and_honours_valid_until():
   from openpilot.selfdrive.selfdrived.events import AlertSize, AlertStatus, AudibleAlert, Priority
   aborted = LaneChangeStatus("s", 3, 9, 10, 20, 30, Phase.ABORTED_BLINDSPOT, Direction.NONE, False, True)
   alert = lane_change_abort_alert(aborted, 25)
-  assert (alert.alert_text_1, alert.alert_text_2) == ("Lane Change Aborted", "Vehicle in Blind Spot")
+  assert (alert.alert_text_1, alert.alert_text_2) == ("Take Control", "Lane Change Aborted: Vehicle in Blind Spot")
   assert (alert.alert_status, alert.alert_size) == (AlertStatus.userPrompt, AlertSize.mid)
   assert (alert.priority, alert.visual_alert, alert.audible_alert) == \
-    (Priority.MID, car.CarControl.HUDControl.VisualAlert.none, AudibleAlert.prompt)
+    (Priority.HIGH, car.CarControl.HUDControl.VisualAlert.steerRequired, AudibleAlert.warningImmediate)
   assert (alert.alert_type, alert.event_type) == (ABORTED_ALERT_TYPE, ABORTED_EVENT_TYPE)
-  late = LaneChangeStatus("s", 3, 9, 10, 20, 30, Phase.LATE_BLINDSPOT, Direction.LEFT, False, True)
-  late_alert = lane_change_abort_alert(late, 25)
-  assert (late_alert.alert_text_1, late_alert.alert_text_2) == ("Vehicle in Blind Spot", "")
-  assert (late_alert.alert_size, late_alert.audible_alert) == (AlertSize.small, AudibleAlert.warningSoft)
-  assert (late_alert.alert_type, late_alert.event_type) == (LATE_ALERT_TYPE, LATE_EVENT_TYPE)
   assert lane_change_abort_alert(aborted, 31) is None  # past valid_until
   assert lane_change_abort_alert(None, 25) is None
   for phase in (Phase.MANUAL_REQUIRED, Phase.WAITING_FOR_DELAY, Phase.LANE_UNAVAILABLE, Phase.BLINDSPOT_BLOCKED):

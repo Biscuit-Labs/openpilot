@@ -522,10 +522,6 @@ def validate_document(value):
     fields.add('showMaxSpeed')
     if type(value['showMaxSpeed']) is not bool:
       raise ValueError('Invalid MAX speed preference')
-  if 'radarPoints' in value:
-    fields.add('radarPoints')
-    if type(value['radarPoints']) is not bool:
-      raise ValueError('Invalid radar point preference')
   if 'speedDisplayOffset' in value:
     fields.add('speedDisplayOffset')
     adjustment = value['speedDisplayOffset']
@@ -741,8 +737,6 @@ def validate_document(value):
     result['clock24Hour'] = value['clock24Hour']
   if 'showMaxSpeed' in value:
     result['showMaxSpeed'] = value['showMaxSpeed']
-  if 'radarPoints' in value:
-    result['radarPoints'] = value['radarPoints']
   if 'speedDisplayOffset' in value:
     result['speedDisplayOffset'] = value['speedDisplayOffset']
   if value['version'] < 10:

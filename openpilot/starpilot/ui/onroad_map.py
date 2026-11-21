@@ -98,14 +98,6 @@ CASING_EXTRA = 2.6
 ROUTE_GLOW = (150, 110, 255, 90)
 ROUTE_CORE = (178, 150, 255, 255)
 ROUTE_DONE = (118, 104, 150, 200)
-# Traffic on the route line (Navigation.routeCongestion: 0 unknown, 1 low, 2 moderate, 3 heavy, 4 severe), the
-# head unit's dash-map colors. Unknown and low keep ROUTE_CORE and ROUTE_GLOW; a slow stretch's glow takes its color
-# at the glow's alpha, so the whole width of the line shows the traffic (Peter 2026-10-31).
-# Severe is #e53935, one shade brighter than the head unit's #c62828: on this dark map #c62828 is only ~2.5:1 against
-# the road background and reads as a dark gap in the line; #e53935 is ~3.3:1 and still distinct from heavy orange.
-CONGESTION_CORE = {2: (255, 179, 0, 255), 3: (255, 87, 34, 255), 4: (229, 57, 53, 255)}   # #ffb300 #ff5722 #e53935
-CONGESTION_GLOW = {level: (*color[:3], ROUTE_GLOW[3]) for level, color in CONGESTION_CORE.items()}
-GLOW_OF = {CONGESTION_CORE[level]: CONGESTION_GLOW[level] for level in CONGESTION_CORE}
 GLASS = (8, 12, 20, 132)
 SOURCE_LABELS = {"comma": "Comma GPS", "car": "Car GPS", "phone": "Phone GPS"}
 REFERENCE_M_PER_PX = 1.4
@@ -261,13 +253,8 @@ def build_canvas(request: CanvasRequest, tiles: dict[TileKey, RoadTile], latitud
   return geometry
 
 
-def route_guidance(route, request: CanvasRequest, latitude: float, levels: np.ndarray | None = None):
-  """Build only the remaining route; the road canvas never bakes in a driven tail.
-
-  ``levels`` is the traffic on each of the route's segments (len(route) - 1), or None for a plain route. Glow and core
-  are each one strip per traffic color (runs of the same color batched); every glow is drawn before any core, so a
-  neighbour's glow never covers a core.
-  """
+def route_guidance(route, request: CanvasRequest, latitude: float):
+  """Build only the remaining route; the road canvas never bakes in a driven tail."""
   if route is None or len(route) < 2:
     return []
   scale = meters_per_tile(latitude) * request.supersample / request.m_per_px
@@ -276,53 +263,13 @@ def route_guidance(route, request: CanvasRequest, latitude: float, levels: np.nd
   bounds = (-8.0, -8.0, request.side + 8.0, request.side + 8.0)
   # Every frame draws these strips: keep only the stretches that can reach the canvas, widest line included.
   reach = 8.0 + 17.0 * width_scale / 2
-  keep = visible_segments(points, (-reach, -reach, request.side + reach, request.side + reach))
+  points, offsets = visible_runs(points, (-reach, -reach, request.side + reach, request.side + reach))
   layers = []
-  colors = core_colors(keep, levels)
-  glow = {color: GLOW_OF.get(color, ROUTE_GLOW) for color, _ in colors}
-  for width, pick in ((17.0, glow.__getitem__), (7.0, lambda color: color)):
-    for color, mask in colors:
-      strip = line_strip(*segment_runs(points, mask), width * width_scale / 2, bounds)
-      if len(strip):
-        layers.append((premultiplied(pick(color)), strip))
+  for color, width in ((ROUTE_GLOW, 17.0), (ROUTE_CORE, 7.0)):
+    strip = line_strip(points, offsets, width * width_scale / 2, bounds)
+    if len(strip):
+      layers.append((premultiplied(color), strip))
   return layers
-
-
-def core_colors(keep: np.ndarray, levels: np.ndarray | None) -> list[tuple[tuple[int, int, int, int], np.ndarray]]:
-  """(color, segment mask) for the route core, bottom to top: ROUTE_CORE, then moderate, heavy, severe.
-
-  Without traffic, or with levels that do not match the segments, it is the plain route: one ROUTE_CORE mask.
-  """
-  if levels is None or len(levels) != len(keep):
-    return [(ROUTE_CORE, keep)]
-  result = []
-  plain = keep & ~np.isin(levels, tuple(CONGESTION_CORE))
-  if plain.any():
-    result.append((ROUTE_CORE, plain))
-  for level, color in CONGESTION_CORE.items():
-    mask = keep & (levels == level)
-    if mask.any():
-      result.append((color, mask))
-  return result or [(ROUTE_CORE, keep)]
-
-
-def visible_segments(points: np.ndarray, bounds: tuple[float, float, float, float]) -> np.ndarray:
-  """Per segment of the polyline: can it touch ``bounds``."""
-  x0, y0, x1, y1 = bounds
-  a, b = points[:-1], points[1:]
-  lo, hi = np.minimum(a, b), np.maximum(a, b)
-  return (hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (hi[:, 1] >= y0) & (lo[:, 1] <= y1)
-
-
-def segment_runs(points: np.ndarray, keep: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-  """The polyline's stretches of consecutive kept segments, as (points, offsets) for line_strip."""
-  if keep.all():
-    return points, np.array([0, len(points)], np.int32)
-  edges = np.diff(np.concatenate(([0], keep.astype(np.int8), [0])))
-  runs = [points[start:end + 1] for start, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True)]
-  if not runs:
-    return points[:0], np.zeros(1, np.int32)
-  return np.concatenate(runs), np.concatenate(([0], np.cumsum([len(run) for run in runs]))).astype(np.int32)
 
 
 def visible_runs(points: np.ndarray, bounds: tuple[float, float, float, float]) -> tuple[np.ndarray, np.ndarray]:
@@ -330,17 +277,17 @@ def visible_runs(points: np.ndarray, bounds: tuple[float, float, float, float]) 
 
   A stretch is broken only where a whole segment lies outside, so seams never show inside the bounds.
   """
-  return segment_runs(points, visible_segments(points, bounds))
-
-
-def segment_levels(route: tuple, congestion: Sequence[int]) -> np.ndarray | None:
-  """Traffic per route segment from Navigation.routeCongestion (one level per point, for its stretch to the next;
-  the last repeats the one before). None, the plain route, when it does not match the points or shows no traffic."""
-  if len(route) < 2 or len(congestion) != len(route):
-    return None
-  levels = np.array(congestion[:-1], np.int16)
-  levels[(levels < 0) | (levels > 4)] = 0
-  return levels.astype(np.int8) if (levels >= min(CONGESTION_CORE)).any() else None
+  x0, y0, x1, y1 = bounds
+  a, b = points[:-1], points[1:]
+  lo, hi = np.minimum(a, b), np.maximum(a, b)
+  keep = (hi[:, 0] >= x0) & (lo[:, 0] <= x1) & (hi[:, 1] >= y0) & (lo[:, 1] <= y1)
+  if keep.all():
+    return points, np.array([0, len(points)], np.int32)
+  edges = np.diff(np.concatenate(([0], keep.astype(np.int8), [0])))
+  runs = [points[start:end + 1] for start, end in zip(np.flatnonzero(edges == 1), np.flatnonzero(edges == -1), strict=True)]
+  if not runs:
+    return points[:0], np.zeros(1, np.int32)
+  return np.concatenate(runs), np.concatenate(([0], np.cumsum([len(run) for run in runs]))).astype(np.int32)
 
 
 def snap_to_route(route: np.ndarray, position: tuple[float, float], bearing: float | None, max_offset: float,
@@ -401,27 +348,13 @@ def split_route(route: np.ndarray | None, position: tuple[float, float]) -> tupl
   """(driven, ahead) world polylines, split at the point on the route nearest the car."""
   if route is None or len(route) < 2:
     return None, None
-  index, split = _nearest_segment(route, position)
-  return np.vstack((route[:index + 1], split)), np.vstack((split, route[index + 1:]))
-
-
-def route_ahead(route: np.ndarray | None, position: tuple[float, float],
-                levels: np.ndarray | None = None) -> tuple[np.ndarray | None, np.ndarray | None]:
-  """(ahead, its traffic per segment): split_route's ahead polyline, and the levels of the segments it keeps."""
-  if route is None or len(route) < 2:
-    return None, None
-  index, split = _nearest_segment(route, position)
-  ahead = np.vstack((split, route[index + 1:]))
-  return ahead, (levels[index:] if levels is not None and len(levels) == len(route) - 1 else None)
-
-
-def _nearest_segment(route: np.ndarray, position: tuple[float, float]) -> tuple[int, np.ndarray]:
   a, b = route[:-1], route[1:]
   ab = b - a
   t = np.clip(np.einsum("ij,ij->i", np.asarray(position) - a, ab) / np.maximum(np.einsum("ij,ij->i", ab, ab), 1e-12), 0, 1)
   nearest = a + ab * t[:, None]
   index = int(np.argmin(np.hypot(*(nearest - position).T)))
-  return index, nearest[index]
+  split = nearest[index]
+  return np.vstack((route[:index + 1], split)), np.vstack((split, route[index + 1:]))
 
 
 # ---------------------------------------------------------------- data
@@ -446,7 +379,6 @@ class MapInput:
   source: str = ''                                  # where the fix comes from: comma, car or phone
   maneuver_distance_m: float | None = None          # meters to the next turn while guiding (None for straight-on steps)
   road_name: str = ''                               # the road the car is on, from the map data
-  congestion: tuple[int, ...] = ()                  # Navigation.routeCongestion, one level per route point
 
 
 class TileReader:
@@ -599,8 +531,6 @@ class MapOverlay:
     self._raster_redrawn = -math.inf
     self._route_key: tuple | None = None
     self._route_world: np.ndarray | None = None
-    self._congestion_key: tuple | None = None
-    self._route_levels: np.ndarray | None = None  # traffic per route segment; None draws the plain route
     self._route_lengths: np.ndarray | None = None
     self._route_last_shown: float | None = None   # clock time the route was last available this navigation session
     self._starting_since: float | None = None     # clock time "Starting navigation" went up
@@ -700,21 +630,15 @@ class MapOverlay:
     if not name or now - self._name_since >= NAME_HOLD_S:
       self._name = name
 
-  def _route(self, route: tuple[tuple[float, float], ...], congestion: tuple[int, ...] = ()) -> None:
-    if route is self._route_key and congestion is self._congestion_key:
-      return                                                   # MapFeed hands back the same tuples until they change
+  def _route(self, route: tuple[tuple[float, float], ...]) -> None:
+    if route is self._route_key:
+      return                                                   # MapFeed hands back the same tuple until the route changes
     if route != self._route_key:
       self._guidance_key = None
       self._snap_index = None
       self._route_world = np.array([world_xy(lat, lon) for lat, lon in route], np.float64) if len(route) >= 2 else None
       self._route_lengths = route_lengths(self._route_world) if self._route_world is not None else None
-    if route != self._route_key or congestion != self._congestion_key:
-      levels = segment_levels(route, congestion)
-      if not (levels is None and self._route_levels is None or
-              levels is not None and self._route_levels is not None and np.array_equal(levels, self._route_levels)):
-        self._guidance_key = None                              # new traffic colors: rebuild the guidance strips
-      self._route_levels = levels
-    self._route_key, self._congestion_key = route, congestion
+    self._route_key = route
 
   def _track_route(self, data: MapInput, now: float) -> None:
     if self._route_world is not None:
@@ -925,8 +849,8 @@ class MapOverlay:
                                                                          self._world[1] - self._guidance_at[1])
           slack = GUIDANCE_SLACK_PX * self._m_per_px / meters_per_tile(self._latitude)
           if self._guidance_key != id(request) or moved > slack:
-            ahead, levels = route_ahead(self._route_world, self._world, self._route_levels)
-            self._route_layers = route_guidance(ahead, request, self._latitude, levels)
+            _, ahead = split_route(self._route_world, self._world)
+            self._route_layers = route_guidance(ahead, request, self._latitude)
             self._guidance_key = id(request)
             self._guidance_at = self._world
           rl.rl_push_matrix()
@@ -964,7 +888,7 @@ class MapOverlay:
     if not self._ensure_targets(width, height, 0):
       return
     now = self.clock()
-    self._route(data.route, data.congestion)
+    self._route(data.route)
     self._advance(data, now)
     self._track_route(data, now)
     if self._world is not None:
@@ -1184,7 +1108,6 @@ class MapFeed:
     self._route_stamp = None
     self._route_valid_until = 0
     self._route: tuple[tuple[float, float], ...] = ()
-    self._congestion: tuple[int, ...] = ()
     self._navigation_active = False
     self._destination = ''
     self._maneuver_m: float | None = None
@@ -1217,7 +1140,6 @@ class MapFeed:
       self._acquisition_polled = now
       self._acquisition.update(now)
     route: tuple[tuple[float, float], ...] = ()
-    congestion: tuple[int, ...] = ()
     active = False
     if navigation_sm is not None:
       # Decode only new navigation messages and retain the same route tuple
@@ -1240,21 +1162,15 @@ class MapFeed:
             self._route_valid_until = nav.frameMonoTime + 3_000_000_000
             route = tuple((point.latitude, point.longitude) for point in nav.route)
             self._maneuver_m = self._maneuver(nav)
-            try:
-              congestion = tuple(nav.routeCongestion)              # an older navigationd has none: the plain route
-            except Exception:
-              congestion = ()
         except Exception:
-          route, congestion = (), ()
+          route = ()
         if route != self._route:
           self._route = route
-        if congestion != self._congestion:
-          self._congestion = congestion
         self._navigation_active = active
       if now_ns > self._route_valid_until:
-        self._route, self._congestion = (), ()
+        self._route = ()
         self._maneuver_m = None
-      route, congestion, active = self._route, self._congestion, self._navigation_active
+      route, active = self._route, self._navigation_active
     acquisition_elapsed = 0.0
     if not fresh:
       acquisition_since = self._acquisition.since
@@ -1263,7 +1179,7 @@ class MapFeed:
     return MapInput(self._fix, route, active if navigation_requested is None else navigation_requested,
                     None if fresh else self._acquisition.satellites(now),
                     acquisition_elapsed, self._destination if destination is None else destination,
-                    self._source if self._fix is not None else '', self._maneuver_m if route else None, self._road_name(now), congestion)
+                    self._source if self._fix is not None else '', self._maneuver_m if route else None, self._road_name(now))
 
   @staticmethod
   def _maneuver(nav) -> float | None:

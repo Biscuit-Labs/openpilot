@@ -10,16 +10,12 @@ from openpilot.starpilot.system.starport.identity import EXPIRY_WARNING_DAYS
 from openpilot.starpilot.system.starport.projection_exit import ProjectionExit
 from openpilot.starpilot.system.starport.projection_geometry import FALLBACK_VIEWPORT
 from openpilot.starpilot.system.starport.projection_map_lease import MapLeaseWriter
-from openpilot.starpilot.ui.radar_points import radar_points_enabled
 
 CERTIFICATE_NOTICE_NS = 10_000_000_000  # how long the expiry heads-up stays at the start of a drive
 BOOKMARK_NOTICE_NS = 2_000_000_000  # how long "Bookmark Saved" stays after the drive is bookmarked
 MODE_NOTICE_NS = 2_000_000_000  # how long the driving-mode banner stays after the mode changes
 RECONNECT_NOTICE_NS = 8_000_000_000  # how long "why it reconnected" stays once the car screen is back
 DRIVER_MONITOR_HOLD_NS = 350_000_000
-# The road map (tile thread, tile cache, ~40 MB of GPU canvases) exists only while navigating. It is
-# freed once navigation has been off this long, so a brief gap in the navigation state keeps it.
-MAP_RELEASE_AFTER_NAVIGATION_NS = 10_000_000_000
 STANDBY_LOGO = Path(__file__).parents[3] / 'selfdrive/assets/images/starpilot_logo.png'
 BUBBLE_REDUNDANT_ALERTS = frozenset(('preLaneChangeLeft', 'preLaneChangeRight', 'laneChange',
                                      'laneChangeBlocked', 'laneChangeBlockedLoud'))
@@ -95,6 +91,7 @@ def native_dependencies():
   from openpilot.starpilot.ui.shell import ShellMode
   from openpilot.starpilot.system.starport.projection_favorites import ProjectionFavorites
   from openpilot.starpilot.system.starport.projection_now_playing import ProjectionNowPlayingFeed
+  from openpilot.starpilot.system.starport.media_audio import music_control
   from openpilot.starpilot.models.jetlink_status import JetlinkStatusFeed
   from openpilot.starpilot.ui.onroad_jetlink import gpu_inputs
 
@@ -155,7 +152,7 @@ def native_dependencies():
                          pip_rect=Rect, pip_widgets=CAMERA_WIDGETS, placement=placement, widget_size=widget_size,
                          alert=OnroadAlert, alert_size=AlertSize, map_overlay=live_overlay, map_feed=MapFeed,
                          favorites=ProjectionFavorites, standby_logo=standby_logo, now_playing_feed=ProjectionNowPlayingFeed,
-                         jetlink_feed=JetlinkStatusFeed, gpu_inputs=gpu_inputs)
+                         now_playing_control=music_control, jetlink_feed=JetlinkStatusFeed, gpu_inputs=gpu_inputs)
 
 
 class ProjectionOnroad:
@@ -193,17 +190,10 @@ class ProjectionOnroad:
       raise RuntimeError('Projection UIState must be read-only')
     self._resources = ExitStack()
     try:
-      # Glyph bitmaps are freed after the atlas upload: the car screen draws and measures from the atlas only.
-      self.fonts = native.fonts(native.profile.LARGE, native.font_directory(), headless_context=True,
-                                release_glyph_images=True)
+      self.fonts = native.fonts(native.profile.LARGE, native.font_directory(), headless_context=True)
       self._resources.callback(self.fonts.close)
       self.camera = native.camera()
       self.camera.large_ui_gamma_trial = bool((customization or {}).get('largeUiGammaTrial', False))
-      model_renderer = getattr(self.camera, 'model_renderer', None)
-      if model_renderer is not None:
-        # The lead distance label otherwise asks gui_app for a font this process never loads (crashed 2026-10-24).
-        model_renderer.lead_font = self.fonts.font(native.font_role.SEMI_BOLD)
-        model_renderer.lead_chevron_color = native.rl.Color(255, 140, 30, 255)
       self._resources.callback(self._close_camera)
       self.onroad = self.create_view(native.onroad, self.fonts, camera_layer=self._camera_layer, viewport=viewport)
       self._resources.callback(self._close_onroad)
@@ -211,6 +201,10 @@ class ProjectionOnroad:
       if getattr(native, 'now_playing_feed', None) is not None:
         self.now_playing_feed = native.now_playing_feed()
         self._resources.callback(self.now_playing_feed.close)
+      self.now_playing_touch = None
+      if self.now_playing_feed is not None and getattr(native, 'now_playing_control', None) is not None:
+        from openpilot.starpilot.ui.onroad_now_playing import NowPlayingTouch
+        self.now_playing_touch = NowPlayingTouch(native.now_playing_control, getattr(self.onroad, 'now_playing', None))
       self.jetlink_feed = None
       if getattr(native, 'jetlink_feed', None) is not None:
         self.jetlink_feed = native.jetlink_feed()
@@ -239,12 +233,10 @@ class ProjectionOnroad:
           self._resources.callback(self.pip_warning.close)
         self.onroad.pip_layer = self._pip_layer
       self.map = None
-      self.onroad.map_layer = None  # set only while the overlay exists (navigation)
       self.map_feed = None
-      self._map_idle_since_ns = None
       self._map_lease = MapLeaseWriter()
       self._resources.callback(self._release_map)
-      self._ensure_map_feed()
+      self._ensure_map()
       self.adapter = native.adapter(native.ui_state)
       # Personality notices and the reverse camera are decided inside the adapter, so it needs AA's choices too.
       self.adapter.appearance_override = self._own_appearance
@@ -254,8 +246,6 @@ class ProjectionOnroad:
         self.favorites = native.favorites(lambda: native.ui_state.started)
         self.favorites.bookmark = lambda: self.bookmark()
         self.favorites.card_bounds = getattr(getattr(self.onroad, 'navigation', None), 'bounds', None)
-        if (drawn := getattr(self.onroad, 'navigation_favorites', None)) is not None:
-          drawn.covered = self.favorites.covered
         self.favorites.map_rect = lambda: self._map_placement() if self.map is not None else None
         self._resources.callback(self.favorites.close)
     except BaseException:
@@ -294,10 +284,7 @@ class ProjectionOnroad:
                     if appearance is not None else (False, 0, None))
     self.camera.render_camera_model_layer(rect, camera_view=state.appearance.camera_view,
                                           reverse_driver=state.reverse_driver_camera,
-                                          road_style=state.customization['roadColors']['large'], lead_display=lead_display,
-                                          # The comma's "Radar Point Display" choice: projection_customization copies the comma's
-                                          # document, so this follows it as the adapter re-reads it, with no file read here.
-                                          radar_points=radar_points_enabled(state.customization))
+                                          road_style=state.customization['roadColors']['large'], lead_display=lead_display)
     # The camera can switch narrow/wide while rendering. Pace the stream actually
     # drawn, not the previous selection (whose next frame may arrive later).
     self.camera_stream = self.camera.stream_type
@@ -323,38 +310,19 @@ class ProjectionOnroad:
                         fresh=monitor is not None and driver is not None,
                         onroad=ui.is_onroad(), y_offset=self.height - 1080)
 
-  def _ensure_map_feed(self):
-    """While a layout places the map: the GPS and route feed only, so the map starts warm when navigation does."""
+  def _ensure_map(self):
+    """Build the map overlay the first time a layout turns it on; it stays for the connection."""
     native = self.native
-    if self.map_feed is None and self._map_placement() is not None and getattr(native, 'map_overlay', None) is not None:
+    if self.map is None and self._map_placement() is not None and getattr(native, 'map_overlay', None) is not None:
+      self.map = native.map_overlay(fonts=self.fonts)
       self.map_feed = native.map_feed()
-
-  def _update_map_overlay(self, navigating):
-    """The overlay's tile thread and GPU canvases exist only while navigating, plus a short hold after."""
-    if navigating:
-      self._map_idle_since_ns = None
-      if self.map is None:
-        self.map = self.native.map_overlay(fonts=self.fonts)
-        self.onroad.map_layer = self._map_layer
-      return
-    if self.map is None:
-      return
-    now_ns = time.monotonic_ns()
-    if self._map_idle_since_ns is None:
-      self._map_idle_since_ns = now_ns
-    elif now_ns - self._map_idle_since_ns >= MAP_RELEASE_AFTER_NAVIGATION_NS:
-      self._close_map_overlay()
-
-  def _close_map_overlay(self):
-    if self.map is not None:
-      self.map.close()
-    self.map = None
-    self._map_idle_since_ns = None
-    self.onroad.map_layer = None
+      self.onroad.map_layer = self._map_layer
 
   def _release_map(self):
-    self._close_map_overlay()
-    self.map_feed = None
+    if self.map is not None:
+      self.map.close()
+    self.map = self.map_feed = None
+    self.onroad.map_layer = None
     self._map_lease.release()
 
   def apply_layout(self, customization):
@@ -366,7 +334,7 @@ class ProjectionOnroad:
     invalidate = getattr(self.adapter, 'invalidate_appearance', None)
     if invalidate is not None:
       invalidate()
-    self._ensure_map_feed()
+    self._ensure_map()
 
   def _own_appearance(self, appearance):
     if self.customization is None:
@@ -394,6 +362,7 @@ class ProjectionOnroad:
       placed = (self.customization or {}).get('widgets', {}).get('now_playing', {})
       self.now_playing_feed.set_enabled(bool(placed.get('enabled')))
       self.onroad.now_playing.track = self.now_playing_feed.snapshot()
+      self.onroad.now_playing.artwork = self.now_playing_feed.artwork()
     if self.jetlink_feed is not None:
       placed = (self.customization or {}).get('widgets', {}).get('jetlink_status', {})
       self.jetlink_feed.set_enabled(bool(placed.get('enabled') and self.native.ui_state.started))
@@ -405,22 +374,17 @@ class ProjectionOnroad:
       self.onroad.navigation_favorites.document = self.favorites.document
       self.onroad.navigation_favorites.error = self.favorites.error
     placed = self._map_placement()
-    if self.map_feed is not None and placed is None:
+    if self.map is not None and placed is None:
       self._release_map()
-    if self.map_feed is None or placed is None or not self.native.ui_state.started:
-      self._update_map_overlay(False)
+    if self.map is None or placed is None or not self.native.ui_state.started:
       return
-    # Held whenever the layout places the map, navigating or not, so the comma's own screen does not
-    # build a second map while the car screen is connected.
     self._map_lease.touch()
     document = self.favorites.document if self.favorites is not None else None
     requested = bool(document['destination']) if document is not None else None
     from openpilot.starpilot.system.starport.projection_favorites import destination_label
     data = self.map_feed.read(self.native.ui_state.sm, navigation_requested=requested,
                               destination=destination_label(document) if document is not None else None)
-    self._update_map_overlay(bool(data.navigation_active or data.route))
-    if self.map is not None:
-      self.map.prepare(data, placed['width'], placed['height'])
+    self.map.prepare(data, placed['width'], placed['height'])
 
   def _map_layer(self, rect, state):
     placed = self._map_placement()
@@ -605,8 +569,6 @@ class ProjectionOnroad:
       if self._slc_input is not None:
         self._state = self._slc_input.present(self._state)
       self.onroad.render(self._state)
-      if self.favorites is not None:
-        self.favorites.draw_cancel(self.native.rl, self._state)
       self.fonts.draw('StarPilot', self.native.font_role.BRAND, 30, self.width - 210, self.height - 90)
     else:
       self._state = None
@@ -634,12 +596,31 @@ class ProjectionOnroad:
         if self.favorites is not None:
           self.favorites.cancel()
         continue
+      if self._now_playing_touch(event.kind, x, y):
+        if self.favorites is not None:
+          self.favorites.cancel()
+        continue
       if self.favorites is None:
         continue
       if self._state is None or not self.native.ui_state.started:
         self.favorites.cancel()
         continue
       self.favorites.touch(event.kind, x, y, self._state, self.native.ui_state.started_frame)
+
+  def _now_playing_touch(self, kind, x, y) -> bool:
+    touch = self.now_playing_touch
+    if touch is None:
+      return False
+    state = self._state if self.native.ui_state.started else None
+    placed = state.customization['layouts']['large'].get('now_playing') if state is not None else None
+    track = self.onroad.now_playing.showing()
+    if state is not None and self.favorites is not None:
+      from openpilot.starpilot.ui.onroad_now_playing import card_layout
+      shape = card_layout(placed, track, state.viewport_width)
+      if shape is not None and self.favorites.hit(x, y, state, overlay=('now_playing', shape[0])) != 'now_playing':
+        touch.cancel()
+        return False
+    return touch.touch(kind, x, y, state, placed, track)
 
   def _slc_touch(self, kind, x, y) -> bool:
     """Speed-limit confirmation taps; True while one owns the touch."""
@@ -682,6 +663,8 @@ class ProjectionOnroad:
 
   def cancel_touch(self):
     self.exit.cancel()
+    if self.now_playing_touch is not None:
+      self.now_playing_touch.cancel()
     if self._slc_input is not None:
       self._slc_input.cancel()
     if self.favorites is not None:

@@ -43,11 +43,8 @@ DEVICE_STATE_PREPARE = 40
 DEVICE_STATE_IP_CONFIG = 70
 DEVICE_STATE_ACTIVATED = 100
 DHCP_RESTARTS = 3
-# NetworkManager is slow to take a new Wi-Fi interface in the first minute after the comma boots: 2026-10-29 cold start,
-# wlan0 took 32 s and aa0 16 s from creation to ready. At 5 s every cold start gave up on aa0 and joined the car on
-# wlan0, which leaves the head unit's network and its map feed. Long after boot aa0 is ready in under a second.
-DEVICE_READY_TIMEOUT_S = 40.0
 DEVICE_STATES_NOT_MANAGED = (10, 20)  # NM_DEVICE_STATE_UNMANAGED, NM_DEVICE_STATE_UNAVAILABLE
+DEVICE_READY_TIMEOUT_S = 5.0
 # A shared interface can be briefly unmanaged (for example while the Wi-Fi mode is being switched). Bugsink showed 19 joins
 # refused with "device is strictly unmanaged"; waiting a few seconds turns a transient state into a normal join, and a
 # device that stays unmanaged is reported as such instead of as an opaque D-Bus error.
@@ -196,7 +193,6 @@ def connection_settings(credentials: WifiCredentials, interface: str, static_ip:
     "ssid": ("ay", credentials.ssid.encode("utf-8")),
     "mode": ("s", "infrastructure"),
     "hidden": ("b", True),  # projection networks are often hidden; harmless when broadcast
-    "powersave": ("u", 2),  # NM_SETTING_WIRELESS_POWERSAVE_DISABLE: keep aa0 out of auto_ps_timer 1500 ms sleep
   }
   if credentials.bssid:
     wireless["bssid"] = ("ay", bytes.fromhex(credentials.bssid.replace(":", "")))

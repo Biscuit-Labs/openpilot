@@ -7,16 +7,18 @@ retain their native anchors. See the adjacent UI LICENSE for retained source.
 from pathlib import Path
 import hashlib
 import json
+import math
 
 from openpilot.starpilot.ui.raylib import rl
 
-from openpilot.starpilot.ui.onroad_customization import offset, rgba, widget_size
+from openpilot.starpilot.ui.onroad_customization import offset, placement, rgba, widget_size
 from openpilot.starpilot.ui.onroad_state import OnroadState, manual_slc_confirmation, slc_action_occludes
 from openpilot.starpilot.ui.onroad_widget_style import draw_control_card
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
 from openpilot.starpilot.ui.wheel_feedback import WheelFeedbackFade
 from openpilot.starpilot.ui.unified_speed_presentation import resolve_unified_speed
-from openpilot.starpilot.ui.speed_limit_widget import SpeedLimitWidget, draw_set_speed, draw_set_status, draw_text, set_speed_status
+from openpilot.starpilot.ui.speed_limit_widget import (OVERRIDE, SpeedLimitWidget, draw_set_speed, draw_set_status, draw_text,
+                                                       set_speed_status)
 
 
 ENGAGED = rl.Color(128, 216, 166, 255)
@@ -81,7 +83,7 @@ class UnifiedSpeedWidget:
     if shown.mode != 'limit_only':
       draw_set_speed(self.fonts, shown, rect.x + 92, rect.y, text)
       if label := set_speed_status(state, Profile.LARGE, shown):
-        draw_set_status(self.fonts, label, rect.x + 92, rect.y, text)
+        draw_set_status(self.fonts, label, rect.x + 92, rect.y, OVERRIDE)
     self.sign.render(state, defer_confirmation=True)
     if sources:
       row = rl.Rectangle(rect.x, rect.y + max(height, SOURCE_TOP) + (GAP if separate else 0), WIDTH, SOURCE_ROW_HEIGHT)
@@ -97,9 +99,10 @@ class CurrentSpeedHud:
     self.fonts = fonts
 
   def render(self, content: rl.Rectangle, state: OnroadState) -> None:
-    if state.speed_mps is None:
+    speed_mps = state.display_speed_mps
+    if speed_mps is None:
       return
-    speed = str(round(state.speed_mps * (3.6 if state.metric else 2.2369362921)))
+    speed = str(round(speed_mps * (3.6 if state.metric else 2.2369362921)))
     dx, dy = offset(state.customization, "large", "current_speed")
     rect = rl.Rectangle(content.x + 610 + dx, content.y + dy, 580, 300)
     number_top, _ = self.fonts.vertical_ink(speed, FontRole.SPEED, 176)
@@ -177,9 +180,15 @@ class SteeringWheelWidget:
       rl.draw_ring(rl.Vector2(x + radius, y + radius), radius - 3, radius, 0, 360, 64, border)
     feedback = self._feedback.update(state.wheel_acceleration, state.appearance.wheel_pedal_feedback, state.observed_ns, state.drive_frame)
     color = rl.Color(*feedback, 255)
-    rl.draw_texture_pro(self._texture, rl.Rectangle(0, 0, 144, 144),
-                        rl.Rectangle(x + size / 8, y + size / 8, size * .75, size * .75),
-                        rl.Vector2(0, 0), 0, color)
+    rotation = state.wheel_rotation if placement(state.customization, 'large', 'steering_wheel').get('rotate', False) else 0.0
+    rotation = rotation if math.isfinite(rotation) else 0.0
+    # Keep the upright draw path identical; rotate only the art around its center.
+    destination = rl.Rectangle(x + size / 8, y + size / 8, size * .75, size * .75)
+    origin = rl.Vector2(0, 0)
+    if rotation:
+      destination.x, destination.y = x + radius, y + radius
+      origin = rl.Vector2(size * .375, size * .375)
+    rl.draw_texture_pro(self._texture, rl.Rectangle(0, 0, 144, 144), destination, origin, rotation, color)
 
   def close(self) -> None:
     if self._texture is not None and rl.is_window_ready():

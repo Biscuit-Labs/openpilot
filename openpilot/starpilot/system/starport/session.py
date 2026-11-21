@@ -82,16 +82,7 @@ SENSOR_EVENT = 0x8003
 BLUETOOTH_PAIRING_REQUEST = 0x8001
 BLUETOOTH_PAIRING_RESPONSE = 0x8002
 BLUETOOTH_AUTH_DATA = 0x8003
-SENSOR_LOCATION, SENSOR_NIGHT, SENSOR_DRIVING_STATUS = 1, 10, 13
-
-# Vendor extension service (field 12 of a channel descriptor). The 2019 Civic offers one named
-# "com.honda.mdve.protocol.VendorExtension" (session-000175). Probe only: open it and log what comes back, send nothing.
-# On while this file exists; remove it to turn the probe off without a code change.
-VENDOR_EXTENSION_SERVICE = 12
-VENDOR_EXTENSION_PROBE_FLAG = "/data/starport/probe_vendor_extension"
-VENDOR_TUNNEL_KIND = 0x5350  # 'SP' prefix for aaroad VendorTunnel frames on the raw vendor channel
-VENDOR_TUNNEL_BURST = 8
-VENDOR_TUNNEL_BULK_BURST = 2
+SENSOR_NIGHT, SENSOR_DRIVING_STATUS = 10, 13
 
 CODEC_H264_BP = 3
 CODEC_H265 = 7          # MediaCodecType VIDEO_H265, offered by some head units instead of H.264
@@ -124,6 +115,15 @@ TALL_HEVC_RESOLUTION, TALL_HEVC_SIZE = 7, (1080, 1920)  # only with the owner's 
 # is harmless and keeps impatient receivers from declaring the link idle.
 PING_INTERVAL = 2.0
 PHONE_STATUS_SERVICE, VENDOR_SERVICE = 10, 12  # ServiceDiscoveryResponse channel descriptor field numbers
+
+# Vendor extension service (field 12 of a channel descriptor). The 2019 Civic offers one named
+# "com.honda.mdve.protocol.VendorExtension" (session-000175). Probe only: open it and log what comes back, send nothing.
+# On while this file exists; remove it to turn the probe off without a code change.
+VENDOR_EXTENSION_SERVICE = 12
+VENDOR_EXTENSION_PROBE_FLAG = "/data/starport/probe_vendor_extension"
+VENDOR_TUNNEL_KIND = 0x5350  # 'SP' prefix for aaroad VendorTunnel frames on the raw vendor channel
+VENDOR_TUNNEL_BURST = 8
+VENDOR_TUNNEL_BULK_BURST = 2
 SHUTDOWN_REASONS = {1: "user_selection", 2: "device_switch", 3: "not_supported", 4: "not_currently_supported", 5: "probe_supported"}
 
 
@@ -326,7 +326,6 @@ class Session:
     self.version_wait = max(self.handshake_timeout, self._timeout(version_wait)) if version_wait is not None else self.handshake_timeout
     self.authenticated = False
     self.head_unit_subject: str = ""
-    self.protocol: tuple[int, int] | None = None  # negotiated (major, minor), set by the version exchange
     self.incoming = ssl.MemoryBIO()
     self.outgoing = ssl.MemoryBIO()
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -514,7 +513,6 @@ class Session:
     # Android Auto 17.6 answers any request above 1.7 with its own maximum and success;
     # newer head units (e.g. 2025 Honda, 4.1) hang up on anything else.
     reply = (1, min(minor, 5)) if (major, minor) <= (1, 7) else PHONE_MAX_VERSION
-    self.protocol = reply
     self.event("version", major=major, minor=minor, reply=f"{reply[0]}.{reply[1]}")
     self.send(0, MSG_VERSION_RESPONSE, struct.pack(">HHH", *reply, 0), encrypted=False)
     while True:
@@ -596,24 +594,6 @@ class Session:
           item["navigation"] = parse_navigation(one(fields, NAVIGATION_SERVICE))
         except ValueError:
           item["navigation"] = {}
-      if isinstance(one(fields, SENSOR_SERVICE), bytes):
-        try:
-          offered = parse_fields(one(fields, SENSOR_SERVICE)).get(1, [])
-          item["sensors"] = [one(parse_fields(s), 1) for s in offered if isinstance(s, bytes)]
-        except ValueError:
-          item["sensors"] = []
-      if isinstance(one(fields, BLUETOOTH_SERVICE), bytes):
-        try:
-          item["bluetooth"] = parse_bluetooth(one(fields, BLUETOOTH_SERVICE))
-        except ValueError:
-          item["bluetooth"] = {}
-      if isinstance(one(fields, VENDOR_EXTENSION_SERVICE), bytes):
-        try:
-          vendor = parse_fields(one(fields, VENDOR_EXTENSION_SERVICE))
-          item["vendor_extension"] = {"name": str(one(vendor, 1, b"").decode(errors="replace") if isinstance(one(vendor, 1), bytes) else ""),
-                                      "fields": describe_fields(vendor)}
-        except ValueError:
-          item["vendor_extension"] = {}
       if isinstance(one(fields, 4), bytes):
         item["input"] = True
         try:
@@ -634,6 +614,13 @@ class Session:
           item["bluetooth"] = parse_bluetooth(one(fields, BLUETOOTH_SERVICE))
         except ValueError:
           item["bluetooth"] = {}
+      if isinstance(one(fields, VENDOR_EXTENSION_SERVICE), bytes):
+        try:
+          vendor = parse_fields(one(fields, VENDOR_EXTENSION_SERVICE))
+          item["vendor_extension"] = {"name": str(one(vendor, 1, b"").decode(errors="replace") if isinstance(one(vendor, 1), bytes) else ""),
+                                      "fields": describe_fields(vendor)}
+        except ValueError:
+          item["vendor_extension"] = {}
       channels.append(item)
     # Everything but the channel list: make, model, year, software and, on newer units, headunit_info.
     head_unit = redact_head_unit(describe_fields({number: values for number, values in response.items() if number != 1}))
@@ -717,8 +704,7 @@ class ProjectionSession(Session):
   # 2.5 s on 2026-11-02 (hotspot join, home join, mesh roam). While that happens, wait this long before reconnecting.
   ACK_GRACE_TIMEOUT = 8.0
   ACK_DRAIN_SECONDS = 0.1  # before calling an ACK late, read what already arrived, for at most this long
-  # The car's offered window, as on the wired path (3393941be): at 2 the Civic acked one message and went silent.
-  MAX_WINDOW = 30
+  MAX_WINDOW = 2
   nav = None
   grace_frame: float | None = None  # send time of the frame whose late ack is being waited out
   grace_focus_lost = False
@@ -773,19 +759,16 @@ class ProjectionSession(Session):
     self.phone_address = ""  # this comma's Bluetooth address, for the pairing request
     self.sensor_channel: int | None = None
     self.sensor_events: dict[int, int] = {}
-    self.location = None  # HeadUnitGps, attached by the supervisor; takes the car's own GPS fixes
     self.bluetooth_channel: int | None = None
     self.phone_status_channel: int | None = None
     self.vendor_channel: int | None = None
+    self.vendor_messages = 0
+    self.hu_feed = None  # HeadUnitFeed, attached by the supervisor to tunnel dash-map frames over channel 13
     self.head_unit_info: dict = {}
     self.on_discovered: Callable[[dict], tuple[str, ...]] | None = None  # set by the supervisor: the car-specific actions to run
     self.fix_actions: tuple[str, ...] = ()
     self.focus_requested_at: float | None = None
     self.focus_granted_at: float | None = None
-    self.vendor_messages = 0
-    self.hu_feed = None  # HeadUnitFeed, attached by the supervisor to tunnel dash-map frames over channel 13
-    self.car_address = ""  # the car's Bluetooth address, from its Bluetooth service descriptor
-    self.phone_link_ready = False  # set by the supervisor's thread once the hands-free link to the car is up
     self.nav = None  # NavStatus, attached by the supervisor when the head unit offers turn-by-turn
     self.audio = None  # MediaAudio, attached by the supervisor when Spotify plays through Android Auto
     self.input_events = 0
@@ -891,71 +874,6 @@ class ProjectionSession(Session):
     self._open_bluetooth(pair=True)
     self._probe_vendor_extension()  # the aaroad tunnel for hu_feed, only when a feed is attached or the probe flag is set
 
-  def _open_sensors(self) -> bool:
-    sensors = next((ch for ch in self.channels if "sensors" in ch), None)
-    if sensors is None or self.sensor_channel is not None or not self._open_optional(sensors, "sensors"):
-      return False
-    self.sensor_channel = sensors["id"]
-    # Only what decides whether the screen may project; location would put the car's position in the session log.
-    wanted = [kind for kind in (SENSOR_DRIVING_STATUS, SENSOR_NIGHT) if kind in sensors["sensors"]]
-    if self.location is not None and SENSOR_LOCATION in sensors["sensors"]:
-      wanted.append(SENSOR_LOCATION)  # the car's GPS, for navigation; fixes go to the GPS handoff only, never the session log
-    for kind in wanted:
-      self.send(sensors["id"], SENSOR_START_REQUEST, field(1, kind) + field(2, 0))
-    self.event("sensors_opened", channel=sensors["id"], requested=wanted)
-    return True
-
-  def _open_bluetooth(self, pair: bool) -> bool:
-    bluetooth = next((ch for ch in self.channels if "bluetooth" in ch), None)
-    if bluetooth is None or self.bluetooth_channel is not None or not self._open_optional(bluetooth, "bluetooth"):
-      return False
-    self.bluetooth_channel = bluetooth["id"]
-    methods = bluetooth["bluetooth"].get("pairing_methods") or []
-    self.car_address = str(bluetooth["bluetooth"].get("car_address", "")).upper()
-    if pair:
-      self._send_pairing_request(methods)
-    self.event("bluetooth_opened", channel=bluetooth["id"], phone_address_sent=bool(pair and self.phone_address),
-               has_car_address=bool(bluetooth["bluetooth"].get("car_address")), pairing_methods=methods)
-    return True
-
-  def _send_pairing_request(self, methods: list[int] | None = None) -> None:
-    if methods is None:
-      channel = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {})
-      methods = (channel.get("bluetooth") or {}).get("pairing_methods") or []
-    if self.phone_address and self.bluetooth_channel is not None:
-      self.send(self.bluetooth_channel, BLUETOOTH_PAIRING_REQUEST, field(1, self.phone_address) + field(2, methods[0] if methods else 2))
-
-  def _open_service(self, service: int, name: str) -> int | None:
-    channel = next((ch for ch in self.channels if service in ch.get("services", ())), None)
-    if channel is None or not self._open_optional(channel, name):
-      return None
-    return channel["id"]
-
-  def run_fix_actions(self) -> None:
-    """Run the car-specific actions chosen for this head unit, each on its own so one the car dislikes stops nothing else."""
-    for action in self.fix_actions:
-      done = False
-      if action == "open_bluetooth":
-        done = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
-      elif action == "open_phone_status":
-        if self.phone_status_channel is None:
-          self.phone_status_channel = self._open_service(PHONE_STATUS_SERVICE, "phone_status")
-        done = self.phone_status_channel is not None
-      elif action == "open_sensors":
-        done = self.sensor_channel is not None or self._open_sensors()
-      elif action == "open_vendor":
-        if self.vendor_channel is None:
-          self.vendor_channel = self._open_service(VENDOR_SERVICE, "vendor")
-        done = self.vendor_channel is not None
-      elif action == "unacked_video":
-        self.unacked_video = done = True
-      elif action == "request_bt_pairing":
-        if self.bluetooth_channel is not None and self.phone_address:
-          bluetooth = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {})
-          self._send_pairing_request((bluetooth.get("bluetooth") or {}).get("pairing_methods") or [])
-          done = True
-      self.event("fix_action", action=action, done=done)
-
   def _probe_vendor_extension(self) -> None:
     """Open the head unit's vendor extension channel for the aaroad tunnel (or diagnostic probe)."""
     hu_feed = getattr(self, "hu_feed", None)
@@ -989,17 +907,64 @@ class ProjectionSession(Session):
     for payload in hu_feed.drain_aa(VENDOR_TUNNEL_BURST, bulk_limit=bulk_limit):
       self.send(self.vendor_channel, VENDOR_TUNNEL_KIND, payload)
 
-  def retry_phone_link(self) -> None:
-    """The hands-free link to the car came up after setup: tell the car again and ask for the screen again.
+  def _open_sensors(self) -> bool:
+    sensors = next((ch for ch in self.channels if "sensors" in ch), None)
+    if sensors is None or self.sensor_channel is not None or not self._open_optional(sensors, "sensors"):
+      return False
+    self.sensor_channel = sensors["id"]
+    # Only what decides whether the screen may project; location would put the car's position in the session log.
+    wanted = [kind for kind in (SENSOR_DRIVING_STATUS, SENSOR_NIGHT) if kind in sensors["sensors"]]
+    for kind in wanted:
+      self.send(sensors["id"], SENSOR_START_REQUEST, field(1, kind) + field(2, 0))
+    self.event("sensors_opened", channel=sensors["id"], requested=wanted)
+    return True
 
-    The 2019 Civic answered the first pairing request "not paired" (status 1) and kept its own screen while that link
-    was down (2026-10-24, session-000007).
-    """
-    self.phone_link_ready = False
-    self._send_pairing_request()
-    if self.mode is not None and not self.focused:
-      self.request_projection()
-    self.event("phone_link_retry", focused=self.focused)
+  def _open_bluetooth(self, pair: bool) -> bool:
+    bluetooth = next((ch for ch in self.channels if "bluetooth" in ch), None)
+    if bluetooth is None or self.bluetooth_channel is not None or not self._open_optional(bluetooth, "bluetooth"):
+      return False
+    self.bluetooth_channel = bluetooth["id"]
+    methods = bluetooth["bluetooth"].get("pairing_methods") or []
+    if pair:
+      self._send_pairing_request(methods)
+    self.event("bluetooth_opened", channel=bluetooth["id"], phone_address_sent=bool(pair and self.phone_address),
+               has_car_address=bool(bluetooth["bluetooth"].get("car_address")), pairing_methods=methods)
+    return True
+
+  def _send_pairing_request(self, methods: list[int]) -> None:
+    if self.phone_address and self.bluetooth_channel is not None:
+      self.send(self.bluetooth_channel, BLUETOOTH_PAIRING_REQUEST, field(1, self.phone_address) + field(2, methods[0] if methods else 2))
+
+  def _open_service(self, service: int, name: str) -> int | None:
+    channel = next((ch for ch in self.channels if service in ch.get("services", ())), None)
+    if channel is None or not self._open_optional(channel, name):
+      return None
+    return channel["id"]
+
+  def run_fix_actions(self) -> None:
+    """Run the car-specific actions chosen for this head unit, each on its own so one the car dislikes stops nothing else."""
+    for action in self.fix_actions:
+      done = False
+      if action == "open_bluetooth":
+        done = self.bluetooth_channel is not None or self._open_bluetooth(pair=False)
+      elif action == "open_phone_status":
+        if self.phone_status_channel is None:
+          self.phone_status_channel = self._open_service(PHONE_STATUS_SERVICE, "phone_status")
+        done = self.phone_status_channel is not None
+      elif action == "open_sensors":
+        done = self.sensor_channel is not None or self._open_sensors()
+      elif action == "open_vendor":
+        if self.vendor_channel is None:
+          self.vendor_channel = self._open_service(VENDOR_SERVICE, "vendor")
+        done = self.vendor_channel is not None
+      elif action == "unacked_video":
+        self.unacked_video = done = True
+      elif action == "request_bt_pairing":
+        if self.bluetooth_channel is not None and self.phone_address:
+          bluetooth = next((ch for ch in self.channels if ch.get("id") == self.bluetooth_channel), {})
+          self._send_pairing_request((bluetooth.get("bluetooth") or {}).get("pairing_methods") or [])
+          done = True
+      self.event("fix_action", action=action, done=done)
 
   def request_projection(self) -> None:
     """Ask for display focus; the Mazda donor needed this, DHU grants it unsolicited."""
@@ -1124,12 +1089,8 @@ class ProjectionSession(Session):
         for number, values in fields.items():
           first = number not in self.sensor_events
           self.sensor_events[number] = self.sensor_events.get(number, 0) + len(values)
-          if number == SENSOR_LOCATION:
-            present = self._location(values)
-            if first:  # which LocationData fields this head unit fills in, never their values
-              self.event("sensor_event", field=number, present=present)
-          elif first:  # one line per kind of car data; the counts go in stats
-            self.event("sensor_event", field=number, data=describe_fields({number: values}))
+          if first:
+            self.event("sensor_event", field=number, data=describe_fields(fields))
       else:
         self.ignored("sensor_ignored", channel, kind, data)
     elif channel is not None and channel == self.bluetooth_channel:
@@ -1254,8 +1215,6 @@ class ProjectionSession(Session):
     return bool(self.focused and self.pending and now - self.pending[0] > self.ACK_TIMEOUT)
 
   def check_progress(self, now: float | None = None) -> None:
-    if self.phone_link_ready:
-      self.retry_phone_link()
     measured = now is None
     now = time.monotonic() if measured else now
     if self.grace_focus_lost:
@@ -1375,20 +1334,4 @@ class ProjectionSession(Session):
     return {"frames_sent": self.frames_sent, "frames_acked": self.acked, "pending": self.unacked,
             "focus_epoch": self.focus_epoch, "focused": self.focused, "max_ack_ms": round(self.max_ack_seconds * 1000),
             "input_events": self.input_events, "touch": self.touch is not None,
-            "sensor_events": sum(self.sensor_events.values()), **({"unacked_video": True} if self.unacked_video else {}),
-            **({"location": self.location.stats()} if self.location is not None else {})}
-
-  def _location(self, values: list) -> list[int]:
-    """Hand each LocationData to the GPS handoff; returns the field numbers the first one carries."""
-    present: list[int] = []
-    for value in values:
-      if not isinstance(value, bytes):
-        continue
-      try:
-        location = parse_fields(value)
-      except ValueError:
-        continue
-      present = present or sorted(location)
-      if self.location is not None:
-        self.location.publish(location)
-    return present
+            "sensor_events": sum(self.sensor_events.values()), **({"unacked_video": True} if self.unacked_video else {})}

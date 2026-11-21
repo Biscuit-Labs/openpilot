@@ -8,11 +8,6 @@ PCM comes from the Spotify supervisor's real-time pipe (48 kHz, 16-bit, stereo),
 system clock and carries silence while paused; cars that only take AAC-LC get it encoded here. Focus is requested when sound starts and released
 after a stretch of silence, the way a phone treats a paused player. If the car takes focus for good
 (the driver picks the radio), the selected source is paused instead of fighting for the speakers.
-
-A projection drop must not cost the driver the music. A head unit refuses focus for the first seconds
-of a new session (2026-11-01, session 77: refused 0.1 s after the reconnect, projection came to the
-front 2 s later), so an early refusal is retried instead of pausing the player; and if music was
-playing when the last session dropped, the new session presses play again once its channel is up.
 """
 from __future__ import annotations
 
@@ -67,14 +62,6 @@ RELEASE_AFTER = 8.0                         # seconds of silence before giving t
 STEP_TIMEOUT = 3.0
 ACK_STALL = 3.0
 RETRY_AFTER = 10.0
-FOCUS_GRACE = 15.0                          # s after setup in which a refused focus request is the head unit starting up
-FOCUS_RETRY = 2.0                           # s between those early requests
-FOCUS_RETRIES = 3                           # early refusals retried before the refusal is taken as the driver's choice
-RESUME_WINDOW = 300.0                       # a drop at most this long ago, with music playing, resumes it in the next session
-RESUME_AFTER = 2.0                          # s of silence on a ready channel before pressing play for the dropped music
-LIVE_STATES = ('playing', 'focus_wait', 'suspended')
-# Process-wide: what the last media channel was doing when its session ended, read by the next session.
-CARRY: dict[str, Any] = {}
 AAC_FRAME_BYTES = 1024 * FRAME_BYTES
 AAC_PER_PASS = 8
 AAC_BITRATE = 192000
@@ -225,26 +212,15 @@ def pause_music() -> None:
   music_control('pause')
 
 
-def resume_music() -> None:
-  music_control('play')
-
-
 class MediaAudio:
   def __init__(self, session, channel: int, config_index: int, source, log: Callable[..., None],
                pause: Callable[[], None] = pause_music, clock: Callable[[], float] = time.monotonic,
-               resume: Callable[[], None] = resume_music, carry: dict | None = None,
                codec: int = CODEC_PCM, make_encoder: Callable[[], Any] = AacEncoder):
     self.session, self.channel, self.config_index = session, channel, config_index
     self.codec, self.make_encoder = codec, make_encoder
     self.encoder: Any = None
     self.config_slack = 0
-    self.source, self.log, self.pause, self.clock, self.resume = source, log, pause, clock, resume
-    self.carry = CARRY if carry is None else carry
-    dropped = self.carry.pop('dropped_playing_at', None)
-    # Music was playing when the previous session ended; press play once this channel is ready and still silent.
-    self.resume_pending = dropped is not None and 0 <= clock() - dropped <= RESUME_WINDOW
-    self.ready_at: float | None = None
-    self.focus_refusals = 0
+    self.source, self.log, self.pause, self.clock = source, log, pause, clock
     self.state = 'closed'  # closed, opening, setup, ready, focus_wait, playing, suspended, unavailable
     self.deadline = 0.0
     self.retry_at = 0.0
@@ -318,16 +294,10 @@ class MediaAudio:
       self.session.send(self.channel, MSG_CHANNEL_OPEN_REQUEST, field(1, 0) + field(2, self.channel), control=True)
       self._set('opening', STEP_TIMEOUT)
     elif self.state == 'ready' and sounding and not self.car_paused and now >= self.retry_at:
-      self.resume_pending = False
       if self.codec == CODEC_AAC_LC:
         self.encoder = self.make_encoder()
       self.session.send(0, AUDIO_FOCUS_REQUEST, field(1, FOCUS_GAIN))
       self._set('focus_wait', STEP_TIMEOUT)
-    elif (self.state == 'ready' and self.resume_pending and not sounding and self.ready_at is not None and
-          now - self.ready_at >= RESUME_AFTER):
-      self.resume_pending = False
-      self._event('resume_after_drop')
-      self.resume()  # the sound that follows asks for focus through the branch above
     elif self.state == 'playing':
       if now - self.last_sound > RELEASE_AFTER:
         self._give_back('silence')
@@ -425,7 +395,6 @@ class MediaAudio:
         self._set('unavailable')
       else:
         self.window = min(window, MAX_WINDOW)
-        self.ready_at = self.clock()
         self._event('setup', window=window, used_window=self.window)
         self._set('ready')
     elif kind == AV_MEDIA_ACK:
@@ -443,14 +412,6 @@ class MediaAudio:
   def _focus(self, focus, unsolicited) -> None:
     self.stats['focus'] = focus
     self._event('focus', focus=focus, unsolicited=unsolicited)
-    if (focus == STATE_LOSS and not unsolicited and self.state == 'focus_wait' and self.ready_at is not None and
-        self.clock() - self.ready_at < FOCUS_GRACE and self.focus_refusals < FOCUS_RETRIES):
-      # The head unit is still bringing projection up; pausing here left the music off after every reconnect.
-      self.focus_refusals += 1
-      self.retry_at = self.clock() + FOCUS_RETRY
-      self._event('focus_refused_early', attempt=self.focus_refusals)
-      self._set('ready')
-      return
     if focus in GAINED and self.state in ('focus_wait', 'suspended'):
       self.session_id += 1
       self.unacked, self.pending, self.frames_sent, self.config_slack = 0, [], 0, 0
@@ -479,10 +440,6 @@ class MediaAudio:
     self.max_gap = 0.0
 
   def close(self) -> None:
-    if self.state in LIVE_STATES:
-      self.carry['dropped_playing_at'] = self.clock()
-    else:
-      self.carry.pop('dropped_playing_at', None)
     self.source.close()
     if self.track_info is not None:
       self.track_info.close()

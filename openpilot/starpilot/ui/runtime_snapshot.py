@@ -410,8 +410,6 @@ class RuntimeSnapshotAdapter:
         # Redrawing a single live packet must never clear LAST.
         if self._slc_sign_recovery_ns is None or stamp < self._slc_sign_recovery_ns:
           self._slc_sign_recovery_ns = stamp
-        if stamp - self._slc_sign_recovery_ns < SLC_SIGN_HOLD_NS:
-          return replace(observation, sign_recovering=True)
     self._slc_last_sign = None
     self._slc_sign_recovery_ns = None
     return observation

@@ -422,6 +422,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaSteerDeltaLimiter", {PERSISTENT, BOOL, "0"}},  // the stock steer rate limit, opt-in on a modified EPS
     {"HondaSteerDeltaUp", {PERSISTENT, FLOAT, "3.0"}},
     {"HondaSteerDeltaDown", {PERSISTENT, FLOAT, "3.0"}},
+    // B-CAN turn signals in the car controller (opendbc/car/honda/bcan_blinker.py)
+    {"HondaBcanTurnSignals", {PERSISTENT, BOOL, "0"}},
 
     // Modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
     // The base banding is in interface.py; these stay 100 (I: 20 low / 0 highway) unless trimming.

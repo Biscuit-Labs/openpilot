@@ -3,7 +3,8 @@
 VEHICLE_BOOL_KEYS = frozenset(("AlphaLongitudinalEnabled", "SubaruAvhStartup", "SubaruStopStartOff", "SubaruSNG", "SubaruRedneckCruise",
                               "GMPedalLongitudinal", "DisableOpenpilotLongitudinal", "LongPitch", "VoltSNG", "SNGHack", "GMAutoHold", "VoltOnePedalMode",
                               "TeslaCoopSteering", "TeslaAOLScreenTap", "TeslaAOLDisengageOnBrake",
-                              "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN"))
+                              "RemoteStartBootsComma", "HKGRemoteStartBootsComma", "IgnoreIgnitionLine", "TeslaWakeOnCAN",
+                              "HondaBcanTurnSignals"))
 
 
 def confirmation_question(request):
@@ -48,4 +49,6 @@ def confirmation_question(request):
     return f"{verb} three-finger screen taps for Always On Lateral after the next startup? Cruise control stays independent."
   if request.key == "TeslaAOLDisengageOnBrake":
     return f"{verb} disarming Always On Lateral with the brake after the next startup? This applies with either Tesla harness."
+  if request.key == "HondaBcanTurnSignals":
+    return f"{verb} B-CAN turn signals? The body BCM holds the lamp for the lane change and cancels it after. This refreshes during the drive."
   raise ValueError("Unsupported vehicle preference")

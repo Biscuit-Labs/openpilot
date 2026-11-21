@@ -8,7 +8,7 @@ from typing import Any
 from collections.abc import Callable
 from functools import cache
 
-from opendbc.car import DT_CTRL, apply_hysteresis, gen_empty_fingerprint, scale_rot_inertia, scale_tire_stiffness, STD_CARGO_KG
+from opendbc.car import Bus, DT_CTRL, apply_hysteresis, gen_empty_fingerprint, scale_rot_inertia, scale_tire_stiffness, STD_CARGO_KG
 from opendbc.car import structs
 from opendbc.car.can_definitions import CanData, CanRecvCallable, CanSendCallable
 from opendbc.car.common.basedir import BASEDIR
@@ -236,8 +236,11 @@ class CarInterfaceBase(ABC):
     # get CarState
     ret = self.CS.update(self.can_parsers)
 
-    ret.canValid = all(cp.can_valid for cp in self.can_parsers.values())
-    ret.canTimeout = any(cp.bus_timeout for cp in self.can_parsers.values())
+    # the body (B-CAN) parser is informational (e.g. Honda blind spot and lamp status): a harness
+    # dropout must not be a CAN error, car state exposes its validity separately (Honda CS.body_valid)
+    main_parsers = [cp for bus, cp in self.can_parsers.items() if bus != Bus.body]
+    ret.canValid = all(cp.can_valid for cp in main_parsers)
+    ret.canTimeout = any(cp.bus_timeout for cp in main_parsers)
 
     if ret.vEgoCluster == 0.0 and not self.v_ego_cluster_seen:
       ret.vEgoCluster = ret.vEgo

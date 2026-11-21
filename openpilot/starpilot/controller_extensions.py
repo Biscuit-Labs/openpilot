@@ -129,6 +129,11 @@ def configure_controller(CI, params):
     if getattr(CI, "CS", None) is not None:
       CI.CS.modified_eps_settings = preferences
 
+  if controller is not None and cp.brand == "honda" and getattr(controller, "bcan_blinker", None) is not None:
+    # one settings source for the B-CAN turn signal toggle (opendbc/car/honda/bcan_blinker.py)
+    from openpilot.starpilot.car.honda.bcan_turn_signals import BcanTurnSignalsPreference
+    controller.bcan_blinker_settings = BcanTurnSignalsPreference(params)
+
   if (controller is not None and cp.brand == "honda" and getattr(controller, "nidec_interceptor", None) is not None and
       controller.nidec_interceptor.learn):
     from openpilot.starpilot.car.honda.longitudinal import BoschLearningParams

@@ -34,7 +34,7 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
         for frames in (10, 38, 50, 58):  # 0.5, 1.9, 2.5 and 2.9 s into the maneuver
           helper = starting(policy, side)
           for _ in range(frames - 1):
-            helper.update(car(**{"leftBlinker": side == "left", "rightBlinker": side == "right"}), True, 1.0)
+            helper.update(car(leftBlinker=side == "left", rightBlinker=side == "right"), True, 1.0)
           helper.update(car(**{"leftBlinker": side == "left", "rightBlinker": side == "right", spot: True}), True, 1.0)
           self.assertAlmostEqual(helper.lane_change_timer, 0.0)
           self.assertEqual((helper.lane_change_state, helper.lane_change_direction, helper.desire),

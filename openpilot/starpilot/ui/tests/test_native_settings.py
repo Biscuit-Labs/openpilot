@@ -243,7 +243,7 @@ class NativeSettingsTests(unittest.TestCase):
     self._large_layout()
     for paired in (True, False):
       with self.subTest(paired=paired):
-        self.ui.prime_state = NS(is_paired=lambda: paired)
+        self.ui.prime_state = NS(is_paired=lambda paired=paired: paired)
         pane = StarPilotSettingsAdapterLarge(self.device, fake_fonts(), "Device", Mock())
         pane.show_event()
         state = pane.snapshot()

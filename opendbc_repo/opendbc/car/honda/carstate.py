@@ -7,6 +7,7 @@ from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.carlog import carlog
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import pcm_acc
+from opendbc.car.honda.bcan_blinker import TapHold
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.modified_eps import SteeringPressedHysteresis, current_settings, modified_eps, steering_pressed_threshold
 from opendbc.car.honda.yaw_rate import get_yaw_rate_calibration
@@ -64,6 +65,11 @@ class CarState(CarStateBase):
     self.bcm_kwp_resp_ts = 0
     self.left_stalk_raw = False
     self.right_stalk_raw = False
+    if self.CP.flags & HondaFlags.HAS_BSM:
+      # set by the car controller each frame (one frame behind): the side openpilot
+      # holds on the B-CAN lamp, so a quick stalk tap keeps its intent while it is visible
+      self.bcan_holding_side = None
+      self.tap_hold = TapHold()
 
     # Clarity with an interceptor (honda/pcm_acc.py): the controller holds the PCM in ACC while engaged, so
     # cruiseState.enabled keeps reporting it off as before and pcm_acc_active carries the bit. Not while passive.
@@ -192,6 +198,12 @@ class CarState(CarStateBase):
     self.right_stalk_raw = bool(cp.vl["SCM_FEEDBACK"]["RIGHT_BLINKER"])
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(
       250, cp.vl["SCM_FEEDBACK"]["LEFT_BLINKER"], cp.vl["SCM_FEEDBACK"]["RIGHT_BLINKER"])
+    if self.CP.flags & HondaFlags.HAS_BSM:
+      # a quick stalk tap keeps the lane-change intent for TAP_HOLD_S while the B-CAN
+      # blinker holds the lamp, so the driver has time to nudge
+      ret.leftBlinker, ret.rightBlinker = self.tap_hold.update(
+        ret.leftBlinker, ret.rightBlinker, self.left_stalk_raw, self.right_stalk_raw,
+        self.bcan_holding_side, cp._last_update_nanos * 1e-9)
     ret.brakeHoldActive = cp.vl["VSA_STATUS"]["BRAKE_HOLD_ACTIVE"] == 1
     # some Nidec hybrids (Clarity) report brake hold on a different message; VSA_STATUS stays 0
     if self.CP.flags & HondaFlags.HYBRID_ALT_BRAKEHOLD:

@@ -3,8 +3,8 @@ import logging
 from types import SimpleNamespace
 
 from opendbc.car import carlog
-from opendbc.car.honda.bcan_blinker import (ADDR, BLINK_HOLD_BYTE, BUS, BcanBlinker, CANCEL, RENEW_S,
-                                            SIDE_CHANGE_DELAY_S)
+from opendbc.car.honda.bcan_blinker import (ADDR, BLINK_HOLD_BYTE, BUS, BcanBlinker, CANCEL, LEFT, RIGHT, RENEW_S,
+                                            SIDE_CHANGE_DELAY_S, TAP_HOLD_S, TapHold)
 
 START_LEFT = bytes([0x30, 0x0A, BLINK_HOLD_BYTE, 0, 0, 0, 0, 0])
 START_RIGHT = bytes([0x30, 0x0B, BLINK_HOLD_BYTE, 0, 0, 0, 0, 0])
@@ -162,3 +162,68 @@ def test_never_more_than_one_frame_per_step_or_per_0p1s():
   assert sent_at, "expected frames"
   for a, z in zip(sent_at, sent_at[1:]):
     assert z - a >= 0.1 - 1e-9
+
+
+def test_tap_hold_keeps_intent_until_8s_while_holding_same_side():
+  t = TapHold()
+  # driver taps left at 0.0 while openpilot holds the left lamp; left_cs is the 250-frame stalk hold
+  assert t.update(True, False, True, False, LEFT, 0.0) == (True, False)
+  assert t.update(True, False, False, False, LEFT, 1.0) == (True, False)  # stalk hold
+  # after the stalk hold expires, the tap window keeps the intent until 8 s
+  assert t.update(False, False, False, False, LEFT, 2.6) == (True, False)
+  assert t.update(False, False, False, False, LEFT, TAP_HOLD_S - 0.1) == (True, False)
+  assert t.update(False, False, False, False, LEFT, TAP_HOLD_S) == (False, False)
+
+
+def test_tap_hold_without_holding_side_follows_stalk_only():
+  t = TapHold()
+  assert t.update(True, False, True, False, None, 0.0) == (True, False)  # the tap frame
+  assert t.update(True, False, False, False, None, 0.5) == (True, False)  # stalk hold
+  # no visible blinker: no extension once the stalk hold expires
+  assert t.update(False, False, False, False, None, 2.6) == (False, False)
+
+
+def test_tap_hold_opposite_tap_switches_and_clears():
+  t = TapHold()
+  assert t.update(True, False, True, False, LEFT, 0.0) == (True, False)
+  # driver taps the opposite side at 1.0 s: the right window starts, the left window clears,
+  # and the newer window wins even while both cs sides are still True
+  assert t.update(True, True, False, True, LEFT, 1.0) == (False, True)
+  # the extension follows the new side once it is the held one (window: 1.0 s + 8 s)
+  assert t.update(False, True, False, True, RIGHT, 1.1) == (False, True)
+  assert t.update(False, False, False, False, RIGHT, 1.0 + TAP_HOLD_S - 0.1) == (False, True)
+  assert t.update(False, False, False, False, RIGHT, 1.0 + TAP_HOLD_S) == (False, False)
+
+
+def test_tap_hold_never_outputs_both_sides():
+  t = TapHold()
+  # garbage: both raw stalks rise on the same frame; the right edge is processed last and wins
+  assert t.update(True, True, True, True, LEFT, 0.0) == (False, True)
+  t = TapHold()
+  # a held left window and a fresh right stalk tap on the same frame: the newer (right) window wins
+  assert t.update(True, False, True, False, LEFT, 0.0) == (True, False)
+  assert t.update(True, True, False, True, LEFT, 0.5) == (False, True)
+
+
+def test_tap_hold_holding_dropping_ends_extension_immediately():
+  t = TapHold()
+  assert t.update(True, False, True, False, LEFT, 0.0) == (True, False)
+  assert t.update(False, False, False, False, LEFT, 3.0) == (True, False)  # extended
+  # the lamp is no longer held (cancel or disabled): the extension ends at once
+  assert t.update(False, False, False, False, None, 3.0) == (False, False)
+
+
+def test_holding_side_reflects_the_active_lamp():
+  b = BcanBlinker()
+  assert b.holding_side is None
+  assert step(b, make_cc(left=True), make_cs(), now=0.0) == [(ADDR, START_LEFT, BUS)]
+  assert b.holding_side == LEFT
+  # while cancelling the lamp is being dropped: not holding
+  assert step(b, make_cc(), make_cs(), now=0.1) == []
+  assert step(b, make_cc(), make_cs(), now=0.3) == [(ADDR, CANCEL, BUS)]
+  assert b.holding_side is None
+  # a 0x7F reply locks the blinker out for the drive: not holding
+  b2 = BcanBlinker()
+  assert step(b2, make_cc(left=True), make_cs(), now=0.0) == [(ADDR, START_LEFT, BUS)]
+  assert step(b2, make_cc(left=True), make_cs(resp=0x7F), now=0.1) == []
+  assert b2.holding_side is None

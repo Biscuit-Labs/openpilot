@@ -29,6 +29,7 @@ MIN_FRAME_PERIOD_S = 0.1
 SIDE_CHANGE_DELAY_S = 0.1  # the new side starts no sooner than this after a cancel
 CANCEL_REPEAT_S = 0.2      # the cancel is repeated this apart
 CANCEL_MAX = 3             # ... up to this many times unless a 0x60 reply arrives
+TAP_HOLD_S = 8.0           # a quick stalk tap keeps the lane-change intent this long while the lamp is held
 
 RESP_STOP = 0x60
 RESP_NEGATIVE = 0x7F
@@ -59,6 +60,12 @@ class BcanBlinker:
     self.last_frame_ts = None
     self.last_start_ts = None
     self.last_cancel_ts = None
+
+  @property
+  def holding_side(self):
+    # the side openpilot is actually holding on the lamp right now; None while
+    # cancelling (the lamp is being dropped) or locked out
+    return self.side if self.side is not None and not self.cancelling and not self.locked else None
 
   def update(self, CC, CS, enabled, now):
     """One 100 Hz step. CC/CS are duck-typed: CC.leftBlinker/rightBlinker/latActive,
@@ -135,3 +142,42 @@ class BcanBlinker:
       self.side = desired
       self.last_start_ts = now
     return frames
+
+
+class TapHold:
+  """Keeps a quick stalk tap's lane-change intent alive for TAP_HOLD_S while the
+  B-CAN blinker holds the lamp on that side, so the driver has time to nudge.
+
+  Pure logic: left_cs/right_cs are the normal stalk-derived blinkers (after the
+  250-frame hold), the raw stalk sides provide the tap edges, holding_side is the
+  side openpilot actually holds on the lamp (None otherwise) and now is monotonic
+  seconds. A rising edge of a raw stalk side starts that side's window and clears
+  the other side's window. The intent is never extended without a visible
+  blinker, and both sides are never True at once: the newer window wins.
+  """
+  def __init__(self):
+    self.left_start = None   # now of the last left tap, None if no open window
+    self.right_start = None
+    self._left_raw_prev = False
+    self._right_raw_prev = False
+
+  def update(self, left_cs, right_cs, left_stalk_raw, right_stalk_raw, holding_side, now):
+    if left_stalk_raw and not self._left_raw_prev:
+      self.left_start = now
+      self.right_start = None
+    if right_stalk_raw and not self._right_raw_prev:
+      self.right_start = now
+      self.left_start = None
+    self._left_raw_prev = left_stalk_raw
+    self._right_raw_prev = right_stalk_raw
+
+    left = bool(left_cs) or (holding_side == LEFT and self.left_start is not None and now - self.left_start < TAP_HOLD_S)
+    right = bool(right_cs) or (holding_side == RIGHT and self.right_start is not None and now - self.right_start < TAP_HOLD_S)
+    if left and right:
+      left_ts = float("-inf") if self.left_start is None else self.left_start
+      right_ts = float("-inf") if self.right_start is None else self.right_start
+      if left_ts >= right_ts:
+        right = False
+      else:
+        left = False
+    return left, right

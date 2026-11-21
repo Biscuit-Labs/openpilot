@@ -357,6 +357,8 @@ class CarController(CarControllerBase):
     if self.bcan_blinker is not None:
       enabled = CS.body_valid and (self.bcan_blinker_settings.current() if self.bcan_blinker_settings is not None else False)
       can_sends.extend(self.bcan_blinker.update(CC, CS, enabled, now_nanos * 1e-9))
+      # carstate reads this next frame to keep a quick stalk tap's intent alive while the lamp is held
+      CS.bcan_holding_side = self.bcan_blinker.holding_side if enabled else None
 
     if self.accord_mvl_stock is not None:
       can_sends.extend(self.accord_mvl_stock.update(self.packer, self.CAN, self.CP, CC, CS, self.frame))

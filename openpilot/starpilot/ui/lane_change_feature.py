@@ -21,6 +21,7 @@ GUIDANCE = "lane_change:turn_signal_guidance"
 ENABLED = "lane_change:enabled"
 SPEED = "lane_change:speed"
 ONE = "lane_change:one"
+ABORT = "lane_change:abort_blindspot"
 AUTO = "lane_change:auto"
 REQUIRE_CRUISE = "lane_change:require_cruise"
 DELAY = "lane_change:delay"
@@ -43,7 +44,7 @@ def confirm_question(request: FeatureSettingsRequest) -> str:
     return "Turn off automatic lane changes? New automatic triggers stop after the preference refresh."
   label = {GUIDANCE: "turn signal guidance", ENABLED: "lane-change assistance", AUTO: "automatic lane changes",
            REQUIRE_CRUISE: "cruise requirement for automatic lane changes", SPEED: "minimum lane-change speed",
-           ONE: "one lane change per signal", PACE: "steering pace", DELAY: "signal delay",
+           ONE: "one lane change per signal", ABORT: "blindspot lane-change abort", PACE: "steering pace", DELAY: "signal delay",
            WIDTH: "minimum adjacent lane width", CLOSE: "Close lane-change gap", GAP: "lane-change following time",
            TURN: "Force turn desires", TURN_SPEED: "turn desire speed"}[request.key]
   unit = request.display_unit
@@ -55,7 +56,7 @@ def confirm_question(request: FeatureSettingsRequest) -> str:
             "Changes apply after the current signal and maneuver end.")
   checks = ' Lane and blindspot checks remain required.' if request.key == AUTO and request.value == 'On' else ''
   return f"Set {label} to {value}? {timing}{checks}"
-KEYS = frozenset((GUIDANCE, ENABLED, SPEED, ONE, AUTO, REQUIRE_CRUISE, DELAY, WIDTH, CLOSE, GAP, PACE, TURN, TURN_SPEED, RESET))
+KEYS = frozenset((GUIDANCE, ENABLED, SPEED, ONE, ABORT, AUTO, REQUIRE_CRUISE, DELAY, WIDTH, CLOSE, GAP, PACE, TURN, TURN_SPEED, RESET))
 
 
 def _unit_source(params) -> tuple[bytes | None, bool]:
@@ -118,6 +119,11 @@ class LaneChangeFeature:
     long_available = self.longitudinal_available()
     speed = round(policy.minimum_speed_mps * multiplier, 3)
     turn_speed = round(policy.turn_desire_speed_mps * multiplier, 3)
+    bsm_params = self.vehicle_params()
+    try:
+      bsm_available = bsm_params is not None and bool(bsm_params.deprecated.enableBsm)
+    except (AttributeError, TypeError):
+      bsm_available = False
     rows = [replace(common, key=PACE, label="Lane Change Speed", value=str(round(1.0 + (8.0 - policy.duration_s) * 9.0 / 5.0, 2)),
                     step=1.0, minimum=1.0, maximum=10.0, unit="", available=allowed,
                     reason="Sets how quickly steering moves into the adjacent lane. Higher values change lanes " +
@@ -163,9 +169,17 @@ class LaneChangeFeature:
                     reason="Forced turn desires begin below this speed. Lower values keep an early signal from turning the car in " +
                            "before the corner." if unit_valid else "Saved speed units unavailable",
                     dependencies=(("IsMetric", unit_raw),), display_unit=unit if unit_valid else "")]
+    if bsm_available:
+      # Hidden entirely without a vehicle whose parameters report a blind-spot monitor.
+      bsm_row = replace(common, key=ABORT, label="Abort Lane Change for Blind Spot",
+                        value="On" if policy.abort_on_blindspot else "Off", choices=("Off", "On"), available=allowed,
+                        reason="Aborts a lane change during its first two seconds if the target-side blind spot lights; " +
+                               "afterward it only warns, and the driver must signal again to retry.")
+      rows.insert(next(index for index, row in enumerate(rows) if row.key == ONE) + 1, bsm_row)
 
     defaults = LaneChangePolicy()
     targets = {ENABLED: "On" if defaults.enabled else "Off", ONE: "On" if defaults.one_per_signal else "Off",
+               ABORT: "On" if defaults.abort_on_blindspot else "Off",
                AUTO: "On" if defaults.auto_lane_change else "Off", REQUIRE_CRUISE: "On" if defaults.auto_requires_cruise else "Off",
                CLOSE: "On" if defaults.close_gap else "Off",
                SPEED: str(round(defaults.minimum_speed_mps * multiplier, 3)), DELAY: str(defaults.auto_delay_s),
@@ -203,9 +217,9 @@ class LaneChangeFeature:
       return LaneChangePolicy() if not saved.valid and request.value == "confirm" else None
     if not saved.valid:
       return None
-    if request.key in (GUIDANCE, ENABLED, ONE, AUTO, REQUIRE_CRUISE, CLOSE, TURN) and request.value in ("On", "Off"):
-      field = {GUIDANCE: "turn_signal_guidance", ENABLED: "enabled", ONE: "one_per_signal", AUTO: "auto_lane_change",
-               REQUIRE_CRUISE: "auto_requires_cruise", CLOSE: "close_gap", TURN: "turn_desires"}[request.key]
+    if request.key in (GUIDANCE, ENABLED, ONE, ABORT, AUTO, REQUIRE_CRUISE, CLOSE, TURN) and request.value in ("On", "Off"):
+      field = {GUIDANCE: "turn_signal_guidance", ENABLED: "enabled", ONE: "one_per_signal", ABORT: "abort_on_blindspot",
+               AUTO: "auto_lane_change", REQUIRE_CRUISE: "auto_requires_cruise", CLOSE: "close_gap", TURN: "turn_desires"}[request.key]
       return replace(saved.policy, **{field: request.value == "On"})
     if request.key == PACE:
       try:

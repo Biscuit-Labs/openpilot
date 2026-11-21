@@ -24,6 +24,8 @@ class Phase(IntEnum):
   WAITING_FOR_DELAY = 1
   LANE_UNAVAILABLE = 2
   BLINDSPOT_BLOCKED = 3
+  ABORTED_BLINDSPOT = 4
+  LATE_BLINDSPOT = 5
 
 
 class Direction(IntEnum):
@@ -148,4 +150,6 @@ def alert_wording(status: LaneChangeStatus | None, model, now_mono_ns: int, recv
   return {Phase.MANUAL_REQUIRED: None,
           Phase.WAITING_FOR_DELAY: ("Automatic Lane Change Pending", "Check surroundings; steer to confirm now"),
           Phase.LANE_UNAVAILABLE: ("Automatic Change Unavailable", "Steer to confirm when safe"),
-          Phase.BLINDSPOT_BLOCKED: ("Car Detected in Blindspot", "")}[status.phase]
+          Phase.BLINDSPOT_BLOCKED: ("Car Detected in Blindspot", ""),
+          Phase.ABORTED_BLINDSPOT: ("Car Detected in Blindspot", ""),
+          Phase.LATE_BLINDSPOT: ("Car Detected in Blindspot", "")}[status.phase]

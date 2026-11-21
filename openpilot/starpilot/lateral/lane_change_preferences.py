@@ -39,6 +39,7 @@ class LaneChangePolicy:
   auto_requires_cruise: bool = False
   turn_desires: bool = False
   turn_desire_speed_mps: float = DEFAULT_TURN_DESIRE_SPEED_MPS
+  abort_on_blindspot: bool = False
 
 
 @dataclass(frozen=True)
@@ -79,12 +80,13 @@ def decode(raw: bytes) -> LaneChangePolicy | None:
   # Version 5 is SGSP's (turnSignalGuidance), or the shape our Force turn desires wrote before the two settings shared a
   # document (turnDesires / turnDesireSpeedMps, guidance then at its default). Version 6 is Dom's (autoRequiresCruise),
   # or our earlier version 6 (turnSignalGuidance with the turn desire fields, no autoRequiresCruise). Night Star adds the
-  # turn desire fields to Dom's version 6 only when they leave their defaults.
+  # turn desire fields to Dom's version 6 only when they leave their defaults, and abortOnBlindspot only when set.
   turn_fields = {"turnDesires", "turnDesireSpeedMps"} & set(data)
   if version == 5:
     fields |= {"turnDesires", "turnDesireSpeedMps"} if "turnDesires" in data else {"turnSignalGuidance"}
   if version == 6:
-    fields |= {"turnSignalGuidance"} | ({"autoRequiresCruise"} if "autoRequiresCruise" in data else set())
+    fields |= {"turnSignalGuidance"} | ({"autoRequiresCruise"} if "autoRequiresCruise" in data else set()) \
+              | ({"abortOnBlindspot"} if "abortOnBlindspot" in data else set())
     if turn_fields or "autoRequiresCruise" not in data:
       fields |= {"turnDesires", "turnDesireSpeedMps"}
   if set(data) != fields:
@@ -127,13 +129,14 @@ def decode(raw: bytes) -> LaneChangePolicy | None:
     return None
   guidance = data.get("turnSignalGuidance", True)
   requires_cruise = data.get("autoRequiresCruise", False)
-  if type(guidance) is not bool or type(requires_cruise) is not bool:
+  abort_blindspot = data.get("abortOnBlindspot", False)
+  if type(guidance) is not bool or type(requires_cruise) is not bool or type(abort_blindspot) is not bool:
     return None
   turn, turn_speed = data.get("turnDesires", False), data.get("turnDesireSpeedMps", DEFAULT_TURN_DESIRE_SPEED_MPS)
   if type(turn) is not bool or type(turn_speed) not in (int, float) or not valid_turn_desire_speed(turn_speed):
     return None
   return LaneChangePolicy(enabled, finite_speed, once, auto, delay, width, close_gap, seconds, float(duration), guidance,
-                          requires_cruise, turn, float(turn_speed))
+                          requires_cruise, turn, float(turn_speed), abort_blindspot)
 
 
 def valid_turn_desire_speed(value) -> bool:
@@ -176,6 +179,8 @@ def to_value(policy: LaneChangePolicy) -> dict[str, int | bool | float]:
   if (type(policy.turn_desires) is not bool or type(policy.turn_desire_speed_mps) not in (int, float) or
       not valid_turn_desire_speed(policy.turn_desire_speed_mps)):
     raise ValueError("invalid turn desire policy")
+  if type(policy.abort_on_blindspot) is not bool:
+    raise ValueError("invalid blindspot abort policy")
   value = {"version": 6, "enabled": policy.enabled, "minimumSpeedMps": finite_speed,
            "onePerSignal": policy.one_per_signal, "autoLaneChange": policy.auto_lane_change,
            "autoDelayS": delay, "minimumLaneWidthM": width,
@@ -184,6 +189,8 @@ def to_value(policy: LaneChangePolicy) -> dict[str, int | bool | float]:
   # the Force turn desire fields only once they leave their defaults, so an untouched document stays Dom's version 6
   if policy.turn_desires or policy.turn_desire_speed_mps != DEFAULT_TURN_DESIRE_SPEED_MPS:
     value |= {"turnDesires": policy.turn_desires, "turnDesireSpeedMps": float(policy.turn_desire_speed_mps)}
+  if policy.abort_on_blindspot:
+    value |= {"abortOnBlindspot": True}
   return value
 
 

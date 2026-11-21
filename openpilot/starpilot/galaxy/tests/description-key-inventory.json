@@ -182,6 +182,7 @@
   "display:auto:ScreenBrightnessOnroad",
   "enable_human_turn_detection_curv",
   "heading:starport",
+  "lane_change:abort_blindspot",
   "lane_change:auto",
   "lane_change:close_gap",
   "lane_change:close_gap_seconds",

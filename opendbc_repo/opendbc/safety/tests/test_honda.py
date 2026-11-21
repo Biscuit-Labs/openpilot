@@ -227,10 +227,19 @@ class HondaBase(common.CarSafetyTest):
     self.assertFalse(self._tx(self._send_steer_msg(0x1000)))
 
 
+class HondaBcanTurnSignalNotSentBase:
+  """The B-CAN turn signal address is not a TX message outside Bosch with radar."""
+
+  def test_bcan_turn_signal_not_allowed(self):
+    self.safety.set_controls_allowed(1)
+    msg = libsafety_py.make_CANPacket(0x16F118F0, 0, bytes([0x30, 0x0A, 0x0F, 0, 0, 0, 0, 0]))  # a valid Bosch start
+    self.assertFalse(self._tx(msg))
+
+
 # ********************* Honda Nidec **********************
 
 
-class TestHondaNidecSafetyBase(HondaBase):
+class TestHondaNidecSafetyBase(HondaBase, HondaBcanTurnSignalNotSentBase):
   DBC = "honda_civic_touring_2016_can_generated"
   SAFETY_MODEL = CarParams.SafetyModel.hondaNidec
 
@@ -381,7 +390,7 @@ class TestHondaBoschSafetyBase(HondaBase):
   STEER_BUS = 0
   BUTTONS_BUS = 1
 
-  TX_MSGS = [[0xE4, 0], [0xE5, 0], [0x296, 1], [0x33D, 0], [0x33DA, 0], [0x33DB, 0]]
+  TX_MSGS = [[0xE4, 0], [0xE5, 0], [0x296, 1], [0x33D, 0], [0x33DA, 0], [0x33DB, 0], [0x16F118F0, 0]]
   FWD_BLACKLISTED_ADDRS = {2: [0xE4, 0xE5, 0x33D, 0x33DA, 0x33DB]}
   RELAY_MALFUNCTION_ADDRS = {0: (0xE4, 0xE5, 0x33D, 0x33DA, 0x33DB)}  # STEERING_CONTROL, BOSCH_SUPPLEMENTAL_1
 
@@ -400,6 +409,59 @@ class TestHondaBoschSafetyBase(HondaBase):
     # do not block resume if we are engaged already
     self.safety.set_controls_allowed(1)
     self.assertTrue(self._tx(self._button_msg(Btn.RESUME, bus=self.BUTTONS_BUS)))
+
+
+class TestHondaBoschBcanTurnSignalSafetyBase(TestHondaBoschSafetyBase):
+  """Bosch with radar: the body BCM's B-CAN turn signal command 0x16F118F0"""
+
+  def _bcan_msg(self, dat, bus=0):
+    return libsafety_py.make_CANPacket(0x16F118F0, bus, bytes(dat))
+
+  def test_bcan_turn_signal_start_allowed_when_steering_permitted(self):
+    self.safety.set_controls_allowed(1)
+    for side in (0x0A, 0x0B):
+      self.assertTrue(self._tx(self._bcan_msg([0x30, side, 0x0F, 0, 0, 0, 0, 0])), side)
+
+  def test_bcan_turn_signal_start_blocked_when_not_permitted(self):
+    self.safety.set_controls_allowed(0)
+    for side in (0x0A, 0x0B):
+      self.assertFalse(self._tx(self._bcan_msg([0x30, side, 0x0F, 0, 0, 0, 0, 0])), side)  # valid frame, only lateral differs
+
+  def test_bcan_turn_signal_cancel_allowed_when_not_permitted(self):
+    for controls_allowed in (0, 1):
+      self.safety.set_controls_allowed(controls_allowed)
+      self.assertTrue(self._tx(self._bcan_msg([0x20, 0, 0, 0, 0, 0, 0, 0])), controls_allowed)
+
+  def test_bcan_turn_signal_wrong_data_blocked(self):
+    # each frame differs from the accepted start [0x30, 0x0A, 0x0F, 0, 0, 0, 0, 0] (or the all-zero cancel) in one byte
+    self.safety.set_controls_allowed(1)
+    blocked = [
+      [0x20, 0x0A, 0x0F, 0, 0, 0, 0, 0],  # cancel byte0 with a start tail
+      [0x21, 0x0A, 0x0F, 0, 0, 0, 0, 0],  # other byte0
+      [0x31, 0x0A, 0x0F, 0, 0, 0, 0, 0],
+      [0x30, 0x00, 0x0F, 0, 0, 0, 0, 0],  # other byte1
+      [0x30, 0x09, 0x0F, 0, 0, 0, 0, 0],
+      [0x30, 0x0C, 0x0F, 0, 0, 0, 0, 0],
+      [0x30, 0x0A, 0x00, 0, 0, 0, 0, 0],  # byte2 = 0x00
+      [0x30, 0x0A, 0x03, 0, 0, 0, 0, 0],  # byte2 = 0x03 (rejected by the BCM: 7F 30 31)
+      [0x30, 0x0A, 0x0E, 0, 0, 0, 0, 0],  # byte2 = 0x0E
+      [0x30, 0x0A, 0x10, 0, 0, 0, 0, 0],  # byte2 = 0x10
+    ]
+    for i in range(3, 8):  # nonzero tail, one byte at a time
+      blocked.append([0x30, 0x0A, 0x0F] + [1 if j == i else 0 for j in range(3, 8)])
+    for i in range(1, 8):  # cancel with one nonzero byte
+      blocked.append([0x20] + [1 if j == i else 0 for j in range(1, 8)])
+    for dat in blocked:
+      self.assertFalse(self._tx(self._bcan_msg(dat)), msg=str(dat))
+
+  def test_bcan_turn_signal_wrong_bus_or_len_blocked(self):
+    self.safety.set_controls_allowed(1)
+    dat = bytes([0x30, 0x0A, 0x0F, 0, 0, 0, 0, 0])
+    self.assertTrue(self._tx(self._bcan_msg(dat)), msg="control: the same frame on bus 0, len 8")
+    for bus in (1, 2, 3):
+      self.assertFalse(self._tx(self._bcan_msg(dat, bus=bus)), msg=str((bus, dat)))
+    self.assertFalse(self._tx(libsafety_py.make_CANPacket(0x16F118F0, 0, dat[:5])), msg="len 5")
+    self.assertFalse(self._tx(libsafety_py.make_CANPacket(0x16F118F0, 0, dat + b"\x00\x00\x00\x00")), msg="len 12")
 
 
 class TestHondaBoschAltBrakeSafetyBase(TestHondaBoschSafetyBase):
@@ -432,19 +494,19 @@ class TestHondaBoschAltBrakeSafetyBase(TestHondaBoschSafetyBase):
     self.assertTrue(self.safety.get_controls_allowed())
 
 
-class TestHondaBoschSafety(HondaPcmEnableBase, TestHondaBoschSafetyBase):
+class TestHondaBoschSafety(HondaPcmEnableBase, TestHondaBoschBcanTurnSignalSafetyBase):
   """
     Covers the Honda Bosch safety mode with stock longitudinal
   """
 
 
-class TestHondaBoschAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase):
+class TestHondaBoschAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase, TestHondaBoschBcanTurnSignalSafetyBase):
   """
     Covers the Honda Bosch safety mode with stock longitudinal and an alternate brake message
   """
 
 
-class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschSafetyBase):
+class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschBcanTurnSignalSafetyBase):
   """
     Covers the Honda Bosch safety mode with longitudinal control
   """
@@ -456,7 +518,7 @@ class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschSafetyBase):
   MIN_ACCEL = -3.5
 
   STEER_BUS = 1
-  TX_MSGS = [[0xE4, 1], [0x1DF, 1], [0x1EF, 1], [0x1FA, 1], [0x30C, 1], [0x33D, 1], [0x33DA, 1], [0x33DB, 1], [0x39F, 1], [0x18DAB0F1, 1]]
+  TX_MSGS = [[0xE4, 1], [0x1DF, 1], [0x1EF, 1], [0x1FA, 1], [0x30C, 1], [0x33D, 1], [0x33DA, 1], [0x33DB, 1], [0x39F, 1], [0x18DAB0F1, 1], [0x16F118F0, 0]]
   FWD_BLACKLISTED_ADDRS = {}
   # 0x1DF is to test that radar is disabled
   RELAY_MALFUNCTION_ADDRS = {1: (0xE4, 0x1DF, 0x33D, 0x33DA, 0x33DB)}  # STEERING_CONTROL, ACC_CONTROL
@@ -506,7 +568,7 @@ class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschSafetyBase):
       self.assertTrue(self._tx(self._send_gas_brake_msg(self.NO_GAS, 0)))
 
 
-class TestHondaBoschRadarlessSafetyBase(TestHondaBoschSafetyBase):
+class TestHondaBoschRadarlessSafetyBase(TestHondaBoschSafetyBase, HondaBcanTurnSignalNotSentBase):
   """Base class for radarless Honda Bosch"""
   DBC = "honda_bosch_radarless_generated"
 
@@ -564,7 +626,7 @@ class TestHondaBoschRadarlessLongSafety(common.LongitudinalAccelSafetyTest, Hond
     pass
 
 
-class TestHondaBoschCANFDSafetyBase(TestHondaBoschSafetyBase):
+class TestHondaBoschCANFDSafetyBase(TestHondaBoschSafetyBase, HondaBcanTurnSignalNotSentBase):
   """Base class for CANFD Honda Bosch"""
   DBC = "honda_common_canfd_generated"
 

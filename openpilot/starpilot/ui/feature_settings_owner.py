@@ -443,6 +443,27 @@ class FeatureSettingsOwner:
     return commit_exact(self.params, key="JeepBrakeHold", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
                         expected=request.expected, authorized=authorized, temp_prefix=".jeep-hold-").verified
 
+  def _honda_bcan_turn_signals_capability(self):
+    from opendbc.car.honda.values import HondaFlags
+    cp = self.vehicle_params()
+    try:
+      if cp is None or cp.brand != "honda" or not int(cp.flags) & int(HondaFlags.HAS_BSM):
+        return None
+      return (str(cp.carFingerprint), int(cp.flags),
+              tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
+    except (AttributeError, TypeError, ValueError):
+      return None
+
+  def _apply_honda_bcan_turn_signals(self, request):
+    if not request.confirmation or request.value not in ("Off", "On") or request.dependencies:
+      return False
+    def authorized():
+      return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
+              request.capability is not None and request.capability == self._honda_bcan_turn_signals_capability() and
+              self.authority("parked_preferences") and request.expected in (None, b"0", b"1"))
+    return commit_exact(self.params, key="HondaBcanTurnSignals", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
+                        expected=request.expected, authorized=authorized, temp_prefix=".honda-bcan-turn-signals-").verified
+
   def _toyota_sng_capability(self):
     from opendbc.car.toyota.sng import eligible
     cp = self.vehicle_params()
@@ -852,6 +873,7 @@ class FeatureSettingsOwner:
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
           self.panda_wake.capability() is not None or FordRearFogFeature(self).capability() is not None or
+          self._honda_bcan_turn_signals_capability() is not None or
           preap_radar_capability(self.vehicle_params()) is not None):
         rows.append(FeatureRow("", "Vehicle Settings", "Configure features supported by your vehicle", page=FeaturePage.VEHICLE, available=True))
       rows.append(FeatureRow("", "Driving Personalities", "Adjust Aggressive, Standard, Relaxed and Traffic profiles",
@@ -882,6 +904,13 @@ class FeatureSettingsOwner:
                              configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
+      bcan_capability = self._honda_bcan_turn_signals_capability()
+      if bcan_capability is not None:
+        row = self._bool_row("HondaBcanTurnSignals", "B-CAN Turn Signals",
+                             configurable and parked and self.authority("parked_preferences"),
+                             "Lets openpilot hold the turn signal for a whole lane change and cancel it after. " +
+                             "Needs a body harness with B-CAN gateway; 10th-gen Accord tested.")
+        rows.append(replace(row, available=row.available and self._readable("HondaBcanTurnSignals"), capability=bcan_capability))
       rows.extend(self.tesla_screen.rows(parked))
       rows.extend(self.tesla_coop.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
@@ -1450,6 +1479,8 @@ class FeatureSettingsOwner:
       return self._apply_toyota_sng(request)
     if key == "ToyotaAutoHold":
       return self._apply_auto_hold(request)
+    if key == "HondaBcanTurnSignals":
+      return self._apply_honda_bcan_turn_signals(request)
     if key == PLANNER_SELECTION_KEY:
       if request.value not in ("Off", "On") or not self.authority("preferences"):
         return False

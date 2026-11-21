@@ -420,8 +420,7 @@ class TestHondaBoschBcanTurnSignalSafetyBase(TestHondaBoschSafetyBase):
   def test_bcan_turn_signal_start_allowed_when_steering_permitted(self):
     self.safety.set_controls_allowed(1)
     for side in (0x0A, 0x0B):
-      for hold in (1, 3, 15):
-        self.assertTrue(self._tx(self._bcan_msg([0x30, side, hold, 0, 0, 0, 0, 0])), (side, hold))
+      self.assertTrue(self._tx(self._bcan_msg([0x30, side, 0x0F, 0, 0, 0, 0, 0])), side)
 
   def test_bcan_turn_signal_start_blocked_when_not_permitted(self):
     self.safety.set_controls_allowed(0)
@@ -441,9 +440,10 @@ class TestHondaBoschBcanTurnSignalSafetyBase(TestHondaBoschSafetyBase):
       [0x30, 0x00, 3, 0, 0, 0, 0, 0],  # other byte1
       [0x30, 0x09, 3, 0, 0, 0, 0, 0],
       [0x30, 0x0C, 3, 0, 0, 0, 0, 0],
-      [0x30, 0x0A, 0, 0, 0, 0, 0, 0],  # byte2 = 0
-      [0x30, 0x0A, 16, 0, 0, 0, 0, 0],  # byte2 = 16
-      [0x30, 0x0A, 255, 0, 0, 0, 0, 0],
+      [0x30, 0x0A, 0x00, 0, 0, 0, 0, 0],  # byte2 = 0x00
+      [0x30, 0x0A, 0x03, 0, 0, 0, 0, 0],  # byte2 = 0x03 (old duration value)
+      [0x30, 0x0A, 0x0E, 0, 0, 0, 0, 0],  # byte2 = 0x0E
+      [0x30, 0x0A, 0x10, 0, 0, 0, 0, 0],  # byte2 = 0x10
       [0x30, 0x0A, 3, 1, 0, 0, 0, 0],  # nonzero tail
       [0x30, 0x0A, 3, 0, 0, 0, 1, 0],
       [0x30, 0x0A, 3, 0, 0, 0, 0, 1],

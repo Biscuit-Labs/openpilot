@@ -7,8 +7,9 @@ B-CAN, which a body-harness gateway forwards to comma bus 0:
   start right = 30 0b DD 00 00 00 00 00
   cancel      = 20 00 00 00 00 00 00 00
 
-DD is the blink duration in seconds; the BCM stops the lamp on its own when it
-expires, so the start is renewed while the desired side persists. The BCM
+DD is a fixed control parameter the BCM requires; one start blinks about 15 s,
+after which the BCM stops on its own, so the start is renewed every RENEW_S
+while the desired side persists. The BCM
 answers 0x16F1F018: byte0 0x70 = start accepted, 0x60 = stop accepted,
 0x7F = unsupported (lock out for the rest of the drive).
 
@@ -22,7 +23,7 @@ from opendbc.car.carlog import carlog
 ADDR = 0x16F118F0
 BUS = 0
 
-BLINK_HOLD_BYTE = 0x03  # DD: seconds of blinking one start command grants
+BLINK_HOLD_BYTE = 0x0F  # DD: fixed control parameter the BCM requires (one start blinks about 15 s)
 RENEW_S = 1.0           # resend the start while the desired side persists
 MIN_FRAME_PERIOD_S = 0.1
 SIDE_CHANGE_DELAY_S = 0.1  # the new side starts no sooner than this after a cancel

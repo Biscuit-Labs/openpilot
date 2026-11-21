@@ -327,13 +327,14 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
     }
   }
 
-  // B-CAN turn signal (body BCM): only the exact cancel, or a well-formed start while a
-  // non-zero steering command is permitted (the same condition as the steer check above)
+  // B-CAN turn signal (body BCM): only the exact cancel, or a well-formed start (byte2 must
+  // be exactly 0x0F, a fixed control parameter the BCM requires) while a non-zero steering
+  // command is permitted (the same condition as the steer check above)
   if (msg_matches(msg, 0x16F118F0U, 0U)) {
     const bool bcan_cancel = (GET_BYTES_64_LE(msg, 0, 8) == 0x0000000000000020ULL);
     const bool bcan_start = (msg->data[0] == 0x30U) &&
                             ((msg->data[1] == 0x0AU) || (msg->data[1] == 0x0BU)) &&
-                            ((msg->data[2] >= 1U) && (msg->data[2] <= 15U)) &&
+                            (msg->data[2] == 0x0FU) &&
                             (GET_BYTES_64_LE(msg, 3, 5) == 0U);
     if (!bcan_cancel && !((bcan_start) && lateral_controls_allowed())) {
       tx = false;

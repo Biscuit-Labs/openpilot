@@ -29,6 +29,7 @@ def large_layout():
     layout._prev_onroad = True
     settings = Mock()
     settings._panels = {panel: NS(instance=Mock()) for panel in PanelType}
+    settings._panels[PanelType.DEVICE].instance._scroller._items = [Mock()]  # the constructor reorders the Device rows
     layout._layouts = {runtime_app.MainState.HOME: Mock(), runtime_app.MainState.SETTINGS: settings,
                        runtime_app.MainState.ONROAD: Mock()}
     layout._sidebar.set_callbacks(on_settings=layout._on_settings_clicked, on_flag=layout._on_bookmark_clicked)

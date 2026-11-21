@@ -35,6 +35,12 @@ def manager_init() -> None:
       cloudlog.warning(f"Renamed Honda EPS settings: {renamed}")
   except OSError:
     cloudlog.exception("Honda EPS settings rename interrupted; retrying at next startup")
+  from openpilot.starpilot.honda_eps_settings import reset_override_fade_up_once
+  try:
+    if reset_override_fade_up_once(params):
+      cloudlog.warning("Override Fade Up: saved value cleared once for the 1.25 s default")
+  except OSError:
+    cloudlog.exception("Override Fade Up reset interrupted; retrying at next startup")
   # Konik only: carry a vfn device's Konik identity over before the migration archives vfn's keys
   from openpilot.starpilot.connect.konik_adoption import adopt_vfn_konik_identity
   try:

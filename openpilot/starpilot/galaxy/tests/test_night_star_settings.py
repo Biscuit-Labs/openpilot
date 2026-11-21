@@ -59,7 +59,7 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertEqual([label for label in labels if label in order], order)
     rows = {row['label']: row for row in self.page()['rows']}
     self.assertEqual(rows['Override Fade Down']['value'], '0.0')   # the registered defaults, nothing saved
-    self.assertEqual(rows['Override Fade Up']['value'], '0.5')
+    self.assertEqual(rows['Override Fade Up']['value'], '1.25')
 
   def test_override_fades_are_live_onroad(self):
     self.assertTrue(self.set('Override Fade Up', '1.2'))
@@ -74,7 +74,7 @@ class TestNightStarSettings(unittest.TestCase):
       self.set('Override Fade Up', '10.5')
     with self.assertRaises(SettingsChanged):
       self.set('Override Fade Down', '-0.1')
-    self.assertIsNone(self.params.get('HondaOverrideFadeUpSecs'))   # nothing saved, so the 0.5 s default still holds
+    self.assertIsNone(self.params.get('HondaOverrideFadeUpSecs'))   # nothing saved, so the 1.25 s default still holds
     self.assertIsNone(self.params.get('HondaOverrideFadeDownSecs'))
 
   def test_saved_fade_survives_the_page(self):

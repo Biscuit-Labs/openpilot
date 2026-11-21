@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 from openpilot.common.params import Params
-from openpilot.starpilot.honda_eps_settings import HONDA_EPS_KEY_RENAMES, HONDA_EPS_PRESERVED_KEYS, migrate_honda_eps_param_names
+from openpilot.starpilot.honda_eps_settings import (HONDA_EPS_KEY_RENAMES, HONDA_EPS_PRESERVED_KEYS, FADE_UP_RESET_KEY,
+                                                      migrate_honda_eps_param_names, reset_override_fade_up_once)
 from openpilot.starpilot.state_migration import OPERATIONAL_KEYS, prepare_manager_start
 
 
@@ -64,3 +65,17 @@ class TestHondaEpsSettings(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+  def test_fade_up_reset_clears_the_saved_value_once(self):
+    self.params.put('HondaOverrideFadeUpSecs', 0.0, block=True)            # the old "0 = hidden 1.25 s" setting
+    self.assertTrue(reset_override_fade_up_once(self.params))
+    self.assertIsNone(self.params.get('HondaOverrideFadeUpSecs'))
+    self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs', return_default=True), 1.25)
+    self.params.put('HondaOverrideFadeUpSecs', 0.8, block=True)            # set after the reset: kept
+    self.assertFalse(reset_override_fade_up_once(self.params))
+    self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs'), 0.8)
+    self.assertIn(FADE_UP_RESET_KEY, HONDA_EPS_PRESERVED_KEYS)
+
+  def test_fade_up_reset_with_nothing_saved_only_marks_done(self):
+    self.assertFalse(reset_override_fade_up_once(self.params))
+    self.assertTrue(self.params.get_bool(FADE_UP_RESET_KEY))

@@ -30,7 +30,7 @@ HONDA_EPS_PRESERVED_KEYS = frozenset({
   "LatFScaleLowSpeed", "LatFScaleStandard", "LatFScaleHighway",
   "HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
   "HondaDriverAssistDuringOverride", "HondaSteerDeltaLimiter", "HondaSteerDeltaUp", "HondaSteerDeltaDown",
-  "HondaClarityAngleMode", "HondaClarityAngleCap3", "HondaClarityAngleHoldOverride",
+  "HondaClarityAngleMode", "HondaClarityAngleCap3", "HondaClarityAngleHoldOverride", "HondaOverrideFadeUpReset125",
   "DisableSeatbeltCheck",
 })
 
@@ -55,3 +55,17 @@ def migrate_honda_eps_param_names(params) -> list[str]:
     except OSError:
       pass
   return renamed
+
+
+FADE_UP_RESET_KEY = "HondaOverrideFadeUpReset125"
+
+
+def reset_override_fade_up_once(params) -> bool:
+  """Once per device: clear the saved Override Fade Up so the 1.25 s default applies (11-20: the default moved from
+  0.5 s, and a saved 0 used to mean a hidden 1.25 s authority climb; 0 now means at once). Returns True if it cleared."""
+  if params.get_bool(FADE_UP_RESET_KEY):
+    return False
+  cleared = params.get("HondaOverrideFadeUpSecs") is not None
+  params.remove("HondaOverrideFadeUpSecs")
+  params.put_bool(FADE_UP_RESET_KEY, True, block=True)
+  return cleared

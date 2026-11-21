@@ -408,7 +408,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaClarityAngleMode", {PERSISTENT, BOOL, "1"}},  // Clarity on the angle-mode EPS build (0x04): steer by angle; read at car start
     {"HondaClarityAngleCap3", {PERSISTENT, BOOL, "0"}},  // Clarity angle mode: use mode 4 (3.0 m/s^2 clamp) when the EPS build has it (0x05, 0x06, 0x08, 0x09); live
     {"HondaClarityAngleHoldOverride", {PERSISTENT, BOOL, "1"}},  // Clarity angle mode on EPS build 0x06/0x08/0x09: hold the request through an override at zero loop authority; live
-    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // s; Night Star page
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page
+    {"HondaOverrideFadeUpReset125", {PERSISTENT, BOOL}},  // one-time clear of the saved Override Fade Up for the 1.25 s default
     // Shadow car learner (selfdrive/controls/honda_eps_learnerd.py): it measures and publishes, nothing reads it back
     {"HondaEpsLearner", {PERSISTENT, BOOL, "1"}},
     {"HondaEpsLearnerReset", {PERSISTENT, BOOL, "0"}},  // set to start the learner over; the daemon clears it

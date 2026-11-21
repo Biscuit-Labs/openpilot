@@ -301,6 +301,11 @@ class CarState(CarStateBase):
         ret.leftBlindspot = cp_body.vl["BSM_STATUS_LEFT"]["BSM_ALERT"] == 1
         ret.rightBlindspot = cp_body.vl["BSM_STATUS_RIGHT"]["BSM_ALERT"] == 1
         self.hazard_on = bool(cp_body.vl["TURN_LAMP_STATUS"]["HAZARD_LAMP"])
+      else:
+        # fail closed: a harness dropout must not report clear blind spots, so lane changes are
+        # blocked as if both sides were occupied until the body messages come back
+        ret.leftBlindspot = True
+        ret.rightBlindspot = True
       # the BCM KWP reply is event-driven (only after a command), so it is registered with a
       # nan frequency and a missing reply never times the body parser out
       resp_ts = cp_body.ts_nanos["BCM_KWP_RESP"]["RESP_CODE"]

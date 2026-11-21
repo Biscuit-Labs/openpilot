@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from opendbc.car import carlog
 from opendbc.car.honda.bcan_blinker import (ADDR, BLINK_HOLD_BYTE, BUS, BcanBlinker, CANCEL, LEFT, RIGHT, RENEW_S,
-                                            SIDE_CHANGE_DELAY_S, TAP_HOLD_S, TapHold)
+                                            TAP_HOLD_S, TapHold)
 
 START_LEFT = bytes([0x30, 0x0A, BLINK_HOLD_BYTE, 0, 0, 0, 0, 0])
 START_RIGHT = bytes([0x30, 0x0B, BLINK_HOLD_BYTE, 0, 0, 0, 0, 0])
@@ -155,12 +155,12 @@ def test_never_more_than_one_frame_per_step_or_per_0p1s():
   for i in range(200):
     left = i < 60  # signal left for 0.6 s, then release
     cc = make_cc(left=left)
-    for frame in step(b, cc, make_cs(), now=t):
+    for _frame in step(b, cc, make_cs(), now=t):
       sent_at.append(t)
-      assert len([f for f in step(b, cc, make_cs(), now=t)]) <= 1
+      assert len(list(step(b, cc, make_cs(), now=t))) <= 1
     t += 0.01
   assert sent_at, "expected frames"
-  for a, z in zip(sent_at, sent_at[1:]):
+  for a, z in zip(sent_at, sent_at[1:], strict=False):
     assert z - a >= 0.1 - 1e-9
 
 

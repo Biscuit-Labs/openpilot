@@ -232,7 +232,7 @@ class HondaBcanTurnSignalNotSentBase:
 
   def test_bcan_turn_signal_not_allowed(self):
     self.safety.set_controls_allowed(1)
-    msg = libsafety_py.make_CANPacket(0x16F118F0, 0, bytes([0x30, 0x0A, 3, 0, 0, 0, 0, 0]))
+    msg = libsafety_py.make_CANPacket(0x16F118F0, 0, bytes([0x30, 0x0A, 0x0F, 0, 0, 0, 0, 0]))  # a valid Bosch start
     self.assertFalse(self._tx(msg))
 
 
@@ -425,7 +425,7 @@ class TestHondaBoschBcanTurnSignalSafetyBase(TestHondaBoschSafetyBase):
   def test_bcan_turn_signal_start_blocked_when_not_permitted(self):
     self.safety.set_controls_allowed(0)
     for side in (0x0A, 0x0B):
-      self.assertFalse(self._tx(self._bcan_msg([0x30, side, 3, 0, 0, 0, 0, 0])), side)
+      self.assertFalse(self._tx(self._bcan_msg([0x30, side, 0x0F, 0, 0, 0, 0, 0])), side)  # valid frame, only lateral differs
 
   def test_bcan_turn_signal_cancel_allowed_when_not_permitted(self):
     for controls_allowed in (0, 1):
@@ -433,27 +433,31 @@ class TestHondaBoschBcanTurnSignalSafetyBase(TestHondaBoschSafetyBase):
       self.assertTrue(self._tx(self._bcan_msg([0x20, 0, 0, 0, 0, 0, 0, 0])), controls_allowed)
 
   def test_bcan_turn_signal_wrong_data_blocked(self):
+    # each frame differs from the accepted start [0x30, 0x0A, 0x0F, 0, 0, 0, 0, 0] (or the all-zero cancel) in one byte
     self.safety.set_controls_allowed(1)
-    blocked = (
-      [0x20, 0x0A, 3, 0, 0, 0, 0, 0],  # cancel byte0 with a start tail
-      [0x21, 0x0A, 3, 0, 0, 0, 0, 0],  # other byte0
-      [0x30, 0x00, 3, 0, 0, 0, 0, 0],  # other byte1
-      [0x30, 0x09, 3, 0, 0, 0, 0, 0],
-      [0x30, 0x0C, 3, 0, 0, 0, 0, 0],
+    blocked = [
+      [0x20, 0x0A, 0x0F, 0, 0, 0, 0, 0],  # cancel byte0 with a start tail
+      [0x21, 0x0A, 0x0F, 0, 0, 0, 0, 0],  # other byte0
+      [0x31, 0x0A, 0x0F, 0, 0, 0, 0, 0],
+      [0x30, 0x00, 0x0F, 0, 0, 0, 0, 0],  # other byte1
+      [0x30, 0x09, 0x0F, 0, 0, 0, 0, 0],
+      [0x30, 0x0C, 0x0F, 0, 0, 0, 0, 0],
       [0x30, 0x0A, 0x00, 0, 0, 0, 0, 0],  # byte2 = 0x00
-      [0x30, 0x0A, 0x03, 0, 0, 0, 0, 0],  # byte2 = 0x03 (old duration value)
+      [0x30, 0x0A, 0x03, 0, 0, 0, 0, 0],  # byte2 = 0x03 (rejected by the BCM: 7F 30 31)
       [0x30, 0x0A, 0x0E, 0, 0, 0, 0, 0],  # byte2 = 0x0E
       [0x30, 0x0A, 0x10, 0, 0, 0, 0, 0],  # byte2 = 0x10
-      [0x30, 0x0A, 3, 1, 0, 0, 0, 0],  # nonzero tail
-      [0x30, 0x0A, 3, 0, 0, 0, 1, 0],
-      [0x30, 0x0A, 3, 0, 0, 0, 0, 1],
-    )
+    ]
+    for i in range(3, 8):  # nonzero tail, one byte at a time
+      blocked.append([0x30, 0x0A, 0x0F] + [1 if j == i else 0 for j in range(3, 8)])
+    for i in range(1, 8):  # cancel with one nonzero byte
+      blocked.append([0x20] + [1 if j == i else 0 for j in range(1, 8)])
     for dat in blocked:
       self.assertFalse(self._tx(self._bcan_msg(dat)), msg=str(dat))
 
   def test_bcan_turn_signal_wrong_bus_or_len_blocked(self):
     self.safety.set_controls_allowed(1)
-    dat = bytes([0x30, 0x0A, 3, 0, 0, 0, 0, 0])
+    dat = bytes([0x30, 0x0A, 0x0F, 0, 0, 0, 0, 0])
+    self.assertTrue(self._tx(self._bcan_msg(dat)), msg="control: the same frame on bus 0, len 8")
     for bus in (1, 2, 3):
       self.assertFalse(self._tx(self._bcan_msg(dat, bus=bus)), msg=str((bus, dat)))
     self.assertFalse(self._tx(libsafety_py.make_CANPacket(0x16F118F0, 0, dat[:5])), msg="len 5")

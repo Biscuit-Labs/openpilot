@@ -535,8 +535,11 @@ def test_authority_ramp_follows_hkg():
   assert r.g < 1 / 30 and down[-1] == 15                                                 # floor 0: CUT 15 (stock lockout)
   assert next(i for i, c in enumerate(down) if c >= 13) < 45                             # (g - min)/17 per frame: tau 17 frames
   g0 = r.g
-  up = [r.update(True, False, 0.0) for _ in range(160)]                                  # Fade Up 0: HKG's 0.008/frame
-  assert next(i for i, c in enumerate(up) if c == 0) == pytest.approx((1 - 0.5 / 15 - g0) / 0.008, abs=2)   # CUT 0 from g > 29/30
+  assert not hasattr(cam, "AUTH_UP_DEFAULT")
+  up = [r.update(True, False, 1.25) for _ in range(160)]                                 # Fade Up 1.25 s means 1.25 s
+  assert next(i for i, c in enumerate(up) if c == 0) == pytest.approx((1 - 0.5 / 15 - g0) * 125, abs=2)   # CUT 0 from g > 29/30
+  r.update(True, True, 1.0)
+  assert r.update(True, False, 0.0) == 0                                               # Fade Up 0 means at once, no hidden default
   assert r.update(False, True, 1.0) == 15 and r.g == 0.0                                 # lateral off: zero authority
 
 
@@ -645,3 +648,20 @@ def test_torque_mode_press_threshold_ignores_the_angle():
   ci = clarity()                                # Angle Mode off: torque mode
   ci.CS.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, override_threshold=1660)})()
   assert not _press_at(ci, 2.0, 1400)
+
+
+@pytest.mark.parametrize("build", [0x09, 0x0A])
+def test_hold_release_target_at_full_limits_authority_over_fade_up(angle_file, build):
+  # personal branch, 11-20: Override Fade Up is the authority climb time (1.25 s here); the target goes back to the plan at
+  # full rate/accel limits (HOLD_LIMITS_FADE_S), not over the setting
+  ci = clarity(); fade_up(ci, 1.25); f = Feed(ci)
+  f.run([v3(build=build, counter=k % 4) for k in range(8)])
+  e4(ci, False, 0.0, 0.0)
+  [e4(ci, True, 10.0, 0.0) for _ in range(200)]
+  [e4(ci, True, 10.0, -5.0, pressed=True) for _ in range(60)]
+  relf = [e4(ci, True, 10.0, -5.0)[1] for _ in range(140)]
+  ra = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in relf]
+  assert ra[40] == pytest.approx(10.0, abs=0.051)                                      # target back on the plan in 0.4 s
+  cuts = [d[3] >> 4 for d in relf]
+  assert cuts == sorted(cuts, reverse=True) and next(i for i, c in enumerate(cuts) if c == 0) == pytest.approx(121, abs=2)
+  assert cam.HOLD_LIMITS_FADE_S == 0.0

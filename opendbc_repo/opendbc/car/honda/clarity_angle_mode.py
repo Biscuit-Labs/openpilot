@@ -66,8 +66,12 @@ ENGAGE_S, ENGAGE_FLOOR = 1.5, 0.15    # limits ramp 15% -> 100% after the reques
 RAW_MAX = 32767
 # authority ramp (builds 0x06/0x08/0x09): while the driver overrides, the request stays up and the loop's authority drops
 # to AUTH_MIN at once (route 000000ed: HKG's 17-frame fade pulled the wheel toward center under the driver's hands); after
-# the release it climbs back over Override Fade Up (AUTH_UP_DEFAULT per frame if 0)
-AUTH_MIN, AUTH_UP_DEFAULT = 0.0, 0.008
+# the release (and on every engage) it climbs back over Override Fade Up: the setting is the time, 0 = full at once.
+AUTH_MIN = 0.0
+# With the authority hold (builds 0x06/0x08/0x09/0x0A) the authority ramp gives the soft hand-back, so the target's
+# rate/accel limits are full at once (owner's drives f4/f7 on 0x09: Fade Up giving a 1.25 s authority climb with the
+# target going straight back to the plan felt best; a ~1 s target fade lagged the model after a release, route ed).
+HOLD_LIMITS_FADE_S = 0.0
 # The hold is the setting HondaClarityAngleHoldOverride (ModifiedEpsSettings.angle_hold_override, default on).
 # AUTH_MIN is 0 because of the STOCK EPS override lockout (11-19, build 0x07 investigation): FUN_28D5A flags a driver
 # override when |T_comp| >= 1536 (cal 0x1375C) for 50 ticks; FUN_2A994 then latches LKAS off (0xFFF879C9 3 -> 1) if the
@@ -179,5 +183,5 @@ class AuthorityRamp:
     elif yielding:
       self.g = AUTH_MIN               # instant (route 000000ed: the 17-frame HKG fade pulled the wheel under the driver's hands)
     else:
-      self.g = min(1.0, self.g + (DT_CTRL / fade_up_s if fade_up_s > 0.0 else AUTH_UP_DEFAULT))
+      self.g = 1.0 if fade_up_s <= 0.0 else min(1.0, self.g + DT_CTRL / fade_up_s)
     return int(round(15.0 * (1.0 - self.g)))

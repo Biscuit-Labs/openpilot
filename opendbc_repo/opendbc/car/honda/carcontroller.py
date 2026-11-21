@@ -4,7 +4,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
-from opendbc.car.honda.clarity_angle_mode import AMAX_CAP3_SCALE, BYTE3_ANGLE, AngleModeSender, AuthorityRamp, angle_mode
+from opendbc.car.honda.clarity_angle_mode import AMAX_CAP3_SCALE, BYTE3_ANGLE, HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode
 from opendbc.car.honda.eps_cal_status import requested_eps_mode
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
@@ -145,6 +145,7 @@ class CarController(CarControllerBase):
     self.authority = AuthorityRamp()   # build 0x06: angle-loop authority (byte 3 bits 7:4)
     self.angle_cut = 0
     self.angle_follow = False
+    self.angle_hold = False   # authority hold active this frame (target limits at HOLD_LIMITS_FADE_S)
     self.modified_eps_settings = None
     # Clarity with an interceptor: the PCM stays in ACC while openpilot is engaged (honda/pcm_acc.py)
     self.keep_pcm_acc = pcm_acc.qualified(CP)
@@ -205,8 +206,8 @@ class CarController(CarControllerBase):
         # Build 0x06/0x08/0x09 with Angle Hold Through Override (default on): the request stays up through an override.
         # While the driver yields (the press detector OR the torque-mode yield) the loop's authority drops to 0 at once,
         # which keeps the command under the stock lockout's threshold, and the sent target follows the wheel; after the
-        # release the target moves from the wheel to the plan with the engage fade and authority comes back over
-        # Override Fade Up (0x09 firmware ramps 0 -> full in 0.34 s; 0x06/0x08 need ~1 s). Route 000000ed: the 17-frame
+        # release the target moves from the wheel to the plan at full limits (HOLD_LIMITS_FADE_S) and authority comes back
+        # over Override Fade Up, the setting being the time (0 = at once; 0x09 firmware floor 0 -> full in 0.34 s). Route 000000ed: the 17-frame
         # fade pulled the wheel toward center under the driver's hands, and the held plan target was 28 deg (p90 82)
         # away at release.
         mset = current_settings(self.modified_eps_settings)
@@ -215,8 +216,12 @@ class CarController(CarControllerBase):
         cut = self.authority.update(lkas_active and CS.eps_cal_status.angle_ready, yielding, mset.fade_up_s)
         self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0x07/0x09 (the loop resets G on activation)
         self.angle_follow = bool(lkas_active and yielding)   # the sent target follows the wheel while the driver yields
+        self.angle_hold = True
       else:
-        self.authority.update(False, False, 0.0); self.angle_cut = 0; self.angle_follow = False
+        self.authority.update(False, False, 0.0)
+        self.angle_cut = 0
+        self.angle_follow = False
+        self.angle_hold = False
       if self.angle_sender is not None and meps_pressed and not angle_hold:
         # Angle mode: no request during a press, whatever Override Fade Down or Assist During Override say. Both keep the
         # request up through a press, which in torque mode eases torque out; in angle mode it would hold the stiff angle
@@ -274,7 +279,7 @@ class CarController(CarControllerBase):
       self.eps_mode |= self.angle_cut << 4                                  # build 0x06 authority CUT (0 on other builds)
       self.apply_angle_raw, lkas_active, angle_payload = self.angle_sender.update(
         lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, CS.eps_cal_status.angle_ready,
-        CS.out.steeringRateDeg, settings.fade_up_s,                       # Override Fade Up = engage fade
+        CS.out.steeringRateDeg, HOLD_LIMITS_FADE_S if self.angle_hold else settings.fade_up_s,   # hold: authority ramp is the fade
         AMAX_CAP3_SCALE if CS.eps_cal_status.cap3_active else 1.0,
         settings.angle_rate_limit_deg_s,                                 # Steering Angle Rate Limit
         follow=self.angle_follow)

@@ -1822,7 +1822,17 @@ class StarMainLayout(MainLayout):
       raise
     self.page = StarShellPage(self.star, ShellMode.HOME, on_background_tap=self._on_background_tap)
     device_scroller = self._large_panels[Destination.DEVICE]._scroller
-    device_scroller._items.remove(self._large_panels[Destination.DEVICE]._power_off_btn)
+    device_panel = self._large_panels[Destination.DEVICE]
+    device_items = device_scroller._items
+    if device_panel._power_off_btn in device_items and device_panel._pair_device_btn in device_items:
+      power_index = device_items.index(device_panel._power_off_btn)
+      pair_index = device_items.index(device_panel._pair_device_btn)
+      if power_index >= 2 and pair_index + 1 < len(device_items):
+        cabin, regulatory = device_items[pair_index + 1], device_items[power_index - 2]
+        if len({device_panel._power_off_btn, device_panel._pair_device_btn, cabin, regulatory}) == 4:
+          for item in (cabin, regulatory):
+            device_items.remove(item)
+          device_items.extend((cabin, regulatory))
     self.star.system_power_action = self._system_power_action
     device_scroller.add_widget(
       button_item("Galaxy", "OPEN", callback=self.star.galaxy_flow.open_large))
@@ -1830,6 +1840,8 @@ class StarMainLayout(MainLayout):
     from openpilot.starpilot.ui.replay_settings import open_replay
     device_scroller.add_widget(button_item("Replay", "OPEN", callback=lambda: open_replay(self.star)))
     device_scroller._items.insert(1, device_scroller._items.pop())
+    if device_panel._power_off_btn in device_items:
+      device_items.insert(0, device_items.pop(device_items.index(device_panel._power_off_btn)))
     toggle_items = self._large_panels[Destination.TOGGLES]._scroller._items
     toggle_items.insert(2, text_item("Safe Mode", "N/A"))
     from openpilot.common.hardware import HARDWARE

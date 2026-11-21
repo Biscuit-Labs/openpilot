@@ -30,6 +30,7 @@ from opendbc.car.honda.values import CAR
 # build ID (0x6A4 byte 1) -> modes built in (bit k = mode k). The ID also fixes the frame layout. Each build's README
 # records ID <-> bin/rwd sha256.
 KNOWN_BUILDS = {
+  0x0A: 0b11111,  # 0x09 + rate feed-forward filter 2 -> 6 Hz, gain x0.7 20261120 layout v3 (bin cc6e2419, rwd ac3ab12f): turn-peak overshoot (routes f4/f7)
   0x06: 0b11111,  # authority ramp 20261119 layout v3 (bin 03538b6d, rwd 994b88c1): 0x05 + angle-loop authority gain, ~1 s ramp-in after every (re)activation, byte 3 bits 7:4 = CUT
   0x08: 0b11111,  # 0x06 + stale window 32 -> 100 ms 20261119 layout v3 (bin 347bede5, rwd 3b6b9510): the comma four sends E4 with gaps over 30 ms (Aragon route 32c0d38d02, 243 stale faults on 0x05)
   0x09: 0b11111,  # 0x08 + authority up-slew 3 (0 -> full 0.34 s) and down-slew 127 (instant) 20261119 layout v3 (bin f8d6aee3, rwd 6fef0b9c): route 000000ed
@@ -37,7 +38,7 @@ KNOWN_BUILDS = {
   0x04: 0b1111,  # angle mode 20261118 layout v3 (bin d884e27f, rwd bb4ff1b3): MM 0x02's 0-2, 3 = angle loop (CleanPTM tables, A280 flat)
   0x02: 0b111,   # MM 20261116 layout v2 (bin 2382007c, rwd a173fd71; 11-17 fixes: 252 ms switch debounce, IMASK 10 copy, no reload while engaged): 0 stock, 1 CleanPTM, 2 P2 slot (= CleanPTM for now)
 }
-ANGLE_BUILDS = {0x04, 0x05, 0x06, 0x08, 0x09}   # builds with the in-EPS angle loop (0x6A4 layout v3)
+ANGLE_BUILDS = {0x04, 0x05, 0x06, 0x08, 0x09, 0x0A}   # builds with the in-EPS angle loop (0x6A4 layout v3)
 STATUS_TIMEOUT_FRAMES = 50   # carState updates (100 Hz): 0.5 s, 25 periods of the 50 Hz frame
 MSG = "EPS_CAL_STATUS"
 

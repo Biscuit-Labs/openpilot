@@ -52,6 +52,8 @@ class TestOptInLayouts(unittest.TestCase):
       settings = Mock()
       settings._panels = {panel: NS(instance=Mock()) for panel in PanelType}
       settings._panels[PanelType.TOGGLES].instance._scroller._items = []
+      # the constructor reorders the Device rows, so that list has to be a real list too
+      settings._panels[PanelType.DEVICE].instance._scroller._items = [Mock()]
       layout._layouts = {runtime_app.MainState.HOME: Mock(), runtime_app.MainState.SETTINGS: settings,
                          runtime_app.MainState.ONROAD: camera}
       layout._current_mode = runtime_app.MainState.HOME

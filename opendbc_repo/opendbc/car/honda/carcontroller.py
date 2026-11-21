@@ -144,7 +144,6 @@ class CarController(CarControllerBase):
     self.apply_angle_raw = 0
     self.authority = AuthorityRamp()   # build 0x06: angle-loop authority (byte 3 bits 7:4)
     self.angle_cut = 0
-    self.angle_follow = False
     self.angle_hold = False   # authority hold active this frame (target limits at HOLD_LIMITS_FADE_S)
     self.modified_eps_settings = None
     # Clarity with an interceptor: the PCM stays in ACC while openpilot is engaged (honda/pcm_acc.py)
@@ -205,22 +204,20 @@ class CarController(CarControllerBase):
       if angle_hold:
         # Build 0x06/0x08/0x09 with Angle Hold Through Override (default on): the request stays up through an override.
         # While the driver yields (the press detector OR the torque-mode yield) the loop's authority drops to 0 at once,
-        # which keeps the command under the stock lockout's threshold, and the sent target follows the wheel; after the
-        # release the target moves from the wheel to the plan at full limits (HOLD_LIMITS_FADE_S) and authority comes back
-        # over Override Fade Up, the setting being the time (0 = at once; 0x09 firmware floor 0 -> full in 0.34 s). Route 000000ed: the 17-frame
-        # fade pulled the wheel toward center under the driver's hands, and the held plan target was 28 deg (p90 82)
-        # away at release.
+        # which keeps the command under the stock lockout's threshold. The sent target stays on openpilot's plan through
+        # the override (Hyundai/Kia style; the model assumes its desired curvature is carried out while latActive, so a
+        # target that follows the wheel and walks back after the release misleads it): at the release only authority
+        # changes, back over Override Fade Up, the setting being the time (0 = at once; 0x09 firmware floor 0 -> full in
+        # 0.34 s). Route 000000ed: the 17-frame fade pulled the wheel toward center under the driver's hands.
         mset = current_settings(self.modified_eps_settings)
         yielding = bool(meps_pressed or CS.out.steeringPressed)
         lkas_active = bool(CC.latActive and CS.out.vEgo >= mset.min_steer_speed_mph * CV.MPH_TO_MS)
         cut = self.authority.update(lkas_active and CS.eps_cal_status.angle_ready, yielding, mset.fade_up_s)
         self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0x07/0x09 (the loop resets G on activation)
-        self.angle_follow = bool(lkas_active and yielding)   # the sent target follows the wheel while the driver yields
         self.angle_hold = True
       else:
         self.authority.update(False, False, 0.0)
         self.angle_cut = 0
-        self.angle_follow = False
         self.angle_hold = False
       if self.angle_sender is not None and meps_pressed and not angle_hold:
         # Angle mode: no request during a press, whatever Override Fade Down or Assist During Override say. Both keep the
@@ -281,8 +278,8 @@ class CarController(CarControllerBase):
         lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, CS.eps_cal_status.angle_ready,
         CS.out.steeringRateDeg, HOLD_LIMITS_FADE_S if self.angle_hold else settings.fade_up_s,   # hold: authority ramp is the fade
         AMAX_CAP3_SCALE if CS.eps_cal_status.cap3_active else 1.0,
-        settings.angle_rate_limit_deg_s,                                 # Steering Angle Rate Limit
-        follow=self.angle_follow)
+        settings.angle_rate_limit_deg_s)                                 # Steering Angle Rate Limit
+      CS.eps_cal_status.note_angle_request(lkas_active)
       apply_torque = self.apply_angle_raw
     can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control,
                                                       eps_mode=self.eps_mode, angle_payload=angle_payload))

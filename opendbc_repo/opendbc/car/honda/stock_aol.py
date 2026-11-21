@@ -32,6 +32,7 @@ ALT_RADAR_STOCK = frozenset((CAR.ACURA_RDX_3G_MMR, CAR.HONDA_ODYSSEY_5G_MMR,
   CAR.ACURA_TLX_2G, CAR.ACURA_MDX_4G))
 BOSCH_WORDS = frozenset((0, 1, 8, 9, 10, 11, 16, 17, 80, 81, 512, 513, 1058, 1059, 1570, 1571, 2082, 2083, 2211))
 NIDEC_WORDS = frozenset((0, 4, 260, 544, 548, 804))
+NIDEC_ANGLE_BIT = int(HondaSafetyFlags.CLARITY_ANGLE)
 MANUAL_SELECTION_PORTS = CLASSIC_BOSCH | NIDEC | RADARLESS | CANFD_STOCK | ALT_RADAR_STOCK | {CAR.HONDA_ACCORD_11G}
 
 # qualified() runs several times per 100 Hz frame in card and selfdrived, so
@@ -45,8 +46,9 @@ _DETECTED |= int(HondaFlags.VGR_CLARITY_TRW_A020 | HondaFlags.VGR_CIVIC_TBA_C020
                  HondaFlags.VGR_CRV_TLA_A040 | HondaFlags.VGR_CIVIC_TBA_C120 | HondaFlags.VGR_RDX_TJB_A220 |
                  HondaFlags.VGR_RIDGELINE_T6Z_A110 | HondaFlags.VGR_ODYSSEY_THR_A020 |
                  HondaFlags.HYBRID_ALT_BRAKEHOLD)
-# CLARITY_ANGLE_MODE only says what bytes 0-1 of 0xE4 mean to the angle-mode EPS build; panda gates them exactly as
-# torque (nothing non-zero unless lateral is allowed), so it keeps AOL like every other modified-EPS Clarity.
+# CLARITY_ANGLE_MODE only says what bytes 0-1 of 0xE4 mean to the angle-mode EPS build; it adds panda's angle rule
+# (safety bit CLARITY_ANGLE, which only tightens 0xE4) and keeps AOL like every other modified-EPS Clarity. The Nidec
+# word below is compared with that bit masked out, and the bit must be set exactly when the flag is.
 _DETECTED |= int(HondaFlags.CLARITY_ANGLE_MODE)
 _ALLOWED_FLAGS = {str(car): int(car.config.flags) | _DETECTED
                   for car in CLASSIC_BOSCH | NIDEC | RADARLESS | CANFD_STOCK | ALT_RADAR_STOCK | {CAR.HONDA_ACCORD_11G}}
@@ -107,8 +109,11 @@ def qualified(cp, *, marked_only=False):
         expected |= int(HondaSafetyFlags.NIDEC_PEDAL_AOL)
     if fingerprint == CAR.HONDA_ODYSSEY_TWN and cp.alternativeExperience == 32:
       expected |= 256
-    return (bool(cp.pcmCruise) == (not pedal) and cp.openpilotLongitudinalControl and
-            safety.safetyModel == _HONDA_NIDEC and safety.safetyParam == expected)
+    angle = bool(flags & int(HondaFlags.CLARITY_ANGLE_MODE))
+    # angle mode + pedal needs 7 panda RX checks; panda's stock AOL switches itself off above 6 (honda_stock_aol.h)
+    return (not (angle and pedal) and bool(cp.pcmCruise) == (not pedal) and cp.openpilotLongitudinalControl and
+            safety.safetyModel == _HONDA_NIDEC and (safety.safetyParam & ~NIDEC_ANGLE_BIT) == expected and
+            bool(safety.safetyParam & NIDEC_ANGLE_BIT) == angle)
   if fingerprint in CLASSIC_BOSCH and flags & _BOSCH and not flags & _BOSCH_RADARLESS:
     expected = int(bool(flags & _BOSCH_ALT_BRAKE))
     if cp.openpilotLongitudinalControl:

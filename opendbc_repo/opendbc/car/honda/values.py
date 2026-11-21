@@ -112,6 +112,9 @@ class HondaSafetyFlags(IntFlag):
   ALT_RADAR_AOL = 1024  # Exact marked DEBUG alpha owner; physical EPS/gear token.
   NIDEC_PEDAL_AOL = 512  # Model1 only; distinct from model20 STOCK_TJA.
   STOCK_TJA = 512  # Marked MDX4G AOL; EPS status1 is healthy TJA lockout.
+  # Nidec Clarity angle-mode EPS (HondaFlags.CLARITY_ANGLE_MODE): panda bounds the 0xE4 angle target (honda.h). Independent
+  # of every other Nidec option, which panda and stock_aol compare with this bit masked out.
+  CLARITY_ANGLE = 4096
 
 
 class HondaFlags(IntFlag):

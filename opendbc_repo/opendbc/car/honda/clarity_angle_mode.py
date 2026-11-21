@@ -11,8 +11,12 @@ openpilot faults "no_angle_loop" and sends no steering: turn the setting off on 
   byte 3   = 0x07: mode 3 (bits 3:1) + control type angle (bit 0), always, so the EPS switches to mode 3 at LKAS idle
   bytes 0-1, byte 2 bit 7 (request), byte 2 bit 5 (angle payload): the target, only while the EPS reports in 0x6A4 that
            it runs mode 3 on a build with the angle loop (eps_cal_status.EpsCalStatus.angle_ready) and lateral is
-           active. Otherwise all zero: an EPS that is not in mode 3 would read bytes 0-1 as a torque (stock, MM 0x02),
-           and panda blocks non-zero bytes 0-1 while lateral is not allowed.
+           active. Otherwise all zero: an EPS that is not in mode 3 would read bytes 0-1 as a torque (stock, MM 0x02).
+Panda (safety bit HondaSafetyFlags.CLARITY_ANGLE, honda.h): while lateral is not allowed, or the request and payload bits
+  are not both set, bytes 0-1 and both bits must be 0 (a target of 0 steers to centre). Steering: the standard angle rule
+  of the other angle brands, |target| <= the 3.6 m/s^2 angle (std_angle_limit) and per-frame step <= the 3.6 m/s^3 jerk
+  step (std_angle_step), at speed - 1 m/s, with the last target reset to the measured angle after a blocked frame or
+  while not steering. No exemptions: the sender applies the same limits to every frame.
 Units: bytes 0-1 = the EPS's own 0x14A STEER_ANGLE raw value (0.1 deg/bit, raw = -10 * CS.steeringAngleDeg).
 
 Limits (all inside the EPS's own, so its jump-reject fault and its clamps never act in normal driving):
@@ -29,7 +33,9 @@ Limits (all inside the EPS's own, so its jump-reject fault and its clamps never 
     wheel rate, and its rate/acceleration limits ramp from ENGAGE_FLOOR to full over the engage time, so control fades
     in. The engage time is the Override Fade Up setting (HondaOverrideFadeUpSecs, Night Star; CarController passes it),
     ENGAGE_S without settings; 0 = full limits at once (still starting from the wheel, still acceleration-limited)
-  - |desired| <= 0.95 x the EPS's 4 m/s^2 lateral-acceleration clamp (angle_ref.AMAX), applied before the limits
+  - |desired| <= 0.95 x the active profile's lateral-acceleration clamp (angle_ref.AMAX: 4 m/s^2 mode 3, 3 m/s^2 mode
+    4) and never above panda's 3.6 m/s^2 angle: 3.6 in mode 3 (ramps), 2.85 in mode 4; the sent angle never moves
+    more than panda's 3.6 m/s^3 jerk step per frame
   - not active: the target is the measured angle (the Tesla pattern), so the first target the EPS sees equals its own
     angle. lat_active is CarController's modified-EPS lkas_active, which drops while the driver overrides (same press
     detector and yield as torque mode), so a press ends the request and the next engage restarts from the wheel.
@@ -38,7 +44,7 @@ import numpy as np
 
 from opendbc.car import DT_CTRL
 from opendbc.car import structs
-from opendbc.car.honda.values import CAR, HondaFlags
+from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 
 ANGLE_MODE_PARAM = "HondaClarityAngleMode"   # BOOL, default "1" (params_keys.h); read once at startup
 EPS_MODE_ANGLE = 3            # byte 3 bits 3:1
@@ -58,6 +64,12 @@ ANGLE_STEP_DEG = [min(0.6 * j, 0.9 * s * DT_CTRL) for j, s in zip(EPS_JUMP_DEG, 
 AMAX_V = [5., 8., 10., 12., 16., 20., 25., 30.]
 EPS_AMAX_DEG = [379., 160., 109., 80.3, 50.0, 35.3, 25.7, 20.4]
 ANGLE_MAX_FRAC = 0.95
+# panda's limits (honda.h honda_angle_accel_limit), the standard angle rule of the other angle brands: 3.6 m/s^2 lateral
+# accel and 3.6 m/s^3 lateral jerk (opendbc car/lateral.py MAX_LATERAL_ACCEL / MAX_LATERAL_JERK), with the angle for a
+# lateral acceleration from the EPS's own clamp table (0.9 x EPS_AMAX_DEG = 3.6 m/s^2), 1/v^2 below 5 and above 30 m/s,
+# capped at STEER_ANGLE_MAX. Panda evaluates them at speed - 1 m/s, openpilot at v_ego, so openpilot stays inside.
+STD_ACCEL_SCALE = 0.9
+STEER_ANGLE_MAX = 500.0       # deg (panda HONDA_ANGLE_MAX); the logged wheel reached 439
 # target trajectory (v2): rate and acceleration limits by speed, engage fade
 _VT = [0., 5., 10., 15., 20., 30.]
 TARGET_RATE_DEG_S = [150., 150., 100., 60., 40., 25.]
@@ -88,6 +100,10 @@ def apply_angle_mode(CP, requested: bool):
   if requested and CP.carFingerprint == CAR.HONDA_CLARITY and CP.flags & HondaFlags.EPS_MODIFIED:
     CP.flags |= HondaFlags.CLARITY_ANGLE_MODE.value
     CP.steerControlType = structs.CarParams.SteerControlType.angle
+    # panda's angle rule (honda.h HONDA_PARAM_ANGLE), the standard angle rule: request/payload/target only while lateral
+    # is allowed, |target| within the 3.6 m/s^2 angle, per-frame steps within the 3.6 m/s^3 jerk step, the first target
+    # within one step of the wheel
+    CP.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.CLARITY_ANGLE.value
   return CP
 
 
@@ -95,8 +111,26 @@ def angle_mode(CP) -> bool:
   return bool(CP.flags & HondaFlags.CLARITY_ANGLE_MODE)
 
 
+def std_angle_limit(v_ego: float) -> float:
+  """The 3.6 m/s^2 steering-wheel angle (deg), panda's absolute limit at this speed."""
+  v = max(float(v_ego), 1.0)
+  if v < AMAX_V[0]:
+    lim = STD_ACCEL_SCALE * EPS_AMAX_DEG[0] * (AMAX_V[0] / v) ** 2
+  elif v > AMAX_V[-1]:
+    lim = STD_ACCEL_SCALE * EPS_AMAX_DEG[-1] * (AMAX_V[-1] / v) ** 2
+  else:
+    lim = STD_ACCEL_SCALE * float(np.interp(v, AMAX_V, EPS_AMAX_DEG))
+  return min(lim, STEER_ANGLE_MAX)
+
+
+def std_angle_step(v_ego: float) -> float:
+  """Per-frame step (deg) from the 3.6 m/s^3 jerk limit: jerk = accel = 3.6, so the 3.6 m/s^2 angle per second."""
+  return std_angle_limit(v_ego) * DT_CTRL
+
+
 def angle_limit(v_ego: float, amax_scale: float = 1.0) -> float:
-  return ANGLE_MAX_FRAC * amax_scale * float(np.interp(v_ego, AMAX_V, EPS_AMAX_DEG))
+  # 0.95 x the active EPS profile's clamp (mode 3: 4.0 m/s^2, mode 4: 3.0) and never past panda's 3.6 m/s^2 angle
+  return min(ANGLE_MAX_FRAC * amax_scale * float(np.interp(v_ego, AMAX_V, EPS_AMAX_DEG)), std_angle_limit(v_ego))
 
 
 def angle_to_raw(angle_deg: float) -> int:
@@ -114,19 +148,13 @@ class AngleModeSender:
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
-             amax_scale: float = 1.0, rate_limit_deg_s: float = 0.0, effort_fade: bool = True,
-             follow: bool = False) -> tuple[int, bool, int]:
+             amax_scale: float = 1.0, rate_limit_deg_s: float = 0.0, effort_fade: bool = True) -> tuple[int, bool, int]:
     active = bool(lat_active and angle_ready)
-    if active and follow:
-      # Angle Hold Through Override, driver yielding (route 000000ed): the sent target follows the wheel (at most the EPS
-      # per-frame jump limit) instead of the plan, so the loop never pulls toward a target the driver is leaving and the
-      # release starts from where the driver put the wheel. The trajectory restarts there with the wheel's rate and the
-      # engage fade (active_frames = 0), like a fresh engage.
-      self.apply_angle, self.apply_rate, self.active_frames = float(measured_deg), float(measured_rate_deg_s), 0
-      step = float(np.interp(v_ego, _V, ANGLE_STEP_DEG))
-      self.out_angle += float(np.clip(float(measured_deg) - self.out_angle, -step, step))
-      self.sent_active = True
-      return angle_to_raw(self.out_angle), True, ANGLE_PAYLOAD
+    if active and not self.sent_active and abs(float(measured_deg)) > std_angle_limit(v_ego):
+      # no engage while the wheel is beyond panda's 3.6 m/s^2 angle: the first target must be within one step of the
+      # wheel and inside the limit, so panda would block every frame (the Hyundai EV9 path gates the request the same
+      # way). CarController reports the dropped request to the loop-running interlock, so it does not count.
+      active = False
     if not active:
       self.apply_angle, self.apply_rate = float(measured_deg), float(measured_rate_deg_s)
       self.out_angle = float(measured_deg)
@@ -137,7 +165,9 @@ class AngleModeSender:
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
     target = float(np.clip(float(desired_deg), -lim, lim))
     fade = 1.0 if engage_s <= 0.0 else min(1.0, ENGAGE_FLOOR + (1.0 - ENGAGE_FLOOR) * self.active_frames * DT_CTRL / engage_s)
-    rate_cap = min(float(np.interp(v_ego, _VT, TARGET_RATE_DEG_S)), float(np.interp(v_ego, _V, ANGLE_STEP_DEG)) / DT_CTRL)
+    # step: 0.6 x the EPS jump threshold and panda's jerk step (the 3.6 m/s^3 standard)
+    step = min(float(np.interp(v_ego, _V, ANGLE_STEP_DEG)), std_angle_step(v_ego))
+    rate_cap = min(float(np.interp(v_ego, _VT, TARGET_RATE_DEG_S)), step / DT_CTRL)
     if rate_limit_deg_s > 0.0:                # Steering Angle Rate Limit (Night Star / Galaxy), 0 = off
       rate_cap = min(rate_cap, rate_limit_deg_s)
     rate_max = fade * rate_cap
@@ -151,7 +181,7 @@ class AngleModeSender:
     self.apply_rate += float(np.clip(rate_des - self.apply_rate, -accel_max * DT_CTRL, accel_max * DT_CTRL))
     # rate_max shapes rate_des only, so a wheel already turning faster at engage eases down at accel_max instead of being
     # stopped in one frame; the EPS's own per-frame jump limit stays a hard bound
-    step_rate = float(np.interp(v_ego, _V, ANGLE_STEP_DEG)) / DT_CTRL
+    step_rate = step / DT_CTRL
     self.apply_rate = float(np.clip(self.apply_rate, -step_rate, step_rate))
     self.apply_angle += self.apply_rate * DT_CTRL
     # effort fade: the EPS loop pushes in proportion to (target - wheel), so sending wheel + w * (trajectory - wheel)
@@ -163,8 +193,10 @@ class AngleModeSender:
       x = min(1.0, (self.active_frames + 1) * DT_CTRL / engage_s)
       w = x * x * (3.0 - 2.0 * x)
       out = float(measured_deg) + w * (self.apply_angle - float(measured_deg))
-    step = float(np.interp(v_ego, _V, ANGLE_STEP_DEG))
-    self.out_angle += float(np.clip(out - self.out_angle, -step, step))
+    if not self.sent_active:
+      self.out_angle = float(measured_deg)   # panda: the first target within one step of the measured angle
+    std_lim = std_angle_limit(v_ego)
+    self.out_angle = float(np.clip(self.out_angle + np.clip(out - self.out_angle, -step, step), -std_lim, std_lim))
     self.active_frames += 1
     self.sent_active = True
     return angle_to_raw(self.out_angle), True, ANGLE_PAYLOAD

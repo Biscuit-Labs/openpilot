@@ -1,5 +1,6 @@
 from opendbc.car.structs import car
-from opendbc.car.honda.stock_aol import qualified as qualified_stock, BOSCH_WORDS, NIDEC_WORDS, temporary_restriction, ALT_RADAR_STOCK, CLASSIC_BOSCH
+from opendbc.car.honda.stock_aol import qualified as qualified_stock, BOSCH_WORDS, NIDEC_WORDS, NIDEC_ANGLE_BIT, temporary_restriction, \
+  ALT_RADAR_STOCK, CLASSIC_BOSCH
 from openpilot.starpilot.car.honda.stock_intent import HondaStockCardIntent
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 from openpilot.starpilot.aol.policy import AolVehiclePolicy
@@ -61,7 +62,7 @@ def policy_for(CP) -> AolVehiclePolicy:
 
 def native_profile_supported(model: int, param: int) -> bool:
   return ((model == int(car.CarParams.SafetyModel.hondaBosch) and param in BOSCH_WORDS | {34, 35, 163}) or
-          (model == int(car.CarParams.SafetyModel.hondaNidec) and param in NIDEC_WORDS))
+          (model == int(car.CarParams.SafetyModel.hondaNidec) and (param & ~NIDEC_ANGLE_BIT) in NIDEC_WORDS))
 
 
 def native_accepts_cp(CP, model: int, param: int) -> bool:

@@ -20,6 +20,9 @@ target sent to an EPS that is not running the angle loop is read as a torque:
   - the build must have the angle loop (ANGLE_BUILDS), layout v3
   - the EPS's own angle-loop fault (byte 2 bit 0, latched until the request drops): fault ("angle_fault"), which drops
     the request and so clears it
+  - openpilot has sent an angle request for more than LOOP_START_FRAMES and the EPS does not report its angle loop
+    running (byte 0 bit 3): fault ("loop_not_running"). A request bit or mode that never reaches the loop is otherwise a
+    silent no-steer (audit 11-21 S-4). The fault drops the request, so it retries at the next engage.
 angle_ready is True only when none of these (or the checks above) fault; CarController sends angle payloads only then.
 """
 from opendbc.car.carlog import carlog
@@ -40,6 +43,9 @@ KNOWN_BUILDS = {
 }
 ANGLE_BUILDS = {0x04, 0x05, 0x06, 0x08, 0x09, 0x0A}   # builds with the in-EPS angle loop (0x6A4 layout v3)
 STATUS_TIMEOUT_FRAMES = 50   # carState updates (100 Hz): 0.5 s, 25 periods of the 50 Hz frame
+# carState updates (100 Hz) an angle request may go without the EPS reporting its loop running: 100 ms. Owner's 0x09 drives
+# (56 engages): first 0x6A4 with the loop running 14 ms after the request rose (median), 34 ms at most.
+LOOP_START_FRAMES = 10
 MSG = "EPS_CAL_STATUS"
 
 
@@ -67,6 +73,8 @@ class EpsCalStatus:
     self.angle_fault_why = 0    # 1 jump, 2 stale, 3 angle invalid
     self.angle_ref_deg = 0.0
     self.angle_out = 0
+    self.request_sent = False   # the angle request bit CarController sent last frame (note_angle_request)
+    self.not_running_frames = 0
 
   def update(self, cp) -> str:
     if not self.enabled:
@@ -102,9 +110,18 @@ class EpsCalStatus:
       self.loop_running = bool(vl["ANGLE_LOOP_RUNNING"])
       self.angle_fault_why = int(vl["ANGLE_FAULT_WHY"])
       self.angle_ref_deg, self.angle_out = float(vl["ANGLE_REF"]), int(vl["ANGLE_OUT"])
+      self.not_running_frames = self.not_running_frames + 1 if (self.request_sent and not self.loop_running) else 0
       if vl["ANGLE_FAULT"]:
         return "angle_fault"
+      if self.not_running_frames > LOOP_START_FRAMES:
+        return "loop_not_running"
     return ""
+
+  def note_angle_request(self, sent: bool) -> None:
+    """CarController, every frame in angle mode: whether the 0xE4 it just built carries the angle request."""
+    self.request_sent = bool(sent)
+    if not self.request_sent:
+      self.not_running_frames = 0
 
   def set_angle_profile(self, cap3: bool) -> None:
     """Angle mode: request mode 4 (3.0 m/s^2) only once the EPS has reported a build that has it, else mode 3. The EPS

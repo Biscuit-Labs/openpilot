@@ -6,7 +6,7 @@ import pytest
 from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.stock_aol import qualified
-from opendbc.car.honda.values import CAR, HondaFlags, DBC
+from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags, DBC
 
 
 CASES = (
@@ -148,4 +148,6 @@ def test_known_eps_stock_owner_card_publication(identity, version, monkeypatch):
   firmware = (structs.CarParams.CarFw(ecu=structs.CarParams.Ecu.eps, address=0x18DA30F1,
                                      subAddress=0, fwVersion=version, brand="honda"),)
   word = 1 if identity == CAR.HONDA_CRV_5G else 0
+  if identity == CAR.HONDA_CLARITY:   # TRW,A020 = modified EPS: angle mode (default on) adds panda's angle rule bit
+    word |= int(HondaSafetyFlags.CLARITY_ANGLE)
   exercise_startup(identity, False, False, True, word, monkeypatch, firmware)

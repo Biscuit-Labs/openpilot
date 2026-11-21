@@ -271,16 +271,22 @@ def test_target_is_clamped_inside_the_eps_lateral_accel_clamp(angle_file, v):
   assert a == pytest.approx(cam.angle_limit(v), abs=0.06) and a < float(np.interp(v, cam.AMAX_V, cam.EPS_AMAX_DEG))
 
 
-def test_measured_angle_above_the_clamp_walks_down(angle_file):
+def test_no_engage_while_the_wheel_is_beyond_the_limit(angle_file):
+  # parity rule: panda's 3.6 m/s^2 limit is absolute and the first target must be within one step of the wheel, so with
+  # the wheel beyond the limit no frame could pass: the request stays down (all-zero frame) until the wheel is inside,
+  # then the engage starts at the wheel (review Q-2; the Hyundai EV9 path gates its request the same way)
   ci = clarity(); ready(ci)
-  e4(ci, False, 0.0, 40.0, v=30.0)                                      # engage at 30 m/s with the wheel at 40 deg
-  prev = 40.0
+  e4(ci, False, 0.0, 40.0, v=30.0)
+  for _ in range(50):
+    _, f = e4(ci, True, 40.0, 40.0, v=30.0)                             # 30 m/s, wheel at 40 deg (limit 18.4)
+    assert f[0:3] == bytes(3)
+  _, f = e4(ci, True, 40.0, 10.0, v=30.0)                               # wheel back inside: engage at the wheel
+  assert f[2] == 0xA0
+  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(10.0, abs=cam.std_angle_step(30.0) + 0.06)
   for _ in range(400):
-    _, f = e4(ci, True, 40.0, 40.0, v=30.0)
-    a = struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG
-    assert abs(a - prev) <= float(np.interp(30.0, cam._VT, cam.TARGET_RATE_DEG_S)) * 0.01 + 0.06
-    prev = a
-  assert prev == pytest.approx(cam.angle_limit(30.0), abs=0.06)
+    _, f = e4(ci, True, 40.0, 10.0, v=30.0)
+    assert abs(struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG) <= cam.std_angle_limit(30.0) + 0.06
+  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(cam.angle_limit(30.0), abs=0.06)
 
 
 def test_driver_press_drops_the_request_and_reengage_starts_at_the_wheel(angle_file):
@@ -312,6 +318,63 @@ def test_fault_mid_drive_stops_the_payload_at_once(angle_file):
   assert ci.CS.eps_cal_status.fault == "angle_fault"
   _, f = e4(ci, True, 5.0, 0.0)
   assert f[0:3] == bytes(3) and f[3] == 0x07
+
+
+def test_loop_not_running_faults_after_100ms(angle_file):
+  # a request the loop never takes up (bit lost, mode not reached) would otherwise be a silent no-steer (audit S-4)
+  ci = clarity()
+  f6 = ready(ci)
+  e4(ci, False, 0.0, 0.0)
+  _, f = e4(ci, True, 0.0, 0.0)
+  assert f[2] == 0xA0 and ci.CS.eps_cal_status.request_sent
+  f6.run([v3(running=False, counter=k % 4) for k in range(8, 13)])      # 5 status frames = 10 carState updates
+  assert ci.CS.eps_cal_status.fault == ""
+  f6.run([v3(running=False, counter=1)])
+  assert ci.CS.eps_cal_status.fault == "loop_not_running" and not ci.CS.eps_cal_status.angle_ready
+  _, f = e4(ci, True, 0.0, 0.0)
+  assert f[0:3] == bytes(3)                                              # the request drops, which clears the fault
+  f6.run([v3(running=False, counter=k % 4) for k in range(2, 4)])
+  assert ci.CS.eps_cal_status.fault == "" and ci.CS.eps_cal_status.angle_ready
+
+
+def test_loop_not_running_without_a_request_is_not_a_fault(angle_file):
+  ci = clarity()
+  f6 = ready(ci)
+  for k in range(20):
+    e4(ci, False, 0.0, 0.0)
+    f6.run([v3(running=False, counter=k % 4)])
+  assert ci.CS.eps_cal_status.fault == ""
+
+
+def test_angle_mode_sets_the_panda_angle_bit():
+  from opendbc.car.honda.stock_aol import qualified
+  from opendbc.car.honda.values import HondaSafetyFlags
+  bit = int(HondaSafetyFlags.CLARITY_ANGLE)
+  off = cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(MODIFIED)]), False)
+  on = cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(MODIFIED)]), True)
+  stock = cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(b'39990-TRW-A020\x00\x00')]), True)
+  assert on.safetyConfigs[-1].safetyParam & bit and not off.safetyConfigs[-1].safetyParam & bit
+  assert not stock.safetyConfigs[-1].safetyParam & bit                   # stock EPS firmware: no angle mode, no bit
+  assert on.safetyConfigs[-1].safetyParam & ~bit == off.safetyConfigs[-1].safetyParam
+  # AOL qualification sees the Nidec word without the bit, and the bit must match the flag
+  for cp in (on, off):
+    cp.alternativeExperience = 32
+  assert qualified(on) == qualified(off)
+  off.safetyConfigs[-1].safetyParam |= bit
+  assert not qualified(off)
+
+
+def test_angle_mode_with_a_pedal_is_not_aol_qualified():
+  # angle mode + pedal interceptor needs 7 panda RX checks and panda's stock AOL turns itself off above 6
+  from opendbc.car.honda.stock_aol import qualified
+  from opendbc.car.honda.values import HondaFlags, HondaSafetyFlags
+  cps = [cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(MODIFIED)]), angle) for angle in (False, True)]
+  for cp in cps:
+    cp.alternativeExperience = 32
+    cp.flags |= HondaFlags.GAS_INTERCEPTOR.value
+    cp.safetyConfigs[-1].safetyParam |= int(HondaSafetyFlags.GAS_INTERCEPTOR | HondaSafetyFlags.NIDEC_PEDAL_AOL)
+    cp.pcmCruise = False
+  assert qualified(cps[0]) and not qualified(cps[1])
 
 
 def test_torque_mode_frames_unchanged():
@@ -490,8 +553,8 @@ def _release(engage_s, effort_fade=True, frames=120, v=8.0):
   for _ in range(frames):
     wheel += rate * cam.DT_CTRL
     rate *= 0.97
-    s.update(True, 2.0, wheel, v, True, measured_rate_deg_s=rate, engage_s=engage_s, effort_fade=effort_fade)
-    log.append((wheel, s.apply_angle, s.out_angle))
+    _, req, _ = s.update(True, 2.0, wheel, v, True, measured_rate_deg_s=rate, engage_s=engage_s, effort_fade=effort_fade)
+    log.append((wheel, s.apply_angle, s.out_angle, float(req)))
   return np.array(log)
 
 
@@ -513,8 +576,10 @@ def test_effort_fade_off_or_zero_time_sends_the_trajectory():
 @pytest.mark.parametrize("v", [2.0, 10.0, 20.0])
 def test_effort_fade_respects_the_eps_step_limit(v):
   L = _release(1.0, v=v, frames=200)
-  step = float(np.interp(v, cam._V, cam.ANGLE_STEP_DEG))
-  assert np.abs(np.diff(L[:, 2])).max() <= step + 1e-9
+  step = min(float(np.interp(v, cam._V, cam.ANGLE_STEP_DEG)), cam.std_angle_step(v))
+  sent = (L[1:, 3] > 0) & (L[:-1, 3] > 0)          # steps between frames that both carry the request
+  assert sent.sum() > 150                            # at 20 m/s the wheel starts beyond the limit: a few frames wait
+  assert np.abs(np.diff(L[:, 2]))[sent].max() <= step + 1e-9
 
 
 # --- build 0x06: authority ramp (HKG style), byte 3 bits 7:4 = CUT; 0x08 = 0x06 + 100 ms stale window ---
@@ -576,14 +641,15 @@ def test_build_06_hold_holds_the_request_through_a_press_and_ramps_authority(ang
   press = [e4(ci, True, 10.0, -5.0, pressed=True)[1] for _ in range(60)]
   assert all(d[2] == 0xA0 for d in press)                                              # request held
   a = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in press]
-  assert a[-1] == pytest.approx(-5.0, abs=0.051)                                       # target follows the wheel (route ed)
+  plan = struct.unpack(">h", eng[-1][0:2])[0] / cam.RAW_PER_DEG
+  assert all(x == pytest.approx(plan, abs=0.051) for x in a)                          # the target stays on the plan (Hyundai/Kia style)
   cuts = [d[3] >> 4 for d in press]
   assert cuts[-1] == 15 and all(b >= a for a, b in zip(cuts, cuts[1:]))              # zero authority: under the lockout
   relf = [e4(ci, True, 10.0, -5.0)[1] for _ in range(150)]
   rel = [d[3] >> 4 for d in relf]
   assert rel[-1] == 0 and all(b <= a for a, b in zip(rel, rel[1:]))
   ra = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in relf]
-  assert abs(ra[0] - -5.0) < 0.2 and all(b >= a - 1e-9 for a, b in zip(ra, ra[1:]))     # release: from the wheel toward the plan
+  assert all(x == pytest.approx(plan, abs=0.051) for x in ra)                         # release: the target does not move; authority ramps
   e4(ci, False, 0.0, 0.0)
   assert e4(ci, True, 10.0, 0.0)[1][3] == 0xF7                                         # every engage starts at zero authority
 

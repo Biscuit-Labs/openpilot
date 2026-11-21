@@ -83,7 +83,8 @@ class CarInterface(CarInterfaceBase):
         ret.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.GAS_INTERCEPTOR.value
         ret.pcmCruise = False
 
-    if candidate == CAR.HONDA_CRV_5G and 0x12f8bfa7 in fingerprint[CAN.radar]:
+    # BSI radars live on B-CAN; a body-harness gateway panda forwards them onto the radar bus as 29-bit IDs
+    if candidate in (CAR.HONDA_CRV_5G, CAR.HONDA_ACCORD) and 0x12f8bfa7 in fingerprint[CAN.radar]:
       ret.flags |= HondaFlags.HAS_BSM.value
 
     # Detect Bosch cars with new HUD msgs

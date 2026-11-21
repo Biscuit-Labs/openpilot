@@ -96,19 +96,30 @@ def draw_set_status(fonts, label, center, top, color):
   draw_speed_row(fonts, label, FontRole.MEDIUM, size, center, top + SET_STATUS_ROW * scale, color, label)
 
 
-def speed_status(shown):
-  """The only status SET shows: the driver's chosen speed winning over the limit."""
-  if shown.override_text is None:
-    return None
-  # SET shows the held speed right above; only a different one, such as a pedal override's, needs repeating.
-  return 'OVERRIDE' if shown.override_text == shown.max_text else f'OVERRIDE {shown.override_text}'
+def speed_status(state, profile, shown):
+  """The current controller state, independent of where its label is drawn."""
+  obs = state.speed_limit
+  if obs.action_enabled and (state.longitudinal_overridden or
+                            state.longitudinal_active and obs.driver_override_active and obs.override_basis == 'pedal'):
+    return 'PEDAL'
+  if shown.override_text is not None:
+    # SET shows the held speed right above; only a different one, such as a pedal override's, needs repeating.
+    return 'OVERRIDE' if shown.override_text == shown.max_text else f'OVERRIDE {shown.override_text}'
+  if (shown.pending or speed_limit_bounds(profile, state) is None) and shown.slc_target_text is not None:
+    return f'LIMIT {shown.slc_target_text}'
+  return None
 
 
 def set_speed_status(state, profile, shown):
-  # An open prompt shows the status as its own context line instead.
-  if state.slc_prompt_open and speed_limit_bounds(profile, state) is not None and manual_slc_confirmation(profile, state):
-    return None
-  return speed_status(shown)
+  status = speed_status(state, profile, shown)
+  if speed_limit_bounds(profile, state) is not None:
+    confirming = manual_slc_confirmation(profile, state)
+    if confirming and state.slc_prompt_open or not confirming and status == 'PEDAL':
+      return None
+    if status and status.startswith('LIMIT'):
+      # The visible sign already is the followed limit; only a hidden sign leaves SET to report it.
+      return None
+  return status
 
 
 def set_speed_visible(state, profile):
@@ -154,8 +165,11 @@ class SpeedLimitWidget:
     width = (right - x) / scale
     shown = resolve_unified_speed(state, confirmation=True)
     source = SOURCE_LABELS.get(shown.source, 'SPEED')
-    current_status = (speed_status(resolve_unified_speed(state))
+    current_status = (speed_status(state, self.profile, resolve_unified_speed(state))
                       if state.slc_prompt_open or not set_speed_visible(state, self.profile) else None)
+    if current_status and current_status.startswith('LIMIT') and set_speed_visible(state, self.profile):
+      # Beside a visible SET the prompt's own NEW LIMIT context stands; the limit status is for a hidden SET.
+      current_status = None
     white = rl.Color(242, 246, 244, 255)
     secondary = rl.Color(209, 222, 218, 255)
 
@@ -294,6 +308,18 @@ class SpeedLimitWidget:
                  for px in (left, right) for py in (a, b))
 
     vienna = state.appearance.use_vienna_sign
+    if shown.set_limited and not shown.pending:
+      # SET is below the limit SLC follows: a rectangular readout, never a regulatory sign, asks the driver to raise it.
+      self.shapes.outline(x + center_x * scale, top + 70 * scale, white, scale=scale * 13 / 12)
+      for value, role, size, cy, row_color in (('LIMIT', FontRole.SEMI_BOLD, HEADING_SIZE, HEADING_ROW, white),
+                                               (shown.limit_text, FontRole.SET_SPEED, NUMBER_SIZE, NUMBER_ROW, white),
+                                               ('SET IS LOW', FontRole.SEMI_BOLD, 20, 103.5, white),
+                                               ('RAISE SET', FontRole.SEMI_BOLD, 22, 124.5, white)):
+        left, right, _, _ = ink(value, role, size)
+        size *= min(1, 118 / max(1, right - left))
+        draw_speed_row(self.fonts, value, role, size * text_scale, x + center_x * scale, top + cy * scale,
+                       row_color, '0123456789' if role == FontRole.SET_SPEED else value)
+      return
     color = white
     # Clamping the controller target does not configure an offset for this sign.
     offset_text = shown.offset_text if vienna or shown.offset_configured else None

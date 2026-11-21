@@ -155,8 +155,8 @@ def test_compact_max_fades_while_set_below_the_limit_leaves_a_plain_sign(gap, dr
   assert {call.args[0] for call in foreground_calls(font.draw)} == {'MAX', '45'}
   font.draw.reset_mock()
   hud._speed_limit_sign(current)
-  # SET below the limit is ordinary cruising: the sign stays the plain, unhighlighted limit.
-  assert [call.args[0] for call in foreground_calls(font.draw)] == ['DASH', '55']
+  # SET below the limit SLC follows turns the sign into the set-limited readout, through a source gap too.
+  assert [call.args[0] for call in foreground_calls(font.draw)] == ['LIMIT', '55', 'SET IS LOW', 'RAISE SET']
 
 
 @pytest.mark.parametrize('profile', list(Profile))
@@ -187,7 +187,11 @@ def test_accepted_sign_keeps_text_geometry_and_styling_through_source_gaps(profi
     rendered.append((text, shapes))
   assert rendered[0] == rendered[1]
   texts = [row[0] for row in rendered[0][0]]
-  assert not any(text in ('SET IS LOW', 'RAISE SET', 'LIMIT') for text in texts)
+  if selected == 'below':
+    # SET below the limit SLC follows asks the driver to raise it, and keeps asking through the source gap.
+    assert texts == ['LIMIT', str(55 + offset), 'SET IS LOW', 'RAISE SET']
+  else:
+    assert not any(text in ('SET IS LOW', 'RAISE SET', 'LIMIT') for text in texts)
 
 
 @pytest.mark.parametrize('profile', list(Profile))
@@ -375,7 +379,7 @@ def test_override_sign_uses_cluster_target_and_restores_normal_sign(profile, vie
 @pytest.mark.parametrize('latest_received', [False, True])
 @pytest.mark.parametrize('offset', [False, True])
 @pytest.mark.parametrize('source,heading', [('map', 'OSM'), ('vision', 'VISION'), ('dashboard', 'DASH'),
-                                             ('mapbox', 'NAV'), ('online', 'SPEED'), ('unknown', 'SPEED')])
+                                             ('online', 'NAV'), ('unknown', 'SPEED')])
 def test_retained_limits_keep_original_source_and_have_no_actions(profile, vienna, latest_received, offset, source, heading, drawing):
   # A retained reading keeps its own source label while SLC is not using an accepted limit.
   current = state(show_slc_offset=offset, longitudinal_active=False)

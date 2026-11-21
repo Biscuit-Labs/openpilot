@@ -26,6 +26,9 @@ class UnifiedSpeedPresentation:
   posted_retained: bool = False
   limit_in_use: bool = False
   offset_configured: bool = False
+  limit_text: str = ''
+  slc_target_text: str | None = None
+  set_limited: bool = False
 
   @property
   def max_status(self) -> str:
@@ -144,11 +147,22 @@ def resolve_unified_speed(state, *, confirmation=False) -> UnifiedSpeedPresentat
   # The speed the driver chose over the limit; a pedal press alone is not shown.
   override = (speed(active_target) if slc_engaged and obs.driver_override_active and obs.override_basis != 'pedal' and
               positive(active_target) else None)
+  # SET sits below the limit SLC follows: the controller target is above it while SET is the binding cap.
+  # Compare in displayed units; equal-looking speeds need no instruction.
+  accepted_display = bool(not pending and not (posted_retained and not using_accepted) and
+                          positive(posted) and positive(target) and positive(active_target) and
+                          positive(obs.accepted_speed_limit_mps) and source == obs.accepted_source and
+                          math.isclose(posted, obs.accepted_speed_limit_mps, abs_tol=.001) and
+                          math.isclose(target, active_target, abs_tol=.001))
+  set_limited = bool(slc_engaged and not obs.driver_override_active and accepted_display and
+                     not obs.limiting_max_set and positive(obs.effective_cap_mps) and positive(state.cruise_kph) and
+                     round(active_target * factor) > round(state.cruise_kph / 3.6 * factor))
   return UnifiedSpeedPresentation(
     mode=mode, max_text=speed(state.cruise_kph / 3.6) if positive(state.cruise_kph) else '–',
     posted_text=speed(posted), offset_text=offset, unit='km/h' if state.metric else 'mph', source=source,
     pending=pending, active_side=('limit' if slc_limiting else 'max') if state.cruise_active else 'none',
     status=status, proposal_text=speed(proposal), override_text=override, posted_retained=posted_retained,
-    limit_in_use=limit_in_use,
+    limit_in_use=limit_in_use, limit_text=speed(target),
+    slc_target_text=speed(active_target) if slc_limiting and positive(active_target) else None, set_limited=set_limited,
     offset_configured=state.slc_offset_schedule is not None and
                       offset_for_limit(posted, state.slc_offset_schedule) not in (None, 0.))

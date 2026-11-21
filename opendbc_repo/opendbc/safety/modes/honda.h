@@ -327,6 +327,20 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
     }
   }
 
+  // B-CAN turn signal (body BCM): only the exact cancel, or a well-formed start (byte2 must
+  // be exactly 0x0F, a fixed control parameter the BCM requires) while a non-zero steering
+  // command is permitted (the same condition as the steer check above)
+  if (msg_matches(msg, 0x16F118F0U, 0U)) {
+    const bool bcan_cancel = (GET_BYTES_64_LE(msg, 0, 8) == 0x0000000000000020ULL);
+    const bool bcan_start = (msg->data[0] == 0x30U) &&
+                            ((msg->data[1] == 0x0AU) || (msg->data[1] == 0x0BU)) &&
+                            (msg->data[2] == 0x0FU) &&
+                            (GET_BYTES_64_LE(msg, 3, 5) == 0U);
+    if (!bcan_cancel && !((bcan_start) && lateral_controls_allowed())) {
+      tx = false;
+    }
+  }
+
   // Bosch supplemental control check
   if (msg->addr == 0xE5U) {
     if ((GET_BYTES_64_LE(msg, 0, 8) & 0x00FFFFFFFFFFFFFFULL) != 0x0000000010800004ULL) {
@@ -449,6 +463,7 @@ static safety_config honda_bosch_init(uint16_t param) {
     {0x33D, 0, 8, .check_relay = true},
     {0x33DA, 0, 5, .check_relay = true},
     {0x33DB, 0, 8, .check_relay = true},
+    {0x16F118F0, 0, 8, .check_relay = false},
   };
 
   // Bosch w/ gas and brakes
@@ -464,6 +479,7 @@ static safety_config honda_bosch_init(uint16_t param) {
     {0x33DB, 1, 8, .check_relay = true},
     {0x39F, 1, 8, .check_relay = false},
     {0x18DAB0F1, 1, 8, .check_relay = false},
+    {0x16F118F0, 0, 8, .check_relay = false},
   };
 
   static const CanMsg HONDA_MVL_STOCK_TX_MSGS[] = {

@@ -119,6 +119,8 @@ DESCRIPTIONS = {
   'HondaOverrideFadeDownSecs': 'Eases the steering command out over this time when you override the wheel. 0 cuts it at once.',
   'HondaOverrideFadeUpSecs': 'Brings the steering command back over this time after you let go of the wheel.',
   'HondaDriverAssistDuringOverride': 'Keeps steering assist active while you override the wheel.',
+  'HondaBcanTurnSignals': 'Lets openpilot hold the turn signal for a whole lane change and cancel it after. ' +
+                          'Needs a body harness with B-CAN gateway; 10th-gen Accord tested.',
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',

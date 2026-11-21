@@ -6,6 +6,7 @@ from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, struc
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
+from opendbc.car.honda.bcan_blinker import BcanBlinker
 from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
 from opendbc.car.honda.nidec_interceptor import NidecInterceptor, create_command, qualified as interceptor_qualified
 from opendbc.car.honda.bosch_longitudinal import BoschLongitudinal, qualified as bosch_long_qualified
@@ -108,6 +109,10 @@ class CarController(CarControllerBase):
     self.nidec_interceptor = NidecInterceptor(CP) if interceptor_qualified(CP) else None
     self.interceptor_learning_params = None
     self.accord_mvl_stock = AccordMvlStock() if mvl_stock_qualified(CP) else None
+    # B-CAN turn signals (body harness with B-CAN gateway): the BCM holds the lamp for the
+    # lane change and cancels it after. The toggle is attached from openpilot (bcan_blinker_settings)
+    self.bcan_blinker = BcanBlinker() if CP.flags & HondaFlags.HAS_BSM else None
+    self.bcan_blinker_settings = None
     self.tja_control = bool(CP.flags & HondaFlags.BOSCH_TJA_CONTROL)
     # every modified-EPS Honda steers through ModifiedEpsSteering (override detector and fade, minimum steer
     # speed, opt-in rate limit). It replaces 7.0's Civic Bosch-only ModifiedCivicSteering, whose torque low-pass here
@@ -347,6 +352,13 @@ class CarController(CarControllerBase):
           self.speed = pcm_speed
           self.gas = (self.nidec_interceptor.command if self.nidec_interceptor is not None else
                       pcm_accel / self.params.NIDEC_GAS_MAX)
+
+    # B-CAN turn signals: the body BCM holds the real lamp for the whole lane change
+    if self.bcan_blinker is not None:
+      enabled = CS.body_valid and (self.bcan_blinker_settings.current() if self.bcan_blinker_settings is not None else False)
+      can_sends.extend(self.bcan_blinker.update(CC, CS, enabled, now_nanos * 1e-9))
+      # carstate reads this next frame to keep a quick stalk tap's intent alive while the lamp is held
+      CS.bcan_holding_side = self.bcan_blinker.holding_side if enabled else None
 
     if self.accord_mvl_stock is not None:
       can_sends.extend(self.accord_mvl_stock.update(self.packer, self.CAN, self.CP, CC, CS, self.frame))

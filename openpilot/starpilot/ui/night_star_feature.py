@@ -1,7 +1,8 @@
 """The Night Star settings page: the fork's own settings, edited live (onroad too).
 
 Every row here is read again while driving (the EPS rows once a second, the controller rows each refresh), except Angle
-Mode (Clarity only), which picks the steering type and so applies at the next car start. Every calibrated EPS image
+Mode (Clarity only), which picks the steering type and so applies at the next car start, and Steering Prediction Time
+(Clarity only), which modeld reads when it starts and so is editable only while parked. Every calibrated EPS image
 steers with LatControlHondaEps, so the controller has no row. The output low-pass bands are fixed by design and have no
 row.
 """
@@ -15,6 +16,8 @@ SEATBELT_KEY = "DisableSeatbeltCheck"
 ANGLE_MODE_KEY = "HondaClarityAngleMode"
 ANGLE_CAP3_KEY = "HondaClarityAngleCap3"
 ANGLE_HOLD_KEY = "HondaClarityAngleHoldOverride"
+LOOKAHEAD_KEY = "NrdrClarityAngleLookaheadMs"   # nrdr's name and semantics (selfdrive/modeld/clarity_lookahead.py)
+OFFROAD_ONLY = frozenset((LOOKAHEAD_KEY,))
 CLARITY = "HONDA_CLARITY"
 
 # key -> (label, reason)
@@ -40,6 +43,11 @@ NUMBER_ROWS = {
                                    "Driver torque that counts as an override. A modified EPS needs more than stock (1200).",
                                    1200.0, 3000.0, 20.0, "", True),
   "HondaMinSteerSpeed": ("Minimum Steer Speed", "No steering torque below this speed.", 0.0, 25.0, 1.0, "mph", True),
+  LOOKAHEAD_KEY: ("Steering Prediction Time",
+                  ("Angle mode only: how far ahead the driving model's steering action is taken, in place of the learned delay. " +
+                   "0 keeps the previous timing. Only models with a timed action output use it. Change it while parked; " +
+                   "applies at the next start."),
+                  0.0, 400.0, 5.0, "ms", True),
   "HondaOverrideTorqueScale": ("Torque During Override", "Share of the steering command kept while you override.",
                                0.0, 100.0, 5.0, "%", True),
   # the car controller clamps both fades to 0-10 s (starpilot/car/honda/modified_eps.py)
@@ -93,6 +101,7 @@ class NightStarFeature:
         keys.append(ANGLE_MODE_KEY)
         keys.append(ANGLE_CAP3_KEY)   # live, read with the EPS rows; used only on EPS builds 0x05, 0x06, 0x08, 0x09
         keys.append(ANGLE_HOLD_KEY)   # live; used only on EPS builds 0x06, 0x08, 0x09
+        keys.append(LOOKAHEAD_KEY)    # read once when modeld starts; parked only
     keys.append(SEATBELT_KEY)
     return tuple(keys)
 
@@ -110,9 +119,9 @@ class NightStarFeature:
     value = self.params.get_default_value(key)
     return "" if value is None else str(value)
 
-  def _row(self, key, live, capability) -> FeatureRow:
+  def _row(self, key, live, capability, parked=True) -> FeatureRow:
     raw, readable = read_saved(self.params, key, 32)
-    allowed = live
+    allowed = live and (parked or key not in OFFROAD_ONLY)
     binding = {} if key == SEATBELT_KEY else {"capability": capability, "vehicle_fingerprint": self.vehicle_fingerprint()}
     if key in BOOL_ROWS:
       label, reason = BOOL_ROWS[key]
@@ -133,10 +142,10 @@ class NightStarFeature:
                       reason=reason if valid else "Invalid saved value", **binding)
 
   def rows(self, parked):
-    del parked  # these settings are live
+    # these settings are live, except OFFROAD_ONLY (read at modeld start), editable only while parked
     capability = self.capability()
     live = self.authority("preferences")
-    return tuple(self._row(key, live, capability) for key in self._keys(capability))
+    return tuple(self._row(key, live, capability, parked is True) for key in self._keys(capability))
 
   def apply(self, request):
     key = request.key
@@ -159,7 +168,12 @@ class NightStarFeature:
         return False
       if not math.isfinite(number) or not low <= number <= high:   # off-grid is fine: the Clarity saved 219 deg/s
         return False
+      if key == LOOKAHEAD_KEY and int(number) % 5 != 0:   # 0 or 5-400 ms in steps of 5, as nrdr
+        return False
       raw = _format(number, integer).encode()
+
+    if key in OFFROAD_ONLY and not self.params.get_bool("IsOffroad"):
+      return False
 
     def authorized():
       return (self.authority("preferences") and self.capability() == capability and

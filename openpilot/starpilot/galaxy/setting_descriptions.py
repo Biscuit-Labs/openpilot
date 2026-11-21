@@ -112,6 +112,8 @@ DESCRIPTIONS = {
                             'Needs EPS build 0x05, 0x06, 0x08 or 0x09; no effect on other builds. Switches while lateral is off.'),
   'HondaClarityAngleHoldOverride': ('Clarity angle mode: keeps steering engaged through an override, with assist faded to zero while you steer ' +
                                     'and ramped back after you let go. Needs EPS build 0x06, 0x08 or 0x09.'),
+  'NrdrClarityAngleLookaheadMs': ('Clarity angle mode only: how far ahead (ms) the driving model\'s steering action is taken, in place of the ' +
+                                  'learned delay. 0 keeps the previous timing. Only models with a timed action output use it. Applies at the next start.'),
   'HondaClarityAngleMode': ('Clarity only: steers by wheel angle through the angle-mode EPS firmware (build 0x04). ' +
                             'On any other EPS firmware steering stays unavailable, so turn it off. Applies at the next start.'),
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",

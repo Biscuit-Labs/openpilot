@@ -460,7 +460,7 @@ class FeatureSettingsOwner:
     def authorized():
       return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
               request.capability is not None and request.capability == self._honda_bcan_turn_signals_capability() and
-              self.authority("vehicle") and request.expected in (None, b"0", b"1"))
+              self.authority("parked_preferences") and request.expected in (None, b"0", b"1"))
     return commit_exact(self.params, key="HondaBcanTurnSignals", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
                         expected=request.expected, authorized=authorized, temp_prefix=".honda-bcan-turn-signals-").verified
 
@@ -907,7 +907,7 @@ class FeatureSettingsOwner:
       bcan_capability = self._honda_bcan_turn_signals_capability()
       if bcan_capability is not None:
         row = self._bool_row("HondaBcanTurnSignals", "B-CAN Turn Signals",
-                             configurable and self.authority("vehicle"),
+                             configurable and parked and self.authority("parked_preferences"),
                              "Lets openpilot hold the turn signal for a whole lane change and cancel it after. " +
                              "Needs a body harness with B-CAN gateway; 10th-gen Accord tested.")
         rows.append(replace(row, available=row.available and self._readable("HondaBcanTurnSignals"), capability=bcan_capability))

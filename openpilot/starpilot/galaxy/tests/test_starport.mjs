@@ -476,7 +476,7 @@ const starPortTool = catalog.tools.find(tool => tool.path === "/starport")
 assert.equal(starPortTool.name, "StarPort")
 const audioTool = starPortTool.children
   .find(tool => tool.path === "/starport/audio")
-assert.equal(audioTool.name, "Spotify & Phone Audio")
+assert.equal(audioTool.name, "Spotify and Phone Audio")
 assert.match(StarPortPage.template, /href="#\/starport\/audio"/)
 assert.ok(app.includes(`SpotifyPage v-else-if="['/starport/audio', '/spotify'].includes(route.path)"`))
 // Setup type: what is in the car decides which pairing steps appear.

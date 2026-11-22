@@ -13,7 +13,6 @@ import hashlib
 import json
 from typing import Protocol
 
-from openpilot.starpilot.local_timezone import local_now
 from openpilot.starpilot.ui.raylib import rl
 
 from openpilot.starpilot.ui.onroad_rear_fog import render_rear_fog
@@ -31,6 +30,7 @@ from openpilot.starpilot.ui.onroad_curve import GlowPhase, controlling as curve_
 from openpilot.starpilot.ui.onroad_conditional import stop_active
 from openpilot.starpilot.ui.onroad_corner import CornerHintCache, render_corner_hint
 from openpilot.starpilot.ui.onroad_large_widgets import CurrentSpeedHud, UnifiedSpeedWidget, SteeringWheelWidget
+from openpilot.starpilot.ui.onroad_widget_style import draw_top_scrim
 from openpilot.starpilot.ui.onroad_cem_gauge import AetherGauge
 from openpilot.starpilot.ui.live_developer_sidebar import render_sidebar as render_live_sidebar
 from openpilot.starpilot.ui.layout_preview_sidebar import SIDEBAR_WIDTH
@@ -40,7 +40,6 @@ from openpilot.starpilot.ui.onroad_torque import TorqueBarWidget
 from openpilot.starpilot.ui.onroad_navigation import NavigationCard
 from openpilot.starpilot.ui.onroad_navigation_favorites import NavigationFavorites
 from openpilot.starpilot.ui.presentation import BitmapFonts, FontRole, Profile
-from openpilot.starpilot.ui.speed_limit_widget import MUTED, draw_ink
 from openpilot.starpilot.conditional_mode.policy import ModeChoice
 
 
@@ -76,11 +75,13 @@ def driving_mode_description(state: OnroadState) -> str:
     return "ACC - Experimental" if experimental else "ACC - Chill"
   if state.lateral_active:
     return "Always On Lateral"
+  if state.aol_latched and state.aol_armed_at_stop:
+    return "AOL Armed"
   return "Stock ACC" if state.stock_cruise_active else "Disengaged"
 
 
 def clock_text(now: datetime | None = None, use_24_hour: bool = False) -> str:
-  value = now or local_now()
+  value = now or datetime.now().astimezone()
   return value.strftime('%H:%M') if use_24_hour else value.strftime('%I:%M %p').lstrip('0')
 
 
@@ -108,6 +109,8 @@ def axis_status_color(state: OnroadState) -> rl.Color:
     return rl.Color(22, 127, 64, 255) if state.stock_cruise_active else rl.Color(10, 186, 181, 255)
   if state.longitudinal_active:
     return rl.Color(255, 105, 180, 255)
+  if state.aol_latched and state.aol_armed_at_stop:
+    return rl.Color(10, 100, 98, 255)
   return rl.Color(18, 40, 57, 255)
 
 
@@ -126,7 +129,7 @@ class OnroadView:
                background_layer: OverlayLayer | None = None, projection_viewport: tuple[float, float] | None = None,
                wall_clock: Callable[[], datetime | None] | None = None):
     self.projection_viewport = projection_viewport
-    self.wall_clock = wall_clock or local_now
+    self.wall_clock = wall_clock or (lambda: datetime.now().astimezone())
     self._corner_cache = CornerHintCache()
     self.quick_select_layer = None
     self._curve_glow_phase = GlowPhase()
@@ -159,6 +162,8 @@ class OnroadView:
       self.steering_wheel = SteeringWheelWidget(asset_directory)
       from openpilot.starpilot.ui.onroad_jetlink import JetlinkStatusWidget
       self.jetlink_status = JetlinkStatusWidget(fonts)
+      from openpilot.starpilot.ui.onroad_signal import SignalWidget
+      self.network_signal = SignalWidget(fonts)
     else:
       self.compact_hud = CompactHudRenderer(fonts, asset_directory)
       self.compact_sidebar = MiciSidebarWidgets(fonts)
@@ -180,16 +185,8 @@ class OnroadView:
       self._compact(state)
 
   def _slc_actions(self, state: OnroadState) -> None:
-    if manual_slc_confirmation(self.fonts.profile, state):
-      sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
-      sign.render_confirmation(state, getattr(self, 'pressed_action', lambda: None)())
-      return
-    feedback = state.speed_limit.action_feedback
-    if (self.fonts.profile == Profile.LARGE and feedback and state.alert.size == AlertSize.NONE and
-        placement(state.customization, self.fonts.profile, 'speed_limit_actions')['enabled']):
-      from openpilot.starpilot.ui.onroad_state import slc_action_bounds
-      first, _ = slc_action_bounds(self.fonts.profile, state)
-      draw_ink(self.fonts, feedback, FontRole.MEDIUM, 30, first[0], first[1] + 24, MUTED)
+    sign = self.unified_speed.sign if self.fonts.profile == Profile.LARGE else self.compact_hud._speed_limit_widget
+    sign.render_confirmation(state, getattr(self, 'pressed_action', lambda: None)())
 
   def _preview_badge(self, state: OnroadState) -> None:
     """Keep synthetic replay visibly identified even over a full alert."""
@@ -318,13 +315,15 @@ class OnroadView:
       if "jetlink_status" in state.customization["layouts"]["large"]:
         if jetlink := getattr(self, "jetlink_status", None):
           submit("jetlink_status", lambda: jetlink.render(state))
+      if "network_signal" in state.customization["layouts"]["large"]:
+        if signal := getattr(self, "network_signal", None):
+          submit("network_signal", lambda: signal.render(state))
       if "car_exit" in state.customization["layouts"]["large"]:
         if exit_layer := getattr(self, "projection_exit_layer", None):
           submit("car_exit", lambda: exit_layer(state))
       if state.alert.size != AlertSize.FULL:
         if placement(state.customization, profile, "cruise_limits")["enabled"]:
           submit("cruise_limits", lambda: self.unified_speed.render(content, state))
-        submit("speed_limit_actions", lambda: self._slc_actions(state))
         if gauge := getattr(self, "cem_gauge", None):
           submit("cem_gauge", lambda: gauge.render(state))
       if placement(state.customization, profile, "current_speed")["enabled"]:
@@ -338,11 +337,11 @@ class OnroadView:
         if state.stopped_duration_s is not None:
           submit(STOPPED_TIMER_WIDGET, lambda: self._stopped_timer(state, state.stopped_duration_s))
     else:
+      submit("nav_card", lambda: self.navigation.render(state))
       if state.alert.size == AlertSize.NONE and not driver_camera:
         submit("speed_limit", lambda: self.compact_hud._speed_limit_sign(state))
         submit("max_speed", lambda: self.compact_hud.render_max_speed(state))
         submit("steering_wheel", lambda: self.compact_hud.render_steering_wheel(state))
-        submit("speed_limit_actions", lambda: self._slc_actions(state))
         if placement(state.customization, profile, "torque_bar")["enabled"]:
           submit("torque_bar", lambda: self.torque_bar.render(content, state, 536))
         if state.stopped_duration_s is not None:
@@ -365,12 +364,13 @@ class OnroadView:
     for key in widget_order(state.customization, profile):
       if only_widget is not None and key != only_widget:
         continue
-      if pending and key == 'speed_limit_actions':
-        continue
       if draw := callbacks.get(key):
         draw()
     if pending and (only_widget is None or only_widget == ('cruise_limits' if large else 'speed_limit')) and not driver_camera:
       self._slc_actions(state)
+
+  def _legacy_pip_layer(self, state):
+    return getattr(self, "pip_layer", None) if state.camera_available else getattr(self, "preview_pip_layer", None)
 
   def _large(self, state: OnroadState) -> None:
     width, height = self.projection_viewport or (state.viewport_width, 1080)
@@ -387,23 +387,19 @@ class OnroadView:
         self.camera_layer(content, state)
       elif self.background_layer is not None:
         self.background_layer(content, state)
+      draw_top_scrim(content)
       ordered = bool(state.customization.get("widgetOrder", {}).get("large"))
       if ordered:
         self._ordered_widgets(content, state)
         if self.extra_overlays is not None:
           self.extra_overlays(content, state)
       else:
-        pip_layer = getattr(self, "pip_layer", None)
-        if pip_layer is not None and state.camera_available:
-          pip_layer(content, state)
         map_layer = getattr(self, "map_layer", None)
         if map_layer is not None and state.alert.size != AlertSize.FULL:
           map_layer(content, state)
         if state.alert.size != AlertSize.FULL:
           if placement(state.customization, "large", "cruise_limits")["enabled"]:
             self.unified_speed.render(content, state)
-          if not manual_slc_confirmation(self.fonts.profile, state):
-            self._slc_actions(state)
           if gauge := getattr(self, "cem_gauge", None):
             gauge.render(state)
         if placement(state.customization, "large", "current_speed")["enabled"]:
@@ -437,6 +433,8 @@ class OnroadView:
           now_playing.render(state)
         if jetlink := getattr(self, "jetlink_status", None):
           jetlink.render(state)
+        if signal := getattr(self, "network_signal", None):
+          signal.render(state)
         self._driving_mode(state, right_shift / 2)
         self._clock(state, right_shift / 2)
         self._weather(state, right_shift / 2)
@@ -448,6 +446,8 @@ class OnroadView:
         quick_select(content, state)
       if not ordered and state.alert.size != AlertSize.FULL:
         render_rear_fog(state, "large")
+      if not ordered and (pip_layer := self._legacy_pip_layer(state)) is not None:
+        pip_layer(content, state)
       self.alert.render(content, state.alert)
     finally:
       clip.end_scissor_mode()
@@ -515,26 +515,20 @@ class OnroadView:
         if self.extra_overlays is not None:
           self.extra_overlays(frame, state)
       else:
-        pip_layer = getattr(self, "pip_layer", None)
-        if pip_layer is not None and state.camera_available and not driver_camera and \
-           state.appearance.camera_view != CameraViewChoice.NONE:
-          pip_layer(frame, state)
         self._prepare_compact_fade()
         rl.draw_texture_ex(self._fade, rl.Vector2(0, 0), 0, 1, rl.WHITE)
         if state.alert.size == AlertSize.NONE and not driver_camera:
           self.compact_hud.render(state)
           if placement(state.customization, "compact", "torque_bar")["enabled"]:
             self.torque_bar.render(frame, state, 536)
-          if not manual_slc_confirmation(self.fonts.profile, state):
-            self._slc_actions(state)
           if state.stopped_duration_s is not None:
             self._stopped_timer(state, state.stopped_duration_s)
         if self.extra_overlays is not None:
           self.extra_overlays(frame, state)
         if monitor_layer := getattr(self, "driver_monitor_layer", None):
           monitor_layer(frame, state)
-      self.navigation.render(state)
       if not ordered:
+        self.navigation.render(state)
         self._driving_mode(state)
         self._clock(state)
         self._weather(state)
@@ -544,6 +538,9 @@ class OnroadView:
       direction = (-1 if signals.left_blinker else 1 if signals.right_blinker else 0) if signals else 0
       if not ordered and state.alert.size != AlertSize.FULL:
         render_rear_fog(state, "compact")
+      if not ordered and not driver_camera and state.appearance.camera_view != CameraViewChoice.NONE and \
+         (pip_layer := self._legacy_pip_layer(state)) is not None:
+        pip_layer(frame, state)
       self.alert.render(frame, state.alert, signal_direction=direction)
     finally:
       clip.end_scissor_mode()
@@ -594,6 +591,10 @@ class OnroadView:
     gui_app.remove_render_prepare(self.torque_bar.prepare)
     self.torque_bar.close()
     self.navigation.close()
+    if now_playing := getattr(self, "now_playing", None):
+      now_playing.close()
+    if signal := getattr(self, "network_signal", None):
+      signal.close()
     if self.fonts.profile == Profile.LARGE:
       self.unified_speed.close()
       self.steering_wheel.close()

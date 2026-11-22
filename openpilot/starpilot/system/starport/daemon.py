@@ -120,6 +120,14 @@ def handle(supervisor: Supervisor, request: dict[str, Any], verifier: StarPortSo
     supervisor.set_dedicated_wifi(request.get("enabled") is True)
   elif command == "set_allow_hevc":
     supervisor.set_allow_hevc(request.get("enabled") is True)
+  elif command == "set_keyframe_test":
+    supervisor.set_keyframe_test(request.get("enabled") is True)
+  elif command == "set_tall_hevc":
+    supervisor.set_tall_hevc(request.get("enabled") is True)
+  elif command == "set_unacked_video":
+    supervisor.set_unacked_video(request.get("enabled") is True)
+  elif command == "set_patient_tcp":
+    supervisor.set_patient_tcp(request.get("enabled") is True)
   elif command == "set_head_unit_experiments":
     supervisor.set_head_unit_experiments(request.get("enabled") is True)
   elif command == "set_head_unit_experiment_rule":
@@ -273,14 +281,6 @@ def main() -> int:
         cleanup.callback(hu_feed.close)
       except Exception as error:  # the cluster map feed is optional; projection must never depend on it
         print(json.dumps({"event": "hu_feed_unavailable", "error": str(error)}), flush=True)
-      try:
-        from openpilot.starpilot.system.starport.wifi_rejoin import CAR_JOIN_STATES, HotspotRejoin
-        rejoin = HotspotRejoin(log=lambda event, **fields: print(json.dumps({"event": event, **fields}), flush=True),
-                               car_joining=lambda: supervisor.status()["state"] in CAR_JOIN_STATES,
-                               streaming_beat=supervisor.streaming_beat).start()
-        cleanup.callback(rejoin.close)
-      except Exception as error:  # rejoining the phone hotspot for the dash map is optional too
-        print(json.dumps({"event": "wlan0_rejoin_unavailable", "error": str(error)}), flush=True)
     from openpilot.starpilot.system.starport.bugsink_report import Reporter
     cleanup.callback(Reporter(parked=lambda: _offroad() and not supervisor.status()["running"]).start().close)
     server = Server(STARPORT_SOCKET_PATH, supervisor, source_verifier, authority.configuration_allowed)

@@ -165,6 +165,7 @@ class LaneChangeFeatureTests(unittest.TestCase):
     self.assertTrue(self.owner.apply(self.request(row)))
     saved = read_saved(self.params)
     self.assertTrue(saved.policy.abort_on_blindspot)
+    assert saved.raw is not None
     self.assertEqual(json.loads(saved.raw)["abortOnBlindspot"], True)
 
   def test_force_turn_desires_rows_edit_the_saved_policy(self):

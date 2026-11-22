@@ -79,6 +79,25 @@ AUTH_MIN = 0.0
 # rate/accel limits are full at once (owner's drives f4/f7 on 0x09: Fade Up giving a 1.25 s authority climb with the
 # target going straight back to the plan felt best; a ~1 s target fade lagged the model after a release, route ed).
 HOLD_LIMITS_FADE_S = 0.0
+# Stock 0xE4 byte 2 engage arm (E4 field map 11-15, FUN_2940A / FUN_294BE / FUN_29554), sent with the authority hold:
+# bits 3:2 = 2 with bit 6 = the Clarity camera's own arm (0xC8): the stock LKAS torque fade ramps in over 0.10 s and out
+# over 0.50 s, instead of 1.02 s / 1.02 s with byte 2 = 0. While the driver yields, bits 3:2 = 1: the stock abort, LKAS
+# torque fade to 0 within 2 ms, state 3 -> 4 -> 1; it re-arms over 0.10 s once the bits go back to 2 (request up throughout).
+# Why: with the request held up the stock inner rate loop stays engaged at R5 = 0 and brakes the driver's wheel motion
+# (-Kp*R6, 120-340 counts of assist while the wheel moves); dropping the request instead leaves it for the 1.02 s stock
+# fade. Emulator (lab/clarity/OVERRIDE_TUNE_20261121, hoAB2): LKAS term 0 during a press (stock LKAS-off feel),
+# press/release steps below the hold alone, no lockout, STEER_STATUS stays NORMAL. Bit 6 stays set (its falling edge while
+# engaged re-ramps, FUN_29646). Sent only with the request: a full disengage keeps the usual arm-1 release (1.02 s).
+# Panda's angle rule reads only bits 7 and 5.
+E4_ARM2 = 0x48         # SET_ME_X00 (byte 2 bits 6:0): bit 6 | bits 3:2 = 2
+E4_ARM2_ABORT = 0x44   # bit 6 | bits 3:2 = 1
+
+
+def stock_arm_bits(hold: bool, yielding: bool) -> int:
+  """0xE4 byte 2 arm bits (SET_ME_X00 units) for the authority hold; 0 = openpilot's usual byte 2 (arm 1)."""
+  if not hold:
+    return 0
+  return E4_ARM2_ABORT if yielding else E4_ARM2
 # The hold is the setting HondaClarityAngleHoldOverride (ModifiedEpsSettings.angle_hold_override, default on).
 # AUTH_MIN is 0 because of the STOCK EPS override lockout (11-19, build 0x07 investigation): FUN_28D5A flags a driver
 # override when |T_comp| >= 1536 (cal 0x1375C) for 50 ticks; FUN_2A994 then latches LKAS off (0xFFF879C9 3 -> 1) if the

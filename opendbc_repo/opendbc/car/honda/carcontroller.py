@@ -4,7 +4,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
-from opendbc.car.honda.clarity_angle_mode import HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode
+from opendbc.car.honda.clarity_angle_mode import HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode, stock_arm_bits
 from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
@@ -143,6 +143,7 @@ class CarController(CarControllerBase):
     self.authority = AuthorityRamp()   # angle-loop authority (byte 3 bits 7:4, AUTH)
     self.angle_cut = 0
     self.angle_hold = False   # authority hold active this frame (target limits at HOLD_LIMITS_FADE_S)
+    self.angle_arm_bits = 0   # 0xE4 byte 2 stock arm bits with the hold (clarity_angle_mode.stock_arm_bits)
     self.modified_eps_settings = None
     # Clarity with an interceptor: the PCM stays in ACC while openpilot is engaged (honda/pcm_acc.py)
     self.keep_pcm_acc = pcm_acc.qualified(CP)
@@ -213,10 +214,13 @@ class CarController(CarControllerBase):
         cut = self.authority.update(lkas_active and CS.eps_cal_status.angle_ready, yielding, mset.fade_up_s)
         self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0xF1 (the loop resets G on activation)
         self.angle_hold = True
+        # stock arm 2, abort while yielding: the stock inner loop lets go of the wheel during the press (stock_arm_bits)
+        self.angle_arm_bits = stock_arm_bits(True, yielding)
       else:
         self.authority.update(False, False, 0.0)
         self.angle_cut = 0
         self.angle_hold = False
+        self.angle_arm_bits = 0
       if self.angle_sender is not None and meps_pressed and not angle_hold:
         # Angle mode: no request during a press, whatever Override Fade Down or Assist During Override say. Both keep the
         # request up through a press, which in torque mode eases torque out; in angle mode it would hold the stiff angle
@@ -275,7 +279,8 @@ class CarController(CarControllerBase):
       CS.eps_cal_status.note_angle_request(lkas_active)
       apply_torque = self.apply_angle_raw
     can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control,
-                                                      eps_mode=self.eps_mode, angle_payload=angle_payload))
+                                                      eps_mode=self.eps_mode, angle_payload=angle_payload,
+                                                      arm_bits=self.angle_arm_bits if self.angle_sender is not None else 0))
     if _projection is not None:
       _projection.emit('honda.STEERING_CONTROL', apply_torque, lkas_active, can_sends[-1])
 

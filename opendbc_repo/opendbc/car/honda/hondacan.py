@@ -122,7 +122,7 @@ def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_count
   return commands
 
 
-def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, eps_mode=0, angle_payload=0):
+def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, eps_mode=0, angle_payload=0, arm_bits=0):
   values = {
     "STEER_TORQUE": apply_torque if lkas_active else 0,
     "STEER_TORQUE_REQUEST": lkas_active,
@@ -131,9 +131,15 @@ def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control,
     # byte 3 (stock EPS firmware never reads it); the Clarity angle-mode EPS (protocol v2, meps/protocol.py) reads
     # AUTH << 4 | MODE
     values["SET_ME_X00_2"] = eps_mode
+  set_me = 0
   if angle_payload and lkas_active:
     # Clarity angle mode (clarity_angle_mode.py): byte 2 bit 5 = bytes 0-1 carry an angle target, not a torque
-    values["SET_ME_X00"] = angle_payload
+    set_me |= angle_payload
+  if arm_bits and lkas_active:
+    # Clarity angle hold: the stock engage arm bits in byte 2 (clarity_angle_mode.stock_arm_bits), with the request
+    set_me |= arm_bits
+  if set_me:
+    values["SET_ME_X00"] = set_me
 
   if tja_control:
     values["STEER_DOWN_TO_ZERO"] = lkas_active

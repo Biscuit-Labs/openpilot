@@ -260,7 +260,7 @@ def test_no_engage_while_the_wheel_is_beyond_the_limit(angle_file):
     _, f = e4(ci, True, 40.0, 40.0, v=30.0)                             # 30 m/s, wheel at 40 deg (limit 18.4)
     assert f[0:3] == bytes(3)
   _, f = e4(ci, True, 40.0, 10.0, v=30.0)                               # wheel back inside: engage at the wheel
-  assert f[2] == 0xA0
+  assert f[2] == 0xA0 | cam.E4_ARM2                                      # hold (default): stock arm 2 with the request
   assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(10.0, abs=cam.std_angle_step(30.0) + 0.06)
   for _ in range(400):
     _, f = e4(ci, True, 40.0, 10.0, v=30.0)
@@ -293,7 +293,7 @@ def test_fault_mid_drive_stops_the_payload_at_once(angle_file):
   e4(ci, False, 0.0, 0.0)
   for _ in range(60):
     _, f = e4(ci, True, 5.0, 0.0)
-  assert f[2] == 0xA0
+  assert f[2] == 0xA0 | cam.E4_ARM2
   f6.run([v4(fault=True, steering=False, reason=4, counter=k % 4) for k in range(8, 10)])   # EPS reports FAULT (JUMP)
   assert ci.CS.eps_cal_status.fault == "angle_fault (JUMP)"
   _, f = e4(ci, True, 5.0, 0.0)
@@ -306,7 +306,7 @@ def test_loop_not_running_faults_after_100ms(angle_file):
   f6 = ready(ci)
   e4(ci, False, 0.0, 0.0)
   _, f = e4(ci, True, 0.0, 0.0)
-  assert f[2] == 0xA0 and ci.CS.eps_cal_status.request_sent
+  assert f[2] == 0xA0 | cam.E4_ARM2 and ci.CS.eps_cal_status.request_sent
   f6.run([v4(steering=False, reason=1, counter=k % 4) for k in range(8, 13)])   # 5 status frames = 10 carState updates
   assert ci.CS.eps_cal_status.fault == ""
   f6.run([v4(steering=False, reason=1, counter=1)])
@@ -576,7 +576,8 @@ def test_hold_holds_the_request_through_a_press_and_ramps_authority(angle_file):
   eng = [e4(ci, True, 10.0, 0.0)[1] for _ in range(150)]
   assert eng[0][3] == 0x01 and eng[-1][3] == 0xF1 and all(d[3] & 0x0F == 0x01 for d in eng)   # AUTH 0 -> 15
   press = [e4(ci, True, 10.0, -5.0, pressed=True)[1] for _ in range(60)]
-  assert all(d[2] == 0xA0 for d in press)                                              # request held
+  assert all(d[2] == 0xA0 | cam.E4_ARM2_ABORT for d in press)                          # request held, stock abort bits (inner loop lets go)
+  assert all(d[2] == 0xA0 | cam.E4_ARM2 for d in eng)                                  # stock arm 2 while steering
   a = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in press]
   plan = struct.unpack(">h", eng[-1][0:2])[0] / cam.RAW_PER_DEG
   assert all(x == pytest.approx(plan, abs=0.051) for x in a)                          # the target stays on the plan (Hyundai/Kia style)
@@ -585,6 +586,7 @@ def test_hold_holds_the_request_through_a_press_and_ramps_authority(angle_file):
   relf = [e4(ci, True, 10.0, -5.0)[1] for _ in range(150)]
   rel = [auth(d) for d in relf]
   assert rel[-1] == 15 and all(b >= a for a, b in zip(rel, rel[1:]))
+  assert all(d[2] == 0xA0 | cam.E4_ARM2 for d in relf)                                 # released: back to arm 2 (re-arms in 0.10 s)
   ra = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in relf]
   assert all(x == pytest.approx(plan, abs=0.051) for x in ra)                         # release: the target does not move; authority ramps
   e4(ci, False, 0.0, 0.0)
@@ -654,3 +656,27 @@ def test_hold_release_target_at_full_limits_authority_over_fade_up(angle_file):
   auths = [auth(d) for d in relf]
   assert auths == sorted(auths) and next(i for i, c in enumerate(auths) if c == 15) == pytest.approx(121, abs=2)
   assert cam.HOLD_LIMITS_FADE_S == 0.0
+
+
+def test_stock_arm_bits():
+  # 0xE4 byte 2 (SET_ME_X00 units): arm 2 = bit 6 | bits 3:2 = 2; abort = bit 6 | bits 3:2 = 1; nothing without the hold
+  assert cam.stock_arm_bits(False, False) == 0 and cam.stock_arm_bits(False, True) == 0
+  assert cam.stock_arm_bits(True, False) == 0x48 and cam.stock_arm_bits(True, True) == 0x44
+  for bits in (cam.E4_ARM2, cam.E4_ARM2_ABORT):
+    assert bits & 0x40 and not bits & 0xA3                               # never touches request (7), payload (5) or bits 1:0
+  assert (cam.E4_ARM2 >> 2) & 3 == 2 and (cam.E4_ARM2_ABORT >> 2) & 3 == 1
+
+
+def test_arm_bits_only_with_the_request():
+  from opendbc.can import CANPacker
+  from opendbc.car.honda import hondacan
+  from opendbc.car.honda.values import DBC, CAR
+  from opendbc.car import Bus
+  packer = CANPacker(DBC[CAR.HONDA_CLARITY][Bus.pt])
+  can = type("C", (), {"lkas": 0})()
+  _, d, _ = hondacan.create_steering_control(packer, can, 100, True, False, eps_mode=0x01, angle_payload=0x20, arm_bits=cam.E4_ARM2)
+  assert d[2] == 0xE8
+  _, d, _ = hondacan.create_steering_control(packer, can, 100, True, False, eps_mode=0x01, angle_payload=0x20, arm_bits=cam.E4_ARM2_ABORT)
+  assert d[2] == 0xE4
+  _, d, _ = hondacan.create_steering_control(packer, can, 100, False, False, eps_mode=0xF1, angle_payload=0x20, arm_bits=cam.E4_ARM2)
+  assert d[0:3] == bytes(3)                                              # no request: byte 2 stays 0

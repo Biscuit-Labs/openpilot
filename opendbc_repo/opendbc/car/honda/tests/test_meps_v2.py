@@ -47,13 +47,13 @@ def test_v2_frames_engage_override_and_idle():
   _, idle = T.e4(ci, False, 0.0, 0.0, v=20.0)
   assert idle[0:3] == bytes(3) and idle[3] == 0xF1                       # idle: MODE 1 requested, AUTH 15, no payload
   eng = [T.e4(ci, True, 5.0, 0.0, v=20.0)[1] for _ in range(150)]
-  assert all(f[2] == 0xA0 for f in eng)
+  assert all(f[2] == 0xA0 | 0x48 for f in eng)                           # request + payload + stock arm 2 (angle hold)
   assert all(f[3] & 0x0F == 0x01 for f in eng)                           # MODE 1, reserved 0, no control bit
   assert eng[0][3] >> 4 == 0 and eng[-1][3] >> 4 == 15                   # authority ramps up from 0 to full
   auths = [f[3] >> 4 for f in eng]
   assert all(b >= a for a, b in zip(auths, auths[1:], strict=False))
   press = [T.e4(ci, True, 5.0, -8.0, v=20.0, pressed=True)[1] for _ in range(60)]
-  assert all(f[2] == 0xA0 for f in press) and press[-1][3] == 0x01        # override: request held, AUTH 0
+  assert all(f[2] == 0xA0 | 0x44 for f in press) and press[-1][3] == 0x01  # override: request held + stock abort bits, AUTH 0
   plan = int.from_bytes(eng[-1][0:2], "big", signed=True)
   assert all(int.from_bytes(f[0:2], "big", signed=True) == plan for f in press)   # target stays on the plan
 

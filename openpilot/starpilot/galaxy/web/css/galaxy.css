@@ -422,6 +422,7 @@ width: var(--touch-target);
 }
 .gx-icon-btn:hover { background: var(--glass-bg-hover); }
 .gx-icon-btn:active { transform: scale(0.9); }
+.gx-icon-btn.gx-wiki-help { flex: none; color: var(--on-surface-variant); text-decoration: none; }
 .gx-icon-btn i,
 .gx-appbar .bi,
 .gx-appbar i {

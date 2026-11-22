@@ -1,17 +1,15 @@
-"""Honda modified-EPS wire protocol, v1 (angle builds 0x04-0x0A) and v2 (build 0x0B on), one place.
+"""Honda modified-EPS wire protocol v2 (build 0x0B on), one place. v1 (angle builds 0x04-0x0A) is no longer supported.
 
 Spec: rwd-xray lab/audit_fable_20261121/v2/PROTOCOL_V2.md (owner-approved slim v2); reference codec meps_v2.py there.
 
 0xE4 byte 3 (openpilot -> EPS)
-  v1: CUT (7:4, 0 = full .. 15 = none) | requested mode (3:1: 3 angle, 4 angle with the 3.0 clamp) | control bit (0)
-  v2: AUTH (7:4, 0 = none .. 15 = full) | bits 3:2 = 0 | MODE (1:0: 0 stock, 1 angle). One angle profile, no control bit.
-  Byte 2 is the same in both: bit 7 request, bit 5 payload (1 exactly when an angle target is sent).
+  AUTH (7:4, 0 = none .. 15 = full) | bits 3:2 = 0 | MODE (1:0: 0 stock, 1 angle). One angle profile, no control bit.
+  Byte 2: bit 7 request, bit 5 payload (1 exactly when an angle target is sent).
 0x6A4 EPS_CAL_STATUS (EPS -> openpilot, 50 Hz)
-  layout 3 (v1): byte 0 requested mode (7:4) | loop running (3) | active mode (2:0); byte 2 angle fault (0), why (2:1)
-  layout 4 (v2): byte 0 layout (7) | FAULT (6) | STEERING (5) | CLAMP (4) | stock LKAS state (3:2) | active MODE (1:0);
-                 byte 2 gain (7:4) | REASON (3:0). Byte 1 is the build ID in both; bytes 3-6 reference and output.
-Layout 4 is told apart by byte 0 bit 7 (layout 3's requested mode is at most 4, so that bit is never set there). It is
-decoded from the layout-3 DBC signals, which cover byte 0 and byte 2 bits 4:0 (the gain's top 3 bits are not needed).
+  layout 4: byte 0 layout (7) | FAULT (6) | STEERING (5) | CLAMP (4) | stock LKAS state (3:2) | active MODE (1:0);
+                 byte 2 gain (7:4) | REASON (3:0). Byte 1 is the build ID; bytes 3-6 reference and output.
+Layout 4 is told apart by byte 0 bit 7 (a v1 layout-3 frame never sets it; eps_cal_status faults those
+"unsupported_build"). It is decoded from the layout-3 DBC signals, which cover byte 0 and byte 2 bits 4:0.
 """
 from enum import IntEnum
 
@@ -29,11 +27,6 @@ class Reason(IntEnum):
   ANGLE_INVALID = 6
   AUTHORITY_ZERO = 7
   STOCK_LKAS_NOT_ENGAGED = 8
-
-
-def byte3_v1(requested_mode: int, cut: int) -> int:
-  """v1: the requested mode (3 or 4), control bit set, CUT (0 = full authority)."""
-  return ((cut & 0xF) << 4) | ((requested_mode & 0x7) << 1) | 1
 
 
 def byte3_v2(cut: int) -> int:

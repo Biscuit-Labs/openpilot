@@ -376,7 +376,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
 
   def _angle_msg(self, target, request=True, payload=True, cut=0):
     values = {"STEER_TORQUE": target, "STEER_TORQUE_REQUEST": request, "SET_ME_X00": 0x20 if payload else 0,
-              "SET_ME_X00_2": (cut << 4) | 0x09}
+              "SET_ME_X00_2": ((15 - cut) << 4) | 0x01}   # byte 3 = MODE 1 | AUTH (protocol v2; panda never reads it)
     return self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)
 
   def _set_meas(self, raw, checksum_ok=True):
@@ -511,22 +511,21 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
     self.assertTrue(self._tx(self._angle_msg(500)))
 
   def test_sender_at_its_clamp_passes(self):
-    # openpilot's own sender asked for more than its clamp, in both EPS profiles (mode 3 = amax_scale 1.0, mode 4 =
-    # 0.75), with the wheel at the last target: panda must pass every frame
+    # openpilot's own sender asked for more than its clamp, with the wheel at the last target: panda must pass every frame
     from opendbc.car.honda import clarity_angle_mode as cam
     for v in (3., 10., 15., 20., 30., 40.):
-      for scale, byte3 in ((1.0, 0x07), (cam.AMAX_CAP3_SCALE, 0x09)):
+      for byte3 in (0xF1,):
         for sign in (1., -1.):
           self._start(0, v)
           sender, meas = cam.AngleModeSender(), 0
           desired = sign * 1.2 * cam.std_angle_limit(v)   # op degrees; raw = -10 x deg
           for i in range(600):
-            raw, req, pay = sender.update(True, desired, -meas / 10., v, True, 0.0, cam.ENGAGE_S, scale)
+            raw, req, pay = sender.update(True, desired, -meas / 10., v, True, 0.0, cam.ENGAGE_S)
             values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": byte3}
-            self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, scale, i, raw))
+            self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, i, raw))
             meas = raw
             self._set_meas(meas)
-          self.assertGreater(abs(raw), 0.98 * cam.angle_limit(v, scale) * 10, (v, scale))   # it reached the clamp
+          self.assertGreater(abs(raw), 0.98 * cam.angle_limit(v) * 10, v)   # it reached the clamp
 
   def test_sender_through_an_override_passes(self):
     # hold through override: the request stays up with no authority (cut 15) and the target stays on the plan while the
@@ -541,7 +540,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
         self._set_meas(int(-10 * wheel))
         raw, req, pay = sender.update(True, plan, wheel, v, True, 0., 0.)
         values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay,
-                  "SET_ME_X00_2": ((15 if pressed else 0) << 4) | 0x09}
+                  "SET_ME_X00_2": ((0 if pressed else 15) << 4) | 0x01}
         self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, i, raw))
         if i > 200:
           self.assertAlmostEqual(raw / -10., plan, delta=0.06)   # on the plan through the press and the release
@@ -573,7 +572,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
             # one 0x14A per 10 ms frame, as on the car
             self._rx(self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEER_ANGLE": -round(10 * wheel) / 10.}))
             raw, req, pay = sender.update(True, 0., hist[lag], v, True, rate if i < 30 else 0., 0.)
-            values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": 0x09}
+            values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": 0xF1}
             self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, rate, lag, i))
             if i >= 30:
               wheel = raw / -10.
@@ -591,7 +590,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
         wheel = max(wheel - 0.5, 0.5 * lim)     # the driver unwinds at 50 deg/s
         self._set_meas(int(-10 * wheel))
         raw, req, pay = sender.update(True, 0.5 * lim, wheel, v, True, -50., 0.)
-        values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": 0x09}
+        values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": 0xF1}
         self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, i, wheel, raw))
         if req:
           self.assertLessEqual(abs(raw) / 10., lim + 0.06)

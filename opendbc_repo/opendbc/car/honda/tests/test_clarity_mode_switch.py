@@ -1,5 +1,6 @@
-"""0xE4 byte 3 mode flag for the Clarity mode-switch EPS build (rwd-xray lab/clarity/CLARITY_MODESW_P1_20261116):
-bit 1 set = PTM calibration, clear = stock. Only the Clarity on a modified (',') EPS image sends it."""
+"""0xE4 byte 3 in torque mode: always 0. The mode-switch builds (P1 byte-3 PTM flag, MM 0x02) are no longer supported;
+a v2 EPS (0x0B) reads byte 3 = 0 as MODE 0 (stock), and CleanPTM / stock firmware never read it. Angle mode's byte 3
+is in test_clarity_angle_mode.py / test_meps_v2.py."""
 import pytest
 
 from opendbc.car import structs
@@ -27,10 +28,10 @@ def honda_checksum_ok(b, addr=0xE4):
   return (b[-1] & 0xF) == ((8 - s) & 0xF)
 
 
-def test_clarity_modified_eps_sends_ptm_flag_on_every_frame():
+def test_clarity_modified_eps_torque_mode_sends_no_flag():
   ci, frames = steering_frames(params(CAR.HONDA_CLARITY, [eps(b'39990-TRW,A020\x00\x00')]))
-  assert ci.CC.eps_mode == 0x02 and frames
-  assert all(len(f) == 5 and f[3] == 0x02 and honda_checksum_ok(f) for f in frames)
+  assert ci.CC.eps_mode == 0 and frames
+  assert all(len(f) == 5 and f[3] == 0 and honda_checksum_ok(f) for f in frames)
 
 
 def test_clarity_stock_eps_sends_no_flag():

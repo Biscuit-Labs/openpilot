@@ -4,8 +4,7 @@ from opendbc.can import CANPacker
 from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
-from opendbc.car.honda.clarity_angle_mode import AMAX_CAP3_SCALE, BYTE3_ANGLE, HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode
-from opendbc.car.honda.eps_cal_status import requested_eps_mode
+from opendbc.car.honda.clarity_angle_mode import HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode
 from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
@@ -134,16 +133,14 @@ class CarController(CarControllerBase):
     # speed, opt-in rate limit). It replaces 7.0's Civic Bosch-only ModifiedCivicSteering, whose torque low-pass here
     # read as safety limiting in controlsd and froze the lateral integrator. openpilot attaches modified_eps_settings.
     self.modified_eps_steering = ModifiedEpsSteering() if modified_eps(CP) else None
-    # Clarity mode-switch EPS build (rwd-xray lab/clarity/CLARITY_MODESW_P1_20261116): 0xE4 byte 3 bit 1 selects the PTM
-    # calibration, clear = stock. Sent on every frame (the EPS takes it only from valid frames while LKAS is idle), and
-    # only when this fork runs the PTM controller (modified EPS fw, ',' marker). CleanPTM and stock firmware ignore byte 3.
-    self.eps_mode = requested_eps_mode(CP) << 1   # 0x02 on the Clarity with the PTM controller, else 0
-    # Clarity angle mode: byte 3 = 0x07 (mode 3 + control type angle) and the angle target in bytes 0-1, gated on 0x6A4
+    # 0xE4 byte 3: 0 (stock / CleanPTM firmware ignore it; a v2 EPS reads MODE 0 = stock). Clarity angle mode (protocol
+    # v2, build 0x0B on): AUTH << 4 | MODE 1 on every frame and the angle target in bytes 0-1, gated on 0x6A4
+    self.eps_mode = 0
     self.angle_sender = AngleModeSender() if angle_mode(CP) else None
     if self.angle_sender is not None:
-      self.eps_mode = BYTE3_ANGLE
+      self.eps_mode = meps_protocol.byte3_v2(0)
     self.apply_angle_raw = 0
-    self.authority = AuthorityRamp()   # build 0x06: angle-loop authority (byte 3 bits 7:4)
+    self.authority = AuthorityRamp()   # angle-loop authority (byte 3 bits 7:4, AUTH)
     self.angle_cut = 0
     self.angle_hold = False   # authority hold active this frame (target limits at HOLD_LIMITS_FADE_S)
     self.modified_eps_settings = None
@@ -203,18 +200,18 @@ class CarController(CarControllerBase):
       angle_hold = (self.angle_sender is not None and CS.eps_cal_status.authority_ready and
                     current_settings(self.modified_eps_settings).angle_hold_override)
       if angle_hold:
-        # Build 0x06/0x08/0x09 with Angle Hold Through Override (default on): the request stays up through an override.
+        # Angle Hold Through Override (default on): the request stays up through an override.
         # While the driver yields (the press detector OR the torque-mode yield) the loop's authority drops to 0 at once,
         # which keeps the command under the stock lockout's threshold. The sent target stays on openpilot's plan through
         # the override (Hyundai/Kia style; the model assumes its desired curvature is carried out while latActive, so a
         # target that follows the wheel and walks back after the release misleads it): at the release only authority
-        # changes, back over Override Fade Up, the setting being the time (0 = at once; 0x09 firmware floor 0 -> full in
-        # 0.34 s). Route 000000ed: the 17-frame fade pulled the wheel toward center under the driver's hands.
+        # changes, back over Override Fade Up, the setting being the time (0 = at once; the firmware's own slew takes 0 ->
+        # full in 0.34 s). Route 000000ed: the 17-frame fade pulled the wheel toward center under the driver's hands.
         mset = current_settings(self.modified_eps_settings)
         yielding = bool(meps_pressed or CS.out.steeringPressed)
         lkas_active = bool(CC.latActive and CS.out.vEgo >= mset.min_steer_speed_mph * CV.MPH_TO_MS)
         cut = self.authority.update(lkas_active and CS.eps_cal_status.angle_ready, yielding, mset.fade_up_s)
-        self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0x07/0x09 (the loop resets G on activation)
+        self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0xF1 (the loop resets G on activation)
         self.angle_hold = True
       else:
         self.authority.update(False, False, 0.0)
@@ -263,27 +260,18 @@ class CarController(CarControllerBase):
     # Send steering command.
     angle_payload = 0
     if self.angle_sender is not None:
-      # angle mode replaces the torque: bytes 0-1 carry the target only while the EPS reports mode 3 on an angle build.
+      # angle mode replaces the torque: bytes 0-1 carry the target only while the EPS reports MODE 1 (angle_ready).
       # The request follows ModifiedEpsSteering's lkas_active exactly as in torque mode: it drops while the driver
       # overrides (and below the min steer speed), so the stiff angle loop never fights the driver; the next request
       # restarts from the measured angle and rate with the engage fade. Keeping the request up through a press made the loop
       # push ~3000 counts against the driver until the stock EPS locked out (emulator be_16/36/37, 11-18).
       settings = current_settings(self.modified_eps_settings)
-      if not CC.latActive:
-        # profile changes only while lateral is off: the EPS switches modes at LKAS idle, so a change while engaged
-        # would drop steering until then. Mode 4 only on a build that has it (else mode 3).
-        CS.eps_cal_status.set_angle_profile(settings.angle_cap3)
-      # 0xE4 byte 3 for the protocol the EPS reported (meps/protocol.py): v1 0x07 mode 3 / 0x09 mode 4 with CUT in
-      # bits 7:4 (0 = full); v2 (0x6A4 layout 4, build 0x0B) MODE 1 with AUTH = 15 - CUT (15 = full), one profile
-      if CS.eps_cal_status.protocol == 2:
-        self.eps_mode = meps_protocol.byte3_v2(self.angle_cut)
-      else:
-        self.eps_mode = meps_protocol.byte3_v1(CS.eps_cal_status.requested, self.angle_cut)
+      # 0xE4 byte 3 (meps/protocol.py, v2): MODE 1 with AUTH = 15 - CUT (15 = full)
+      self.eps_mode = meps_protocol.byte3_v2(self.angle_cut)
       self.apply_angle_raw, lkas_active, angle_payload = self.angle_sender.update(
         lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, CS.eps_cal_status.angle_ready,
         CS.out.steeringRateDeg, HOLD_LIMITS_FADE_S if self.angle_hold else settings.fade_up_s,   # hold: authority ramp is the fade
-        AMAX_CAP3_SCALE if CS.eps_cal_status.cap3_active else 1.0,
-        settings.angle_rate_limit_deg_s)                                 # Steering Angle Rate Limit
+        rate_limit_deg_s=settings.angle_rate_limit_deg_s)                                 # Steering Angle Rate Limit
       CS.eps_cal_status.note_angle_request(lkas_active)
       apply_torque = self.apply_angle_raw
     can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control,

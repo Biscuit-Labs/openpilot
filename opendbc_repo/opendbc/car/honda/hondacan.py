@@ -128,8 +128,8 @@ def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control,
     "STEER_TORQUE_REQUEST": lkas_active,
   }
   if eps_mode:
-    # byte 3 (stock EPS firmware never reads it); the Clarity mode-switch EPS build latches bits 3:1 as the calibration
-    # mode and the angle build bit 0 as control type angle
+    # byte 3 (stock EPS firmware never reads it); the Clarity angle-mode EPS (protocol v2, meps/protocol.py) reads
+    # AUTH << 4 | MODE
     values["SET_ME_X00_2"] = eps_mode
   if angle_payload and lkas_active:
     # Clarity angle mode (clarity_angle_mode.py): byte 2 bit 5 = bytes 0-1 carry an angle target, not a torque

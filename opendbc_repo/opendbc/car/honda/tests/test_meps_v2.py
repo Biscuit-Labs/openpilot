@@ -1,6 +1,6 @@
 """Protocol v2 on the openpilot side (meps/protocol.py; spec rwd-xray lab/audit_fable_20261121/v2/PROTOCOL_V2.md): the EPS
-reports 0x6A4 layout 4 (build 0x0B), and openpilot switches 0xE4 byte 3 to MODE 1 | AUTH (15 = full), keeps the payload
-rule, and runs the interlock on the STEERING bit with the EPS's REASON."""
+reports 0x6A4 layout 4 (build 0x0B), openpilot sends 0xE4 byte 3 = MODE 1 | AUTH (15 = full), keeps the payload rule,
+and runs the interlock on the STEERING bit with the EPS's REASON. v2 is the only protocol (v1 removed)."""
 import dataclasses
 
 import pytest
@@ -8,19 +8,7 @@ import pytest
 from opendbc.car.honda.meps import protocol as P
 from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
 from opendbc.car.honda.tests import test_clarity_angle_mode as T
-from opendbc.car.honda.tests.test_eps_cal_status import Feed, honda_checksum
-
-
-def v4(mode=1, steering=True, fault=False, clamp=False, lkas=2, build=0x0B, reason=0, gain=15, ref=0, out=0, counter=0):
-  b = bytearray(8)
-  b[0] = 0x80 | (0x40 if fault else 0) | (0x20 if steering else 0) | (0x10 if clamp else 0) | ((lkas & 3) << 2) | (mode & 3)
-  b[1] = build
-  b[2] = ((gain & 0xF) << 4) | (reason & 0xF)
-  b[3:5] = (ref & 0xFFFF).to_bytes(2, "big")
-  b[5:7] = (out & 0xFFFF).to_bytes(2, "big")
-  b[7] = (counter & 3) << 4
-  b[7] |= honda_checksum(bytes(b))
-  return bytes(b)
+from opendbc.car.honda.tests.test_eps_cal_status import Feed, v4
 
 
 @pytest.fixture(autouse=True)
@@ -40,7 +28,7 @@ def start(status=None, **settings):
 
 
 def test_byte3_codec():
-  assert P.byte3_v1(3, 0) == 0x07 and P.byte3_v1(4, 15) == 0xF9
+  assert not hasattr(P, "byte3_v1")
   assert P.byte3_v2(0) == 0xF1 and P.byte3_v2(15) == 0x01            # AUTH = 15 - CUT: CUT 0 (full) -> AUTH 15
   for cut in range(16):
     b3 = P.byte3_v2(cut)
@@ -50,7 +38,7 @@ def test_byte3_codec():
 def test_layout4_is_detected_and_decoded():
   ci, _ = start([v4(steering=True, clamp=True, lkas=2, reason=7, counter=k % 4) for k in range(8)])
   s = ci.CS.eps_cal_status
-  assert s.protocol == 2 and s.build_id == 0x0B and s.active_mode == 1 and s.clamp and s.reason == "AUTHORITY_ZERO"
+  assert s.build_id == 0x0B and s.active_mode == 1 and s.clamp and s.reason == "AUTHORITY_ZERO"
   assert s.fault == "" and s.angle_ready and s.authority_ready
 
 
@@ -124,22 +112,20 @@ def test_v2_fault_bit_reports_its_reason():
   assert ci.CS.eps_cal_status.fault == "angle_fault (JUMP)" and not ci.CS.eps_cal_status.angle_ready
 
 
-def test_v2_ignores_the_3_0_profile_setting():
-  ci, f = start(angle_cap3=True)
+def test_one_profile_the_3_6_limit():
+  ci, f = start()
   T.e4(ci, False, 0.0, 0.0, v=15.0)
-  f.run([v4(counter=k % 4) for k in range(4)])
-  assert not ci.CS.eps_cal_status.cap3_active and ci.CS.eps_cal_status.fault == ""
   frames = [T.e4(ci, True, 80.0, 0.0, v=15.0)[1] for _ in range(300)]
   assert all(f[3] & 0x0F == 0x01 for f in frames)
   from opendbc.car.honda import clarity_angle_mode as cam
   peak = max(abs(int.from_bytes(f[0:2], "big", signed=True)) for f in frames) / 10
-  assert peak == pytest.approx(cam.angle_limit(15.0, 1.0), abs=0.06)    # one profile: the 3.6 m/s^2 limit
+  assert peak == pytest.approx(cam.angle_limit(15.0), abs=0.06) == pytest.approx(cam.std_angle_limit(15.0), abs=0.06)
 
 
-def test_back_to_layout3_returns_to_v1():
+def test_layout3_after_v2_never_steers():
   ci, f = start()
-  assert ci.CS.eps_cal_status.protocol == 2
-  f.run([T.v3(build=0x0A, counter=k % 4) for k in range(4)])
-  assert ci.CS.eps_cal_status.protocol == 1
-  _, e = T.e4(ci, False, 0.0, 0.0)
-  assert e[3] == 0x07
+  T.e4(ci, False, 0.0, 0.0)
+  f.run([T.v1(3, 3, 0x0A, counter=k % 4, b0_extra=8) for k in range(4)])
+  assert ci.CS.eps_cal_status.fault == "unsupported_build"
+  _, e = T.e4(ci, True, 5.0, 0.0)
+  assert e[0:3] == bytes(3) and e[3] == 0xF1                             # still v2 byte 3, no payload

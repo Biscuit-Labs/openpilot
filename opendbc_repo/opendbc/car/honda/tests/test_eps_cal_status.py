@@ -1,16 +1,14 @@
-"""0x6A4 EPS_CAL_STATUS interlock (eps_cal_status.py), fed with frames the emulated MM EPS firmware transmitted
-(eps_cal_status_emulator_frames.json, rwd-xray lab/clarity/sh2a_emu, image img_mm.bin = MM build 0x02, 0x6A4 layout v2)."""
-import json
-import os
+"""0x6A4 EPS_CAL_STATUS interlock (eps_cal_status.py), protocol v2 only: layout-4 frames (build 0x0B on). v1 frames
+(MM 0x02 layout 2, angle builds 0x04-0x0A layout 3) fault "unsupported_build". Angle-mode behaviour on layout 4 is in
+test_meps_v2.py and test_clarity_angle_mode.py."""
+import pytest
 
-from opendbc.can import CANParser
-from opendbc.car.honda.eps_cal_status import KNOWN_BUILDS, STATUS_TIMEOUT_FRAMES
+from opendbc.car.honda.eps_cal_status import STATUS_TIMEOUT_FRAMES
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.tests.test_modified_eps import eps, params
 from opendbc.car.honda.values import CAR
 
 ADDR = 0x6A4
-FRAMES = json.load(open(os.path.join(os.path.dirname(__file__), "eps_cal_status_emulator_frames.json")))
 
 
 def honda_checksum(b, addr=ADDR):
@@ -18,8 +16,22 @@ def honda_checksum(b, addr=ADDR):
   return (8 - s) & 0xF
 
 
-def frame(active=1, requested=1, build=0x02, counter=0):
-  b = bytearray([(requested << 4) | active, build, 0, 0, 0, 0, 0, counter << 4])
+def v4(mode=1, steering=True, fault=False, clamp=False, lkas=2, build=0x0B, reason=0, gain=15, ref=0, out=0, counter=0):
+  """A layout-4 status frame (meps/protocol.py)."""
+  b = bytearray(8)
+  b[0] = 0x80 | (0x40 if fault else 0) | (0x20 if steering else 0) | (0x10 if clamp else 0) | ((lkas & 3) << 2) | (mode & 3)
+  b[1] = build
+  b[2] = ((gain & 0xF) << 4) | (reason & 0xF)
+  b[3:5] = (ref & 0xFFFF).to_bytes(2, "big")
+  b[5:7] = (out & 0xFFFF).to_bytes(2, "big")
+  b[7] = (counter & 3) << 4
+  b[7] |= honda_checksum(bytes(b))
+  return bytes(b)
+
+
+def v1(active=1, requested=1, build=0x02, counter=0, b0_extra=0):
+  """A v1 status frame (layout 2/3: requested mode in byte 0 bits 7:4, never bit 7)."""
+  b = bytearray([(requested << 4) | active | b0_extra, build, 0, 0, 0, 0, 0, counter << 4])
   b[7] |= honda_checksum(bytes(b))
   return bytes(b)
 
@@ -47,82 +59,49 @@ class Feed:
     return out
 
 
-def test_dbc_decodes_every_emulator_frame():
-  for name, rec in FRAMES.items():
-    cp = CANParser("honda_clarity_hybrid_2018_can_generated", [("EPS_CAL_STATUS", float("nan"))], 0)
-    t = 1_000_000_000
-    for _, hexdat in rec["frames"]:
-      t += 20_000_000
-      dat = bytes.fromhex(hexdat)
-      assert ADDR in cp.update([(t, [(ADDR, dat, 0)])]), (name, hexdat)   # checksum and counter valid
-      vl = cp.vl["EPS_CAL_STATUS"]
-      assert vl["ACTIVE_MODE"] == dat[0] & 0x7 and vl["REQUESTED_MODE"] == dat[0] >> 4
-      assert vl["BUILD_ID"] == 0x02 and dat[2:7] == bytes(5)          # reserved bytes are 0
-  assert KNOWN_BUILDS[0x02] == 0b111
-
-
-def test_mode1_real_timing_run_faults_only_until_the_eps_runs_cleanptm():
+@pytest.mark.parametrize("active,requested,build,running", [(1, 1, 0x02, 0), (0, 0, 0x02, 0), (3, 3, 0x0A, 8), (4, 4, 0x05, 8)],
+                         ids=["MM02_mode1", "MM02_stock", "0x0A_angle", "0x05_mode4"])
+def test_v1_builds_are_unsupported_in_torque_mode(active, requested, build, running):
   ci = clarity(); f = Feed(ci)
-  datas = [bytes.fromhex(h) for _, h in FRAMES["mode1_realtiming"]["frames"]]
-  states = f.run(datas)
-  first_active = next(i for i, d in enumerate(datas) if d[0] & 0xF == 1)
-  assert first_active > 0                                     # the EPS boots in stock and switches at the first idle frame
-  faults = [s.steerFaultTemporary for s in states]
-  assert all(faults[:2 * first_active])                       # stock active while openpilot asks for CleanPTM: no steering
-  assert not any(faults[2 * first_active:])                   # CleanPTM active: steering allowed for the rest of the run
-  assert ci.CS.eps_cal_status.fault == ""
+  states = f.run([v1(active, requested, build, counter=k % 4, b0_extra=running) for k in range(10)])
+  assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "unsupported_build"
+  assert ci.CS.eps_cal_status.build_id == build
 
 
-def test_switch_sequence_faults_whenever_active_is_not_mode_1():
+def test_torque_mode_on_a_v2_eps_is_not_built():
+  # v2 has no torque PTM mode: openpilot's PTM torque tune on the EPS's stock tables must not steer
   ci = clarity(); f = Feed(ci)
-  datas = [bytes.fromhex(h) for _, h in FRAMES["seq"]["frames"]]
-  states = f.run(datas)
-  for i, d in enumerate(datas):
-    assert states[2 * i].steerFaultTemporary == ((d[0] & 0xF) != 1), (i, d.hex())
+  states = f.run([v4(mode=0, steering=False, reason=1, counter=k % 4) for k in range(10)])
+  assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "mode_not_built"
+  assert ci.CC.eps_mode == 0
 
 
 def test_status_lost_after_timeout_then_recovers():
   ci = clarity(); f = Feed(ci)
-  f.run([frame(counter=k % 4) for k in range(10)])
-  assert not f.step().steerFaultTemporary
+  f.run([v1(counter=k % 4) for k in range(10)])
+  assert ci.CS.eps_cal_status.fault == "unsupported_build"
   states = [f.step() for _ in range(STATUS_TIMEOUT_FRAMES + 2)]
-  assert not states[STATUS_TIMEOUT_FRAMES - 3].steerFaultTemporary
   assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "lost"
-  f.run([frame(counter=k % 4) for k in range(10, 14)])
-  assert not f.step().steerFaultTemporary
+  f.run([v1(counter=k % 4) for k in range(10, 14)])
+  assert ci.CS.eps_cal_status.fault == "unsupported_build"
 
 
-def test_no_status_frame_is_p1_cleanptm_behaviour():
+def test_no_status_frame_is_cleanptm_behaviour():
   ci = clarity(); f = Feed(ci)
   assert not any(s.steerFaultTemporary for s in f.run([None] * 200))
   assert ci.CS.eps_cal_status.enabled and not ci.CS.eps_cal_status.announced
+  assert ci.CC.eps_mode == 0                          # byte 3 = 0: CleanPTM ignores it, a v2 EPS would read MODE 0
 
 
 def test_bad_checksum_frames_are_ignored():
   ci = clarity(); f = Feed(ci)
-  bad = [bytes(frame(active=0, counter=k % 4)[:7]) + bytes([frame(active=0, counter=k % 4)[7] ^ 0x01]) for k in range(40)]
+  bad = [v4(counter=k % 4)[:7] + bytes([v4(counter=k % 4)[7] ^ 0x01]) for k in range(40)]
   assert not any(s.steerFaultTemporary for s in f.run(bad))
   assert not ci.CS.eps_cal_status.announced
-
-
-def test_unknown_build_or_missing_mode_fault():
-  for build in (0x01, 0x42, 0xFF):                                   # 0x01 = an old v1-layout byte, never a build ID
-    ci = clarity(); f = Feed(ci)
-    states = f.run([frame(build=build, counter=k % 4) for k in range(10)])
-    assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "unknown_build", (build, ci.CS.eps_cal_status.fault)
-  # a known build without mode 1
-  KNOWN_BUILDS[0x7E] = 0b101
-  try:
-    ci = clarity(); f = Feed(ci)
-    f.run([frame(build=0x7E, counter=k % 4) for k in range(10)])
-    assert ci.CS.eps_cal_status.fault == "mode_not_built"
-  finally:
-    del KNOWN_BUILDS[0x7E]
 
 
 def test_stock_fw_clarity_and_other_cars_ignore_the_frame():
   ci = clarity(b'39990-TRW-A020\x00\x00'); f = Feed(ci)
   assert not ci.CS.eps_cal_status.enabled
-  assert not any(s.steerFaultTemporary for s in f.run([frame(active=0, counter=k % 4) for k in range(20)]))
+  assert not any(s.steerFaultTemporary for s in f.run([v1(active=0, counter=k % 4) for k in range(20)]))
   assert ci.CC.eps_mode == 0
-  assert clarity().CC.eps_mode == 0x02

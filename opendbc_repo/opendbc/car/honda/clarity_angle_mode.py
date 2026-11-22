@@ -1,17 +1,19 @@
-"""Clarity angle mode: openpilot sends a steering-wheel angle target in 0xE4 to the angle-mode EPS build (rwd-xray
-lab/clarity/CLARITY_ANGLE_MODE_20261117, build 0x04; format: ANGLE_MODE_E4_FORMAT_PROPOSAL_20261117.md, option A).
+"""Clarity angle mode: openpilot sends a steering-wheel angle target in 0xE4 to the angle-mode EPS build, protocol v2 only
+(build 0x0B on; meps/protocol.py, rwd-xray lab/audit_fable_20261121/v2/PROTOCOL_V2.md). The v1 builds 0x04-0x0A are no
+longer supported (eps_cal_status faults "unsupported_build").
 
 Chosen at startup by the setting ANGLE_MODE_PARAM (Night Star / Galaxy row "Angle Mode", default on): card's startup
 hook (openpilot starpilot/car/honda/clarity_angle_mode.py) calls apply_angle_mode, which on a Clarity with modified EPS
 firmware sets HondaFlags.CLARITY_ANGLE_MODE and steerControlType = angle. Off, or any other car: nothing changes (torque
 mode, CleanPTM request). On a Clarity whose EPS is not the angle build, the 0x6A4 interlock never reports ready, so
-openpilot faults "no_angle_loop" and sends no steering: turn the setting off on any other EPS firmware.
+openpilot faults and sends no steering: turn the setting off on any other EPS firmware.
 
 0xE4 in angle mode (every frame, 100 Hz):
-  byte 3   = 0x07: mode 3 (bits 3:1) + control type angle (bit 0), always, so the EPS switches to mode 3 at LKAS idle
+  byte 3   = AUTH << 4 | MODE 1 (meps_protocol.byte3_v2), always, so the EPS switches to angle mode at LKAS idle; AUTH 15
+           = full authority, lowered while the driver overrides (AuthorityRamp)
   bytes 0-1, byte 2 bit 7 (request), byte 2 bit 5 (angle payload): the target, only while the EPS reports in 0x6A4 that
-           it runs mode 3 on a build with the angle loop (eps_cal_status.EpsCalStatus.angle_ready) and lateral is
-           active. Otherwise all zero: an EPS that is not in mode 3 would read bytes 0-1 as a torque (stock, MM 0x02).
+           it runs MODE 1 (eps_cal_status.EpsCalStatus.angle_ready) and lateral is active. Otherwise all zero: an EPS in
+           stock mode would read bytes 0-1 as a torque.
 Panda (safety bit HondaSafetyFlags.CLARITY_ANGLE, honda.h): while lateral is not allowed, or the request and payload bits
   are not both set, bytes 0-1 and both bits must be 0 (a target of 0 steers to centre). Steering: the standard angle rule
   of the other angle brands, |target| <= the 3.6 m/s^2 angle (std_angle_limit) and per-frame step <= the 3.6 m/s^3 jerk
@@ -33,9 +35,8 @@ Limits (all inside the EPS's own, so its jump-reject fault and its clamps never 
     wheel rate, and its rate/acceleration limits ramp from ENGAGE_FLOOR to full over the engage time, so control fades
     in. The engage time is the Override Fade Up setting (HondaOverrideFadeUpSecs, Night Star; CarController passes it),
     ENGAGE_S without settings; 0 = full limits at once (still starting from the wheel, still acceleration-limited)
-  - |desired| <= 0.95 x the active profile's lateral-acceleration clamp (angle_ref.AMAX: 4 m/s^2 mode 3, 3 m/s^2 mode
-    4) and never above panda's 3.6 m/s^2 angle: 3.6 in mode 3 (ramps), 2.85 in mode 4; the sent angle never moves
-    more than panda's 3.6 m/s^3 jerk step per frame
+  - |desired| <= panda's 3.6 m/s^2 angle (the 0x0B EPS clamps at the same table at v - 1 m/s); the sent angle never
+    moves more than panda's 3.6 m/s^3 jerk step per frame
   - not active: the target is the measured angle (the Tesla pattern), so the first target the EPS sees equals its own
     angle. lat_active is CarController's modified-EPS lkas_active, which drops while the driver overrides (same press
     detector and yield as torque mode), so a press ends the request and the next engage restarts from the wheel.
@@ -47,12 +48,6 @@ from opendbc.car import structs
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 
 ANGLE_MODE_PARAM = "HondaClarityAngleMode"   # BOOL, default "1" (params_keys.h); read once at startup
-EPS_MODE_ANGLE = 3            # byte 3 bits 3:1
-BYTE3_ANGLE = (EPS_MODE_ANGLE << 1) | 1
-EPS_MODE_ANGLE_CAP3 = 4       # build 0x05: mode 4 = the same angle loop with a 3.0 m/s^2 clamp (byte 3 = 0x09)
-CAP3_BUILDS = {0x05, 0x06, 0x08, 0x09, 0x0A}    # builds that have mode 4
-AUTH_BUILDS = {0x06, 0x08, 0x09, 0x0A, 0x0B}    # build 0x06 (0x08 = + 100 ms stale window, 0x09 = + fast ramp-in / instant drop, 0x0A = + softer rate feed-forward): angle-loop authority gain, byte 3 bits 7:4 = CUT (0 = full .. 15 = none)
-AMAX_CAP3_SCALE = 3.0 / 4.0   # angle_ref AMAX4_SCALE: mode 4's clamp table = mode 3's x 0.75 (clamp angle is linear in a_lat)
 ANGLE_PAYLOAD = 0x20          # byte 2 bit 5 (DBC SET_ME_X00 holds byte 2 bits 6:0)
 RAW_PER_DEG = -10.0           # 0x14A STEER_ANGLE factor is -0.1
 
@@ -76,11 +71,11 @@ TARGET_RATE_DEG_S = [150., 150., 100., 60., 40., 25.]
 TARGET_ACCEL_DEG_S2 = [450., 600., 450., 300., 225., 180.]    # 1.5 x torque-mode hands-off p99 (11-15 route)
 ENGAGE_S, ENGAGE_FLOOR = 1.5, 0.15    # limits ramp 15% -> 100% after the request rises; ENGAGE_S = default engage time
 RAW_MAX = 32767
-# authority ramp (builds 0x06/0x08/0x09): while the driver overrides, the request stays up and the loop's authority drops
+# authority ramp: while the driver overrides, the request stays up and the loop's authority drops
 # to AUTH_MIN at once (route 000000ed: HKG's 17-frame fade pulled the wheel toward center under the driver's hands); after
 # the release (and on every engage) it climbs back over Override Fade Up: the setting is the time, 0 = full at once.
 AUTH_MIN = 0.0
-# With the authority hold (builds 0x06/0x08/0x09/0x0A) the authority ramp gives the soft hand-back, so the target's
+# With the authority hold the authority ramp gives the soft hand-back, so the target's
 # rate/accel limits are full at once (owner's drives f4/f7 on 0x09: Fade Up giving a 1.25 s authority climb with the
 # target going straight back to the plan felt best; a ~1 s target fade lagged the model after a release, route ed).
 HOLD_LIMITS_FADE_S = 0.0
@@ -128,9 +123,10 @@ def std_angle_step(v_ego: float) -> float:
   return std_angle_limit(v_ego) * DT_CTRL
 
 
-def angle_limit(v_ego: float, amax_scale: float = 1.0) -> float:
-  # 0.95 x the active EPS profile's clamp (mode 3: 4.0 m/s^2, mode 4: 3.0) and never past panda's 3.6 m/s^2 angle
-  return min(ANGLE_MAX_FRAC * amax_scale * float(np.interp(v_ego, AMAX_V, EPS_AMAX_DEG)), std_angle_limit(v_ego))
+def angle_limit(v_ego: float) -> float:
+  # 0.95 x the EPS's 4.0 m/s^2 table (inside the 0x0B 3.6 clamp only below 5 m/s, where 1/v^2 takes over) and never past
+  # panda's 3.6 m/s^2 angle
+  return min(ANGLE_MAX_FRAC * float(np.interp(v_ego, AMAX_V, EPS_AMAX_DEG)), std_angle_limit(v_ego))
 
 
 def angle_to_raw(angle_deg: float) -> int:
@@ -148,7 +144,7 @@ class AngleModeSender:
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
-             amax_scale: float = 1.0, rate_limit_deg_s: float = 0.0, effort_fade: bool = True) -> tuple[int, bool, int]:
+             rate_limit_deg_s: float = 0.0, effort_fade: bool = True) -> tuple[int, bool, int]:
     active = bool(lat_active and angle_ready)
     if active and not self.sent_active and abs(float(measured_deg)) > std_angle_limit(v_ego):
       # no engage while the wheel is beyond panda's 3.6 m/s^2 angle: the first target must be within one step of the
@@ -160,7 +156,7 @@ class AngleModeSender:
       self.out_angle = float(measured_deg)
       self.active_frames, self.sent_active = 0, False
       return 0, False, 0
-    lim = angle_limit(v_ego, amax_scale)    # amax_scale = AMAX_CAP3_SCALE while the EPS runs mode 4
+    lim = angle_limit(v_ego)
     # clamp the target, not the output, so the output still moves along the limited trajectory (from a measured angle
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
     target = float(np.clip(float(desired_deg), -lim, lim))
@@ -203,9 +199,8 @@ class AngleModeSender:
 
 
 class AuthorityRamp:
-  """Build 0x06: the angle loop's authority g (0..1) -> CUT = round(15 (1 - g)) for byte 3 bits 7:4. The EPS slews its
-  own gain to 256 - 17*CUT (Q8, up at most 1/256 and down 6/256 per 4 ms) and zeroes it whenever the loop
-  (re)activates (angle_ref v4), so with CUT 0 every engage still ramps in over ~1 s."""
+  """The angle loop's authority g (0..1) -> CUT = round(15 (1 - g)); byte 3 carries AUTH = 15 - CUT (byte3_v2). The EPS
+  slews its own gain toward AUTH (up 3 and down 127 per tick on 0x0B) and zeroes it whenever the loop (re)activates."""
   def __init__(self):
     self.g = 0.0
 

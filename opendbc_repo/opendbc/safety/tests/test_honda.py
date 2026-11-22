@@ -600,6 +600,23 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
         engaged = engaged or req
       self.assertTrue(engaged)
 
+  def test_protocol_v2_frames_pass_the_same_rule(self):
+    # protocol v2 (EPS build 0x0B) only changes 0xE4 byte 3 (MODE 1 | AUTH, 15 = full); panda's angle rule never reads
+    # byte 3, so v2 frames are bounded exactly like v1 frames (the v2 EPS itself refuses a malformed byte 3)
+    def frame(target, request, payload, byte3):
+      values = {"STEER_TORQUE": target, "STEER_TORQUE_REQUEST": request, "SET_ME_X00": 0x20 if payload else 0, "SET_ME_X00_2": byte3}
+      return self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)
+    for auth in (0, 7, 15):
+      b3 = (auth << 4) | 0x01
+      self._start(0, 21.)
+      self.assertTrue(self._tx(frame(0, False, False, 0xF1)))                   # v2 idle
+      self.assertTrue(self._tx(frame(0, True, True, b3)))                       # v2 angle frame at the wheel
+      self.assertTrue(self._tx(frame(self._step(21.), True, True, b3)))
+      self.assertFalse(self._tx(frame(3 * self._step(21.), True, True, b3)))   # the same step limit
+      self.assertFalse(self._tx(frame(0, True, False, b3)))                     # request without payload
+      self.safety.set_controls_allowed(False)
+      self.assertFalse(self._tx(frame(0, True, True, b3)))                      # not allowed
+
   def test_no_measured_angle_after_init(self):
     self.safety.set_timer(1_000_000)
     self.safety.set_controls_allowed(True)

@@ -1,0 +1,58 @@
+"""Honda modified-EPS wire protocol, v1 (angle builds 0x04-0x0A) and v2 (build 0x0B on), one place.
+
+Spec: rwd-xray lab/audit_fable_20261121/v2/PROTOCOL_V2.md (owner-approved slim v2); reference codec meps_v2.py there.
+
+0xE4 byte 3 (openpilot -> EPS)
+  v1: CUT (7:4, 0 = full .. 15 = none) | requested mode (3:1: 3 angle, 4 angle with the 3.0 clamp) | control bit (0)
+  v2: AUTH (7:4, 0 = none .. 15 = full) | bits 3:2 = 0 | MODE (1:0: 0 stock, 1 angle). One angle profile, no control bit.
+  Byte 2 is the same in both: bit 7 request, bit 5 payload (1 exactly when an angle target is sent).
+0x6A4 EPS_CAL_STATUS (EPS -> openpilot, 50 Hz)
+  layout 3 (v1): byte 0 requested mode (7:4) | loop running (3) | active mode (2:0); byte 2 angle fault (0), why (2:1)
+  layout 4 (v2): byte 0 layout (7) | FAULT (6) | STEERING (5) | CLAMP (4) | stock LKAS state (3:2) | active MODE (1:0);
+                 byte 2 gain (7:4) | REASON (3:0). Byte 1 is the build ID in both; bytes 3-6 reference and output.
+Layout 4 is told apart by byte 0 bit 7 (layout 3's requested mode is at most 4, so that bit is never set there). It is
+decoded from the layout-3 DBC signals, which cover byte 0 and byte 2 bits 4:0 (the gain's top 3 bits are not needed).
+"""
+from enum import IntEnum
+
+V2_BUILDS = {0x0B}           # build IDs that speak protocol v2 (0x6A4 layout 4); an unknown layout-4 build never steers
+V2_MODE_ANGLE = 1
+
+
+class Reason(IntEnum):
+  STEERING = 0
+  NO_REQUEST = 1
+  MODE_SWITCH_PENDING = 2
+  PROTOCOL = 3
+  JUMP = 4
+  STALE = 5
+  ANGLE_INVALID = 6
+  AUTHORITY_ZERO = 7
+  STOCK_LKAS_NOT_ENGAGED = 8
+
+
+def byte3_v1(requested_mode: int, cut: int) -> int:
+  """v1: the requested mode (3 or 4), control bit set, CUT (0 = full authority)."""
+  return ((cut & 0xF) << 4) | ((requested_mode & 0x7) << 1) | 1
+
+
+def byte3_v2(cut: int) -> int:
+  """v2: MODE 1 (angle), AUTH = 15 - CUT (AUTH 15 = full authority; the polarity is the opposite of v1's CUT)."""
+  return ((15 - (cut & 0xF)) << 4) | V2_MODE_ANGLE
+
+
+def is_layout4(vl) -> bool:
+  return (int(vl["REQUESTED_MODE"]) & 0x8) != 0
+
+
+def decode_layout4(vl) -> dict:
+  """Layout-4 fields from the layout-3 DBC signals of the same bytes."""
+  hi = int(vl["REQUESTED_MODE"])                                   # byte 0 bits 7:4 = layout, FAULT, STEERING, CLAMP
+  b0_low = (int(vl["ANGLE_LOOP_RUNNING"]) << 3) | int(vl["ACTIVE_MODE"])   # byte 0 bits 3:0
+  reason = (int(vl["ANGLE_TARGET_HELD"]) << 3) | (int(vl["ANGLE_FAULT_WHY"]) << 1) | int(vl["ANGLE_FAULT"])
+  try:
+    reason_name = Reason(reason).name
+  except ValueError:
+    reason_name = f"REASON_{reason}"
+  return dict(fault=bool(hi & 0x4), steering=bool(hi & 0x2), clamp=bool(hi & 0x1), lkas=(b0_low >> 2) & 0x3,
+              mode=b0_low & 0x3, build=int(vl["BUILD_ID"]), reason=reason, reason_name=reason_name)

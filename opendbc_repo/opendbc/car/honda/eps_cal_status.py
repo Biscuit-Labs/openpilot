@@ -24,9 +24,19 @@ target sent to an EPS that is not running the angle loop is read as a torque:
     running (byte 0 bit 3): fault ("loop_not_running"). A request bit or mode that never reaches the loop is otherwise a
     silent no-steer (audit 11-21 S-4). The fault drops the request, so it retries at the next engage.
 angle_ready is True only when none of these (or the checks above) fault; CarController sends angle payloads only then.
+
+Protocol v2 (meps/protocol.py; build 0x0B on): the EPS reports 0x6A4 layout 4 (byte 0 bit 7). Then protocol = 2 and:
+  - the build must be a known v2 build (V2_BUILDS), else "unknown_build"; v2 has no torque PTM mode ("mode_not_built")
+  - the active MODE must be 1 (angle), else "inactive_mode" (the EPS switches at the next LKAS idle)
+  - FAULT (byte 0 bit 6): "angle_fault (<reason>)"
+  - an angle request for more than LOOP_START_FRAMES with STEERING (byte 0 bit 5: loop running, no fault, stock LKAS
+    engaged) clear: "loop_not_running (<reason>)". STEERING stays set at AUTH 0 (reason AUTHORITY_ZERO), so a driver
+    override with the request held does not trip it.
+CarController encodes 0xE4 byte 3 for the protocol the EPS reported (v1 until a layout-4 frame is seen).
 """
 from opendbc.car.carlog import carlog
 from opendbc.car.honda.clarity_angle_mode import AUTH_BUILDS, CAP3_BUILDS, EPS_MODE_ANGLE, EPS_MODE_ANGLE_CAP3, angle_mode
+from opendbc.car.honda.meps.protocol import V2_BUILDS, V2_MODE_ANGLE, decode_layout4, is_layout4
 from opendbc.car.honda.modified_eps import modified_eps
 from opendbc.car.honda.values import CAR
 
@@ -75,6 +85,9 @@ class EpsCalStatus:
     self.angle_out = 0
     self.request_sent = False   # the angle request bit CarController sent last frame (note_angle_request)
     self.not_running_frames = 0
+    self.protocol = 1           # 2 once the EPS reports 0x6A4 layout 4 (meps/protocol.py)
+    self.reason = ""            # v2: the EPS's REASON for not steering (layout 4 byte 2)
+    self.clamp = False          # v2: the EPS lateral-accel clamp is acting
 
   def update(self, cp) -> str:
     if not self.enabled:
@@ -96,6 +109,9 @@ class EpsCalStatus:
   def _check(self, vl) -> str:
     if self.frames_since > STATUS_TIMEOUT_FRAMES:
       return "lost"
+    if is_layout4(vl):
+      return self._check_v2(vl)
+    self.protocol = 1
     self.active_mode, self.build_id = int(vl["ACTIVE_MODE"]), int(vl["BUILD_ID"])
     caps = KNOWN_BUILDS.get(self.build_id)
     if caps is None:
@@ -115,6 +131,25 @@ class EpsCalStatus:
         return "angle_fault"
       if self.not_running_frames > LOOP_START_FRAMES:
         return "loop_not_running"
+    return ""
+
+  def _check_v2(self, vl) -> str:
+    s = decode_layout4(vl)
+    self.protocol, self.build_id, self.active_mode = 2, s["build"], s["mode"]
+    self.reason, self.clamp = s["reason_name"], s["clamp"]
+    if self.build_id not in V2_BUILDS:
+      return "unknown_build"
+    if not self.angle:
+      return "mode_not_built"
+    if self.active_mode != V2_MODE_ANGLE:
+      return "inactive_mode"
+    self.loop_running = s["steering"]
+    self.angle_ref_deg, self.angle_out = float(vl["ANGLE_REF"]), int(vl["ANGLE_OUT"])
+    self.not_running_frames = self.not_running_frames + 1 if (self.request_sent and not self.loop_running) else 0
+    if s["fault"]:
+      return f"angle_fault ({self.reason})"
+    if self.not_running_frames > LOOP_START_FRAMES:
+      return f"loop_not_running ({self.reason})"
     return ""
 
   def note_angle_request(self, sent: bool) -> None:

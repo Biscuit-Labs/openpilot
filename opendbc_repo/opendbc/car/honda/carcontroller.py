@@ -6,6 +6,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
 from opendbc.car.honda.clarity_angle_mode import AMAX_CAP3_SCALE, BYTE3_ANGLE, HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode
 from opendbc.car.honda.eps_cal_status import requested_eps_mode
+from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
 from opendbc.car.honda.nidec_interceptor import NidecInterceptor, create_command, qualified as interceptor_qualified
@@ -272,8 +273,12 @@ class CarController(CarControllerBase):
         # profile changes only while lateral is off: the EPS switches modes at LKAS idle, so a change while engaged
         # would drop steering until then. Mode 4 only on a build that has it (else mode 3).
         CS.eps_cal_status.set_angle_profile(settings.angle_cap3)
-      self.eps_mode = (CS.eps_cal_status.requested << 1) | 1                 # 0x07 mode 3, 0x09 mode 4
-      self.eps_mode |= self.angle_cut << 4                                  # build 0x06 authority CUT (0 on other builds)
+      # 0xE4 byte 3 for the protocol the EPS reported (meps/protocol.py): v1 0x07 mode 3 / 0x09 mode 4 with CUT in
+      # bits 7:4 (0 = full); v2 (0x6A4 layout 4, build 0x0B) MODE 1 with AUTH = 15 - CUT (15 = full), one profile
+      if CS.eps_cal_status.protocol == 2:
+        self.eps_mode = meps_protocol.byte3_v2(self.angle_cut)
+      else:
+        self.eps_mode = meps_protocol.byte3_v1(CS.eps_cal_status.requested, self.angle_cut)
       self.apply_angle_raw, lkas_active, angle_payload = self.angle_sender.update(
         lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, CS.eps_cal_status.angle_ready,
         CS.out.steeringRateDeg, HOLD_LIMITS_FADE_S if self.angle_hold else settings.fade_up_s,   # hold: authority ramp is the fade

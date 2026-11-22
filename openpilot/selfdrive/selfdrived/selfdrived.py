@@ -1188,10 +1188,16 @@ class SelfdriveD:
     else:
       self.AM.alerts.pop(BSM_ALERT, None)
     # modeld's own blindspot-abort status; the wire's valid_until bounds both warnings.
-    if (self.sm.seen['laneChangeAssistWire'] and self.sm.alive['laneChangeAssistWire'] and self.sm.valid['laneChangeAssistWire']):
-      abort_alert = lane_change_abort_alert(decode_lane_status(self.sm['laneChangeAssistWire']), now_ns)
-      if abort_alert is not None:
-        alerts.append(abort_alert)
+    abort_alert = None
+    seen = getattr(self.sm, 'seen', None)  # a stand-in sm in a test has no per-service state: no abort alert then
+    try:
+      if (seen is not None and seen['laneChangeAssistWire'] and
+          self.sm.alive['laneChangeAssistWire'] and self.sm.valid['laneChangeAssistWire']):
+        abort_alert = lane_change_abort_alert(decode_lane_status(self.sm['laneChangeAssistWire']), now_ns)
+    except KeyError:
+      abort_alert = None
+    if abort_alert is not None:
+      alerts.append(abort_alert)
     switchback = bool(self.switchback_capable and self.sm.seen['slcState'] and self.sm.alive['slcState'] and
                       self.sm.valid['slcState'] and self.sm['carControl'].latActive and
                       self.switchback_status.sample_state(self.sm['slcState'], drive_id=drive, now_ns=now_ns,

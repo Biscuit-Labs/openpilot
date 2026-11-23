@@ -20,10 +20,14 @@ OFFROAD_ONLY = frozenset((LOOKAHEAD_KEY,))
 CLARITY = "HONDA_CLARITY"
 
 
-def _angle_car(fingerprint: str) -> bool:
-  """The cars Angle Mode applies to: the Clarity, and every car with an angle profile (opendbc angle_profiles.py)."""
+def _angle_image(cp) -> bool:
+  """The vehicle runs an angle image ('+' in both separator slots, EPS build 0x0C on) on a car that can steer by angle: the
+  Clarity, or a car with an angle profile (opendbc angle_profiles.py). Torque-PTM images (',') never get Angle Mode."""
   from opendbc.car.honda.angle_profiles import ANGLE_PROFILES
-  return fingerprint == CLARITY or fingerprint in {str(c) for c in ANGLE_PROFILES}
+  from opendbc.car.honda.values import is_angle_image
+  if not (str(cp.carFingerprint) == CLARITY or str(cp.carFingerprint) in {str(c) for c in ANGLE_PROFILES}):
+    return False
+  return any(str(fw.ecu) == "eps" and is_angle_image(bytes(fw.fwVersion)) for fw in cp.carFw)
 
 # key -> (label, reason)
 BOOL_ROWS = {
@@ -78,14 +82,15 @@ class NightStarFeature:
     self.vehicle_fingerprint = owner.vehicle_fingerprint
 
   def capability(self):
-    """(fingerprint, flags, calibrated) for a Honda on a modified EPS, else None."""
+    """(fingerprint, flags, calibrated) for a Honda on a modified EPS; (fingerprint, flags, None) for an angle image with angle
+    mode off (its torque mode is stock, so EPS_MODIFIED is cleared and only the Angle Mode row applies); else None."""
     cp = self.vehicle_params()
     if cp is None:
       return None
     from opendbc.car.honda.modified_eps import modified_eps
     try:
       if not modified_eps(cp):
-        return None
+        return (str(cp.carFingerprint), int(cp.flags), None) if _angle_image(cp) else None
       from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_firmware_calibration
       calibration = eps_firmware_calibration(cp)
     except (AttributeError, TypeError, ValueError):
@@ -94,13 +99,18 @@ class NightStarFeature:
 
   def _keys(self, capability) -> tuple[str, ...]:
     keys = []
-    if capability is not None:
+    if capability is not None and capability[2] is None:   # angle image, angle mode off: stock torque mode, only the switch back
+      keys.append(ANGLE_MODE_KEY)
+    elif capability is not None:
       _, _, calibrated = capability
       if calibrated:  # read by LatControlHondaEps (torque) and the honda CarController (Clarity angle mode)
         keys.append("HondaEpsAngleRateLimit")
       keys.extend(EPS_KEYS)
-      fingerprint, _, _ = capability
-      if _angle_car(fingerprint):   # read once at car start (starpilot/car/honda/clarity_angle_mode.py)
+      fingerprint, flags, _ = capability
+      from opendbc.car.honda.values import HondaFlags
+      # read once at car start (starpilot/car/honda/clarity_angle_mode.py): the Clarity on any modified image (its interlock
+      # finds the build), a profile car only while it runs its angle image (angle mode on; with it off the branch above)
+      if fingerprint == CLARITY or flags & int(HondaFlags.CLARITY_ANGLE_MODE):
         keys.append(ANGLE_MODE_KEY)
         keys.append(ANGLE_HOLD_KEY)   # live, read with the EPS rows
       if fingerprint == CLARITY:

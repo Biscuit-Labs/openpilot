@@ -105,6 +105,20 @@ class TestNightStarSettings(unittest.TestCase):
     self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), parked=True)
     self.assertNotIn('Angle Mode', self.labels())
 
+  def test_angle_mode_row_follows_the_angle_image(self):
+    # a profile car (RDX, Fit) offers Angle Mode only on its angle image ('+'); with angle mode off that image runs its stock
+    # torque mode (EPS_MODIFIED cleared), so the page offers the switch back on and none of the torque-EPS rows
+    from opendbc.car.honda.clarity_angle_mode import apply_angle_mode
+    rdx_on = apply_angle_mode(vehicle(CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), True)
+    self.use(rdx_on, parked=True)
+    self.assertIn('Angle Mode', self.labels())
+    for car, fw in ((CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), (CAR.HONDA_FIT, b'39990+T5R+C030\x00\x00')):
+      self.use(apply_angle_mode(vehicle(car, fw), False), parked=True)
+      self.assertEqual(self.labels()[:1], ['Angle Mode'], car)
+      self.assertNotIn('Override Torque Threshold', self.labels(), car)
+    self.use(vehicle(CAR.ACURA_RDX_3G, b'39990-TJB,A220\x00\x00'), parked=True)   # torque PTM image
+    self.assertNotIn('Angle Mode', self.labels())
+
   def test_the_steer_rate_limiter_has_no_rows(self):
     labels = self.labels()
     self.assertFalse([label for label in labels if 'Rate Limiter' in label or label.startswith('Rate Limit ')])

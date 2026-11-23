@@ -5,3 +5,14 @@ CM_ "IMPORT _lkas_hud_5byte.dbc";
 CM_ "IMPORT _bosch_standstill.dbc";
 CM_ "IMPORT _steering_sensors_b.dbc";
 CM_ "IMPORT _gearbox_common.dbc";
+
+BO_ 1698 EPS_LINEAR_ANGLE: 8 EPS
+ SG_ LINEAR_ANGLE : 7|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ PUBLISHED_ANGLE : 23|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ INTEGRATOR : 39|16@0- (1,0) [-32768|32767] "" EON
+ SG_ LOOP_RUNNING : 48|1@0+ (1,0) [0|1] "" EON
+ SG_ COUNTER : 61|2@0+ (1,0) [0|3] "" EON
+ SG_ CHECKSUM : 59|4@0+ (1,0) [0|15] "" EON
+
+CM_ BO_ 1698 "RDX 3G (TJB) angle build 0x0C (rwd-xray lab/ptm-family/THR_0x0C_PORTS_20261122): 100 Hz. LINEAR_ANGLE = the motor (rack) angle minus a reference aligned to STEERING_SENSORS (0x156) once per ignition, in steering-wheel degrees at the on-center ratio; PUBLISHED_ANGLE = the 0x156 STEER_ANGLE of the same pass; same scale and sign as STEER_ANGLE.";
+CM_ SG_ 1698 INTEGRATOR "angle-loop integrator, latch counts (I >> 16)";

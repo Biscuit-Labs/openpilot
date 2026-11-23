@@ -812,6 +812,106 @@ class TestHondaBoschAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSaf
   """
 
 
+class TestHondaBoschRdxLinearAngleSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase):
+  """
+    RDX 3G (TJB) on the linear-angle EPS build 0x0C: the Clarity 0xE4 angle frame and rules on Bosch. The EPS has no
+    0x14A, so 0x6A2 EPS_LINEAR_ANGLE on the powertrain bus is an RX check and the only measured angle, linear from the
+    start; the 3.6 m/s^2 angle is the standard vehicle model at the on-center ratio. Every Bosch alt-brake test still runs.
+  """
+  DBC = "acura_rdx_2020_can_generated"
+  SAFETY_PARAM = HondaSafetyFlags.ALT_BRAKE | HondaSafetyFlags.CLARITY_ANGLE
+  ANGLE_MAX_CAN = 5785
+  JUMP = TestHondaNidecClarityAngleSafety.JUMP
+  # honda.h HONDA_ANGLE_RDX_3G_PARAMS
+  SLIP, SR, WB = -0.0009009170382203245, 16.2, 2.75
+
+  def _angle_msg(self, target, request=True, payload=True, cut=0):
+    # Bosch's STEERING_CONTROL has no signal for the payload bit (byte 2 bit 5): the frame is built raw
+    from opendbc.car.honda.hondacan import honda_checksum
+    t = target & 0xFFFF
+    dat = bytearray([t >> 8, t & 0xFF, (0x80 if request else 0) | (0x20 if payload else 0), ((15 - cut) << 4) | 0x01, 0])
+    dat[4] = honda_checksum(0xE4, None, dat)
+    return libsafety_py.make_CANPacket(0xE4, self.STEER_BUS, bytes(dat))
+
+  def _lin_msg(self, raw, corrupt=False):
+    fix = (lambda m: (m[0], m[1][:7] + bytes([m[1][7] ^ 0x01]), m[2])) if corrupt else None
+    return self.packer.make_can_msg_safety("EPS_LINEAR_ANGLE", self.PT_BUS, {"LINEAR_ANGLE": -raw / 10., "PUBLISHED_ANGLE": -raw / 10.},
+                                           fix_checksum=fix)
+
+  def _set_meas(self, raw, checksum_ok=True):
+    for _ in range(6):
+      self._rx(self._lin_msg(raw, corrupt=not checksum_ok))
+
+  def _meas_msg(self, raw):
+    return self._lin_msg(raw)
+
+  _set_speed = TestHondaNidecClarityAngleSafety._set_speed
+  _start = TestHondaNidecClarityAngleSafety._start
+  _lim = TestHondaNidecClarityAngleSafety._lim
+
+  def _std(self, v_ms):
+    # the vehicle-model 3.6 m/s^2 angle, deg (lateral.h get_angle_from_curvature), capped at 578.4
+    accel = 3.0 + 9.81 * 0.06
+    deg = accel / v_ms ** 2 * self.SR * self.WB * (1. - self.SLIP * v_ms ** 2) * 57.29577951308232
+    return min(deg, 578.4)
+
+  def _step(self, v_ms):
+    s = max(v_ms - 1., 1.)
+    return int(min(self._std(s) * 10 / 100., float(np.interp(s, *self.JUMP))) + 1)
+
+  test_angle_frames_need_lateral = TestHondaNidecClarityAngleSafety.test_angle_frames_need_lateral
+  test_inactive_frame_is_all_zero = TestHondaNidecClarityAngleSafety.test_inactive_frame_is_all_zero
+  test_first_target_within_one_step_of_the_wheel = TestHondaNidecClarityAngleSafety.test_first_target_within_one_step_of_the_wheel
+  test_step_limit_by_speed = TestHondaNidecClarityAngleSafety.test_step_limit_by_speed
+  test_lateral_accel_limit = TestHondaNidecClarityAngleSafety.test_lateral_accel_limit
+  test_held_target_as_the_limit_shrinks = TestHondaNidecClarityAngleSafety.test_held_target_as_the_limit_shrinks
+  test_drift_never_passes_the_limit = TestHondaNidecClarityAngleSafety.test_drift_never_passes_the_limit
+  test_stale_or_invalid_measured_angle = TestHondaNidecClarityAngleSafety.test_stale_or_invalid_measured_angle
+  test_first_target_window_is_the_recent_wheel_samples = TestHondaNidecClarityAngleSafety.test_first_target_window_is_the_recent_wheel_samples
+  test_no_measured_angle_after_init = TestHondaNidecClarityAngleSafety.test_no_measured_angle_after_init
+
+  def test_protocol_v2_frames_pass_the_same_rule(self):
+    # byte 3 (MODE 1 | AUTH) is never read: every authority is bounded the same way
+    step = self._step(21.)
+    for cut in (0, 8, 15):
+      self._start(0, 21.)
+      self.assertTrue(self._tx(self._angle_msg(0, cut=cut)))
+      self.assertTrue(self._tx(self._angle_msg(step, cut=cut)))
+      self.assertFalse(self._tx(self._angle_msg(3 * step, cut=cut)))
+      self.assertFalse(self._tx(self._angle_msg(0, True, False, cut=cut)))
+      self.safety.set_controls_allowed(False)
+      self.assertFalse(self._tx(self._angle_msg(0, cut=cut)))
+
+  def test_limit_numbers(self):
+    # 31.2 deg at 20 m/s, 18.4 at 30, 99.9 at 10; capped at 578.4 deg below ~4.5 m/s
+    self.assertEqual(self._lim(21.), 312)
+    self.assertEqual(self._lim(31.), 185)
+    self.assertEqual(self._lim(11.), 999)
+    self.assertEqual(self._lim(2.), 5785)
+
+  def test_jerk_step_is_the_standard_rate(self):
+    self.assertEqual(self._step(21.), 4)
+    self.assertEqual(self._step(3.), 41)
+
+  def test_other_angle_messages_do_not_feed(self):
+    # neither the column sensor 0x156 nor a 0x14A (which this EPS never sends) stands in for 0x6A2
+    from opendbc.car.honda.hondacan import honda_checksum
+    dat = bytearray(8)
+    dat[7] = honda_checksum(0x14A, None, dat)
+    for msg in (self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEER_ANGLE": -10.}),
+                libsafety_py.make_CANPacket(0x14A, self.PT_BUS, bytes(dat))):
+      self._start(0, 10.)
+      self.safety.set_timer(1_000_000 + 50_001)
+      for _ in range(6):
+        self._rx(msg)
+      self.assertFalse(self._tx(self._angle_msg(0)))
+
+  def test_angle_bit_needs_the_linear_angle(self):
+    # with the angle bit, 0x6A2 is an RX check: a bad checksum fails it
+    self.assertTrue(self._rx(self._lin_msg(0)))
+    self.assertFalse(self._rx(self._lin_msg(0, corrupt=True)))
+
+
 class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschSafetyBase):
   """
     Covers the Honda Bosch safety mode with longitudinal control

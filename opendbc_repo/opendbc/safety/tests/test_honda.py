@@ -1128,10 +1128,10 @@ class TestHondaNidecRidgelineAngleSafety(TestHondaNidecProfileAngleSafety):
   """
   PROFILE = ANGLE_PROFILES[HONDA_CAR.HONDA_RIDGELINE]
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
-  LIMITS = {21.: 410, 31.: 256, 11.: 1244, 2.: 5785}
+  LIMITS = {21.: 383, 31.: 220, 11.: 1266, 2.: 5785}
 
   def test_limit_numbers(self):
-    # row 5 (SR 17.0, wheelbase 3.18, slip -0.00119; 3.0 + g x roll = 3.59 m/s^2): 41.0 deg at 20 m/s, 25.6 at 30, 124.4 at 10; capped at 578.4 deg
+    # row 5 (measured: SR 18.01, wheelbase 3.18, slip -0.00075; 3.0 + g x roll = 3.59 m/s^2): 38.3 deg at 20 m/s, 21.9 at 30, 126.6 at 10; capped at 578.4 deg
     self.assertEqual(self.PROFILE, ANGLE_PROFILES[HONDA_CAR.HONDA_RIDGELINE])
     for v, lim in self.LIMITS.items():
       self.assertEqual(self._lim(v), lim, v)
@@ -1140,14 +1140,14 @@ class TestHondaNidecRidgelineAngleSafety(TestHondaNidecProfileAngleSafety):
 
 class TestHondaNidecPilotAngleSafety(TestHondaNidecRidgelineAngleSafety):
   """
-    Profile 6 (HONDA_PILOT, V850 TG7-A070 angle build 0x0C; PROVISIONAL CarSpecs geometry, no Pilot routes)
+    Profile 6 (HONDA_PILOT, V850 TG7-A070 angle build 0x0C; measured geometry from one public route)
   """
   PROFILE = ANGLE_PROFILES[HONDA_CAR.HONDA_PILOT]
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
-  LIMITS = {21.: 321, 31.: 176, 11.: 1101, 2.: 5785}
+  LIMITS = {21.: 388, 31.: 248, 11.: 1148, 2.: 5785}
 
   def test_limit_numbers(self):
-    # row 6 (SR 17.5, wheelbase 2.89, slip -0.00058; 3.59 m/s^2): 32.1 deg at 20 m/s, 17.6 at 30, 110.1 at 10; capped at 578.4 deg
+    # row 6 (measured: SR 17.47, wheelbase 2.82, slip -0.001329; 3.59 m/s^2): 38.8 deg at 20 m/s, 24.7 at 30, 114.8 at 10; capped at 578.4 deg
     self.assertEqual(self.PROFILE, ANGLE_PROFILES[HONDA_CAR.HONDA_PILOT])
     for v, lim in self.LIMITS.items():
       self.assertEqual(self._lim(v), lim, v)

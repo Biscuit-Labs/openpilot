@@ -3,7 +3,7 @@
 Same harness as test_rdx_angle_mode.py on the Nidec side: CarInterface on the angle PTM image, carState from the 0x6A2 /
 0x6A4 frames the EPS would send, the real CarController and packer (Nidec STEERING_CONTROL, 5 bytes: the angle payload is
 byte 2 bit 5 via SET_ME_X00, MODE | AUTH is byte 3 via SET_ME_X00_2), and every 0xE4 through panda's own safety code
-(libsafety, hondaNidec with the angle bit and the car's profile). The Pilot row is PROVISIONAL (no Pilot routes)."""
+(libsafety, hondaNidec with the angle bit and the car's profile). Rows 5 and 6 are each car's measured geometry (Pilot: one public route)."""
 import pytest
 
 from opendbc.car import structs

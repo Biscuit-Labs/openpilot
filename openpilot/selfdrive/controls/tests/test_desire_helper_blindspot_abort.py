@@ -81,8 +81,10 @@ class DesireHelperBlindspotAbortTests(unittest.TestCase):
       self.assertEqual(helper.lane_change_state, log.LaneChangeState.off)
     helper.update(car(), True, 1.0)
     self.assertFalse(helper.abort_latched)
+    self.assertTrue(helper.aborted_alert_active)  # releasing alone does not end the alert
     helper.update(car(leftBlinker=True), True, 1.0)
     self.assertEqual(helper.lane_change_state, log.LaneChangeState.preLaneChange)
+    self.assertFalse(helper.aborted_alert_active)  # a re-signal inside the 3 s alert gets its own status, not the abort's
 
   def test_one_per_signal_false_still_requires_re_signal(self):
     policy = LaneChangePolicy(abort_on_blindspot=True, one_per_signal=False)

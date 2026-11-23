@@ -237,3 +237,8 @@ def test_join_leaves_the_hotspot_up_when_the_pause_is_off(tmp_path, monkeypatch)
                          hotspot_iface=iface, sleep=lambda _s: None)
   made.apply({'action': 'connect', 'uuid': PHONE}, lambda: True)
   assert events == [] and ['--wait', '15', 'connection', 'up', 'uuid', PHONE, 'ifname', 'wlan0'] in calls
+
+
+def test_link_without_netwatch_reports_unknown(tmp_path):
+  made = NetworkSettings(tmp_path, NetworkManagerCli(fake_run([])), Mock())
+  assert made.link() == {'link': 'unknown', 'changedAt': 0.0, 'changes': 0}

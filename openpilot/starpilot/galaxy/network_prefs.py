@@ -243,7 +243,11 @@ class NetworkSettings:
   def link(self) -> dict:
     if self._link is not None:
       return self._link()
-    from openpilot.starpilot.system import netwatch
+    try:
+      from openpilot.starpilot.system import netwatch
+    except ImportError:
+      # netwatch came with the StarPort port (cd9cce5) but is not on this branch.
+      return {'link': 'unknown', 'changedAt': 0.0, 'changes': 0}
     status = netwatch.read_status()
     return {'link': status.get('link', 'unknown'), 'changedAt': status.get('changedAt', 0.0), 'changes': status.get('changes', 0)}
 

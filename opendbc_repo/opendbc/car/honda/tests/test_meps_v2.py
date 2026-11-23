@@ -67,8 +67,17 @@ def test_v2_frames_are_read_as_intended_by_a_v2_receiver():
     assert mode in (0, 1) and reserved == 0 and payload == (request and mode == 1)
 
 
+def test_build_0c_is_accepted_like_0b():
+  # 0x0C = 0x0B + EPS-side integrator + 100 Hz linear angle on 0x6A2; same wire protocol (0x6A4 layout 4, 0xE4 v2)
+  ci, _ = start([v4(build=0x0C, steering=True, counter=k % 4) for k in range(8)])
+  s = ci.CS.eps_cal_status
+  assert s.build_id == 0x0C and s.fault == "" and s.angle_ready
+  _, f = T.e4(ci, True, 5.0, 0.0)
+  assert f[2] & 0x80 and f[3] & 0x0F == 0x01
+
+
 def test_unknown_v2_build_never_steers():
-  ci, _ = start([v4(build=0x0C, counter=k % 4) for k in range(8)])
+  ci, _ = start([v4(build=0x0D, counter=k % 4) for k in range(8)])
   assert ci.CS.eps_cal_status.fault == "unknown_build"
   _, f = T.e4(ci, True, 5.0, 0.0)
   assert f[0:3] == bytes(3)

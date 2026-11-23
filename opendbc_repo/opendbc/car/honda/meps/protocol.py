@@ -13,7 +13,7 @@ Layout 4 is told apart by byte 0 bit 7 (a v1 layout-3 frame never sets it; eps_c
 """
 from enum import IntEnum
 
-V2_BUILDS = {0x0B}           # build IDs that speak protocol v2 (0x6A4 layout 4); an unknown layout-4 build never steers
+V2_BUILDS = {0x0B, 0x0C}     # build IDs that speak protocol v2 (0x6A4 layout 4); an unknown layout-4 build never steers. 0x0C = 0x0B + integrator + 100 Hz linear angle on 0x6A2
 V2_MODE_ANGLE = 1
 
 

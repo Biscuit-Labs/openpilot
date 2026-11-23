@@ -575,14 +575,16 @@ MODIFIED_EPS_FW = {
   # '+' in both separator slots marks PTM 2.0 / angle PTM images (EPS build 0x05 on; rwd-xray lab CLARITY_ANGLE_MODE_0x05_20261118)
   CAR.HONDA_CLARITY: (b'39990-TRW,A020\x00\x00', b'39990+TRW+A020\x00\x00'),
   # TEG-A010 shares the Civic fingerprint (its own measured calibration lives in honda_eps_firmware_ff)
-  CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00'),
+  # '+': the SH-2A family linear-angle builds 0x0C (rwd-xray lab/ptm-family/SH2A_0x0C_PORTS_20261122), angle_profiles.py rows
+  CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00', b'39990+TBA+A030\x00\x00', b'39990+TEG+A010\x00\x00'),
   # 2x torque images. ,A160 / ,A340 end in a digit: the angle-loop family (is_accord_eps_angle_loop_fw) ends in a letter
   CAR.HONDA_ACCORD: (b'39990-TVA,A150\x00\x00', b'39990-TVA,A160\x00\x00', b'39990-TVA,A340\x00\x00'),
   # C020 and C120 are modified Civic Bosch images with their own calibrations
-  CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00', b'39990-TBA,C020\x00\x00', b'39990-TBA,C120\x00\x00'),
-  CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00'),
+  CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00', b'39990-TBA,C020\x00\x00', b'39990-TBA,C120\x00\x00',
+                          b'39990+TGG+A120\x00\x00', b'39990+TBA+C020\x00\x00', b'39990+TBA+C120\x00\x00'),
+  CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00', b'39990+TLA+A040\x00\x00', b'39990+TLA+A220\x00\x00'),
   # modified-EPS fleet beyond 7.0's list
-  CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00',),
+  CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00', b'39990+TXM+A040\x00\x00'),
   # PTM; stock A220 accepts every RDX 3G image as a source. '+': the angle PTM image (build 0x0C on, angle_profiles.py)
   CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
   CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),

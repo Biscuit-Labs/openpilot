@@ -26,9 +26,15 @@ def rdx_cp(fw=b'39990+TJB+A220\x00\x00', angle=True, candidate=CAR.ACURA_RDX_3G)
   return cam.apply_angle_mode(cp, angle).as_reader()
 
 
-@pytest.mark.parametrize("candidate", [CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR])
-def test_angle_profile_car_uses_the_plain_vehicle_model_when_linear(candidate):
-  cp = rdx_cp(candidate=candidate)
+# (platform, its 0x0C angle PTM image): the RDX, and the SH-2A family (one image per platform; test_sh2a_angle_mode.py has all)
+ANGLE_CARS = [(CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), (CAR.ACURA_RDX_3G_MMR, b'39990+TJB+A220\x00\x00'),
+              (CAR.HONDA_CIVIC, b'39990+TEG+A010\x00\x00'), (CAR.HONDA_CIVIC_BOSCH, b'39990+TGG+A120\x00\x00'),
+              (CAR.HONDA_CRV_5G, b'39990+TLA+A220\x00\x00'), (CAR.HONDA_INSIGHT, b'39990+TXM+A040\x00\x00')]
+
+
+@pytest.mark.parametrize("candidate,fw", ANGLE_CARS)
+def test_angle_profile_car_uses_the_plain_vehicle_model_when_linear(candidate, fw):
+  cp = rdx_cp(fw=fw, candidate=candidate)
   assert cp.steerControlType == structs.CarParams.SteerControlType.angle
   lac = create_lateral_controller(cp, CarInterface(cp), 0.01, mode=None)
   assert isinstance(lac, LatControlHondaAngle)

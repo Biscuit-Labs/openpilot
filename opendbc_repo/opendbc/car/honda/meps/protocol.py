@@ -13,9 +13,9 @@ Layout 4 is told apart by byte 0 bit 7 (a v1 layout-3 frame never sets it; eps_c
 """
 from enum import IntEnum
 
-V2_BUILDS = {0x0B, 0x0C}     # build IDs that speak protocol v2 (0x6A4 layout 4); an unknown layout-4 build never steers. 0x0C = 0x0B + integrator + 100 Hz linear angle on 0x6A2
+V2_BUILDS = {0x0B, 0x0C, 0x0D}  # build IDs that speak protocol v2 (0x6A4 layout 4); an unknown layout-4 build never steers. 0x0C = 0x0B + integrator + 100 Hz linear angle on 0x6A2; 0x0D = 0x0C + lock taper (EPS-internal, same wire format)
 V2_MODE_ANGLE = 1
-LINEAR_ANGLE_BUILDS = {0x0C}  # builds that send 0x6A2 EPS_LINEAR_ANGLE (100 Hz): the rack-linear angle next to the published one
+LINEAR_ANGLE_BUILDS = {0x0C, 0x0D}  # builds that send 0x6A2 EPS_LINEAR_ANGLE (100 Hz): the rack-linear angle next to the published one
 
 
 class Reason(IntEnum):

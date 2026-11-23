@@ -1,4 +1,5 @@
-"""Fit (T5R-C030) angle mode on the linear-angle EPS build 0x0C: panda row 7 (PROVISIONAL: CarSpecs ratio, no Fit routes),
+"""Fit (T5R-C030) angle mode on the linear-angle EPS build: panda row 7 = the Fit's own measured model (17.0 / 2.53 / -0.000973,
+one public T5R-C030 route, 6-18 m/s),
 Nidec, and the angle-only PTM image (39990+T5R+C030; no Fit torque-PTM image exists, so mode 0 is the stock torque mode).
 
 Same harness as the RDX (test_rdx_angle_mode.Car): the real Fit CarInterface / CarController / packer on the ILX-family DBC, and
@@ -114,7 +115,7 @@ def test_stale_linear_angle_faults_and_drops_the_request():
 def test_sender_limit_is_row_7():
   for v in (1., 3., 5., 10., 20., 30., 40.):
     assert cam.std_angle_limit(v, profile=PROFILE) == pytest.approx(vm_angle_limit(v, PROFILE))
-  assert PROFILE.steer_ratio == 13.06 and PROFILE.wheelbase == 2.53
+  assert (PROFILE.steer_ratio, PROFILE.wheelbase, PROFILE.slip_factor) == (17.0, 2.53, -0.000973)   # measured (one public route)
 
 
 @pytest.mark.parametrize("v", [3., 10., 20., 30., 40.])

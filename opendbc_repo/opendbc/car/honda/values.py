@@ -589,8 +589,10 @@ MODIFIED_EPS_FW = {
   CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
   CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
   # PTM rev b5 only: it reports the hybrid part number (dash, comma). The earlier builds, including the PTM2045 one,
-  # report 39990,T6Z,A110 and are not calibrated, so they stay dashcam.
-  CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00',),
+  # report 39990,T6Z,A110 and are not calibrated, so they stay dashcam. '+': the angle PTM image (V850 build 0x0C, profile 5)
+  CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00', b'39990+T6Z+A110\x00\x00'),
+  # '+' only: the angle PTM image (V850 build 0x0C, profile 6, PROVISIONAL geometry: no Pilot routes yet)
+  CAR.HONDA_PILOT: (b'39990+TG7+A070\x00\x00',),
   # PTM 2026-11-10 (the RDX car build ported to THR, its code parent): every variant record reports the comma
   # '+': the angle PTM image (build 0x0C, rwd-xray THR_0x0C_PORTS); it gets angle mode only once the Odyssey has a panda row
   # (angle_profiles.py). Until then it runs its stock torque mode (apply_angle_mode clears EPS_MODIFIED for an angle image)

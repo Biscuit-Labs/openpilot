@@ -99,6 +99,8 @@ FLEET_CASES = (
   (CAR.HONDA_ODYSSEY, b'39990+THR+A020\x00\x00'),      # angle PTM (build 0x0C); angle mode only once the Odyssey has a panda row
   (CAR.HONDA_FIT, b'39990+T5R+C030\x00\x00'),          # angle PTM only (no Fit torque-PTM image)
   (CAR.HONDA_RIDGELINE, b'39990-T6Z,A110\x00\x00'),  # PTM rev b5 only
+  (CAR.HONDA_RIDGELINE, b'39990+T6Z+A110\x00\x00'),  # angle PTM (V850 build 0x0C)
+  (CAR.HONDA_PILOT, b'39990+TG7+A070\x00\x00'),      # angle PTM (V850 build 0x0C)
   (CAR.HONDA_ODYSSEY, b'39990-THR,A020\x00\x00'),
   # SH-2A family linear-angle builds 0x0C (angle PTM, '+' in both slots; test_sh2a_angle_mode.py)
   (CAR.HONDA_CIVIC, b'39990+TBA+A030\x00\x00'),

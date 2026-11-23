@@ -23,6 +23,14 @@ BO_ 769 VEHICLE_STATE2: 8 ADAS
  SG_ COUNTER : 61|2@0+ (1,0) [0|3] "" XXX
  SG_ CHECKSUM : 59|4@0+ (1,0) [0|15] "" XXX
 
+BO_ 1698 EPS_LINEAR_ANGLE: 8 EPS
+ SG_ LINEAR_ANGLE : 7|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ PUBLISHED_ANGLE : 23|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ INTEGRATOR : 39|16@0- (1,0) [-32768|32767] "" EON
+ SG_ LOOP_RUNNING : 48|1@0+ (1,0) [0|1] "" EON
+ SG_ COUNTER : 61|2@0+ (1,0) [0|3] "" EON
+ SG_ CHECKSUM : 59|4@0+ (1,0) [0|15] "" EON
+
 BO_ 1700 EPS_CAL_STATUS: 8 EPS
  SG_ REQUESTED_MODE : 7|4@0+ (1,0) [0|15] "" EON
  SG_ ANGLE_LOOP_RUNNING : 3|1@0+ (1,0) [0|1] "" EON
@@ -37,6 +45,8 @@ BO_ 1700 EPS_CAL_STATUS: 8 EPS
  SG_ COUNTER : 61|2@0+ (1,0) [0|3] "" EON
  SG_ CHECKSUM : 59|4@0+ (1,0) [0|15] "" EON
 
+CM_ BO_ 1698 "Clarity angle builds 0x0C on (rwd-xray lab/clarity/CLARITY_ANGLE_MODE_0x0C_20261122): 100 Hz. LINEAR_ANGLE = the EPS raw angle minus its reference, i.e. the rack-linear angle before the firmware VGR map; PUBLISHED_ANGLE = the 0x14A STEER_ANGLE of the same pass (post-VGR); same scale and sign as STEER_ANGLE.";
+CM_ SG_ 1698 INTEGRATOR "angle-loop integrator, latch counts (I >> 16)";
 CM_ BO_ 1700 "Clarity mode-switch EPS builds (rwd-xray lab/clarity/CLARITY_MODESW_MM_P2): calibration status, 50 Hz. Layout v2 (build 0x02): bytes 2-6 reserved, 0. Layout v3 (angle build 0x04, CLARITY_ANGLE_MODE_20261117): byte 0 bit 3 and bytes 2-6 carry the angle loop. Absent on stock, CleanPTM and P1.";
 CM_ SG_ 1700 BUILD_ID "EPS build; implies the frame layout and the modes built in";
 CM_ SG_ 1700 ACTIVE_MODE "calibration mode in the EPS RAM now (0 = stock); changes only at LKAS idle";

@@ -128,14 +128,24 @@ static int honda_nidec_brake(const CANPacket_t *msg) {
 //  - the first target after not steering or after a blocked frame is within one step of the measured angle (any of
 //    the last 6 0x14A samples when that target is checked)
 // Evidence: rwd-xray lab/clarity/PANDA_ANGLE_SAFETY_20261121 (re-simulated sender on the owner's drives, closed loop).
+// Linear-angle EPS (build 0x0C on, rwd-xray lab/clarity/CLARITY_ANGLE_MODE_0x0C_20261122): the target is the rack-linear
+// angle the EPS publishes on 0x6A2 bytes 0-1 (raw angle minus reference, before the firmware VGR map; same 0.1 deg units
+// and sign). The first valid 0x6A2 (checksum, counter) latches linear mode until the next safety init: from then on the
+// measured angle is 0x6A2's (0x14A no longer feeds it), a stale 0x6A2 (> 50 ms) blocks steering exactly as a stale 0x14A
+// does, and the limits are the same physical limits in linear units (the 3.6 m/s^2 published angle converted through the
+// firmware map at the EPS clamp table's knots, rwd-xray gen_linear_limit.py; the EPS clamp is never tighter). A build
+// without 0x6A2 (0x0B) keeps the 0x14A rule above unchanged.
 #define HONDA_PARAM_ANGLE 4096U
 #define HONDA_ANGLE_MEAS_TIMEOUT_US 50000U
 #define HONDA_ANGLE_MAX 5000  // 0.1 deg
+#define HONDA_ANGLE_MAX_LINEAR 5784  // 0.1 deg: the 500 deg published cap in linear units
 static bool honda_angle_mode = false;
 static int honda_angle_last = 0;
 static bool honda_angle_from_wheel = true;   // the next target's step is measured from the wheel, not the last target
 static bool honda_angle_meas_seen = false;
 static uint32_t honda_angle_meas_ts = 0U;
+static bool honda_angle_linear = false;     // a valid 0x6A2 seen: target and measured angle are rack-linear
+static int honda_angle_linear_counter = -1;  // last 0x6A2 counter (-1: none yet)
 
 static void honda_angle_reset(bool enabled) {
   honda_angle_mode = enabled;
@@ -143,6 +153,8 @@ static void honda_angle_reset(bool enabled) {
   honda_angle_from_wheel = true;
   honda_angle_meas_seen = false;
   honda_angle_meas_ts = 0U;
+  honda_angle_linear = false;
+  honda_angle_linear_counter = -1;
 }
 
 static float honda_angle_interp(const float *xs, const float *ys, int n, float x) {
@@ -175,15 +187,55 @@ static float honda_angle_accel_limit(float speed) {
   return SAFETY_MIN(lim, (float)HONDA_ANGLE_MAX);
 }
 
+// the 3.6 m/s^2 angle in the linear units of a linear-angle EPS (speed m/s, >= 1), 0.1 deg; 1/v^2 above 80 m/s
+static float honda_angle_accel_limit_linear(float speed) {
+  static const float LV[21] = {1.0f, 4.13f, 4.25f, 4.5f, 4.75f, 5.0f, 8.0f, 10.0f, 12.0f, 16.0f, 20.0f, 25.0f, 30.0f,
+                               32.5f, 35.0f, 37.5f, 40.0f, 45.0f, 50.0f, 60.0f, 80.0f};
+  static const float LLIM[21] = {5783.6f, 5783.0f, 5461.0f, 4863.4f, 4342.0f, 3901.1f, 1566.1f, 1026.5f, 736.3f,
+                                 449.1f, 314.7f, 228.5f, 181.5f, 154.5f, 133.5f, 116.4f, 102.2f, 80.5f, 65.2f, 45.3f, 25.6f};
+  float lim;
+  if (speed > LV[20]) {
+    lim = LLIM[20] * (LV[20] * LV[20]) / (speed * speed);
+  } else {
+    lim = honda_angle_interp(LV, LLIM, 21, speed);
+  }
+  return SAFETY_MIN(lim, (float)HONDA_ANGLE_MAX_LINEAR);
+}
+
 static void honda_angle_rx(const CANPacket_t *msg, unsigned int pt_bus) {
   if (honda_angle_mode && (msg->bus == pt_bus)) {
     if (msg->addr == 0x158U) {
       UPDATE_VEHICLE_SPEED(((msg->data[0] << 8) | msg->data[1]) * 0.01 / 3.6);  // XMISSION_SPEED, 0.01 kph
     }
-    if (msg->addr == 0x14AU) {  // an RX check in angle mode: checksum, counter and rate already verified
+    if ((msg->addr == 0x14AU) && !honda_angle_linear) {  // an RX check in angle mode: checksum, counter and rate already verified
       update_sample(&angle_meas, to_signed((msg->data[0] << 8) | msg->data[1], 16));
       honda_angle_meas_seen = true;
       honda_angle_meas_ts = microsecond_timer_get();
+    }
+  }
+}
+
+// EPS_LINEAR_ANGLE (0x6A2) is not an RX check (a 0x0B EPS never sends it), so it arrives through the optional ingress
+// hook; it can only latch linear mode and feed the measured angle, never satisfy a required check.
+static void honda_angle_optional_rx(const CANPacket_t *msg) {
+  if (honda_angle_mode && (msg->bus == honda_get_pt_bus())) {
+    if ((msg->addr == 0x6A2U) && (GET_LEN(msg) == 8U) && (honda_compute_checksum(msg) == honda_get_checksum(msg))) {
+      const int counter = (int)honda_get_counter(msg);
+      const bool in_sequence = (honda_angle_linear_counter < 0) || (counter == ((honda_angle_linear_counter + 1) & 3));
+      honda_angle_linear_counter = counter;
+      if (in_sequence) {  // EPS_LINEAR_ANGLE: bytes 0-1 the rack-linear angle
+        const int lin = to_signed((msg->data[0] << 8) | msg->data[1], 16);
+        if (!honda_angle_linear) {
+          honda_angle_linear = true;  // latched: the window restarts with linear samples only
+          for (int i = 0; i < 6; i++) {
+            update_sample(&angle_meas, lin);
+          }
+        } else {
+          update_sample(&angle_meas, lin);
+        }
+        honda_angle_meas_seen = true;
+        honda_angle_meas_ts = microsecond_timer_get();
+      }
     }
   }
 }
@@ -204,15 +256,16 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
     const float speed = SAFETY_MAX(((float)vehicle_speed.min / VEHICLE_SPEED_FACTOR) - 1.0f, 1.0f);
     const bool meas_fresh = honda_angle_meas_seen &&
       (safety_get_ts_elapsed(microsecond_timer_get(), honda_angle_meas_ts) <= HONDA_ANGLE_MEAS_TIMEOUT_US);
-    const float lim = honda_angle_accel_limit(speed);
+    const float lim = honda_angle_linear ? honda_angle_accel_limit_linear(speed) : honda_angle_accel_limit(speed);
+    const int angle_max = honda_angle_linear ? HONDA_ANGLE_MAX_LINEAR : HONDA_ANGLE_MAX;
     // jerk limit: with lateral jerk = lateral accel = 3.6, the angle rate is the accel angle per second (100 Hz frames)
     const float step = SAFETY_MIN(lim / 100.0f, honda_angle_interp(V, JUMP, 9, speed));
     const int step_can = (int)(step + 1.0f);
     const int lim_can = (int)(lim + 1.0f);
     // from the wheel: within one step of the last 6 measured samples (the standard's inactive check uses the same
     // min/max window; openpilot's carState angle is 10-20 ms older than the newest 0x14A); otherwise of the last target
-    const int hi = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.max, -HONDA_ANGLE_MAX, HONDA_ANGLE_MAX) : honda_angle_last;
-    const int lo = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.min, -HONDA_ANGLE_MAX, HONDA_ANGLE_MAX) : honda_angle_last;
+    const int hi = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.max, -angle_max, angle_max) : honda_angle_last;
+    const int lo = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.min, -angle_max, angle_max) : honda_angle_last;
     violation = !meas_fresh;
     violation |= safety_max_limit_check(target, hi + step_can, lo - step_can);
     violation |= safety_max_limit_check(target, lim_can, -lim_can);
@@ -746,6 +799,7 @@ static bool honda_nidec_fwd_hook(int bus_num, int addr) {
 const safety_hooks honda_nidec_hooks = {
   .init = honda_nidec_init,
   .rx = honda_rx_hook,
+  .optional_rx = honda_angle_optional_rx,
   .tx = honda_tx_hook,
   .fwd = honda_nidec_fwd_hook,
   .get_counter = honda_get_counter,

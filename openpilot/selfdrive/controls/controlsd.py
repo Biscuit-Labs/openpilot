@@ -546,6 +546,8 @@ class Controls:
       self.LaC.update_lateral_source(self.params.get("ModelLateralSource") or "unknown")
     if cycle_timing is not None:
       cycle_timing.mark()
+    if hasattr(self.LaC, 'linear'):   # Honda linear-angle EPS: carState's angle is rack-linear (card's starpilotCarState)
+      self.LaC.linear = bool(self.sm['starpilotCarState'].steeringAngleLinear)
     steer, lateral_output, lac_log = self.LaC.update(CC.latActive, CS, self.VM, lp,
                                                      self.steer_limited_by_safety, self.desired_curvature,
                                                      curvature_limited, lat_delay)

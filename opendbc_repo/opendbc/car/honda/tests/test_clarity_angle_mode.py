@@ -344,6 +344,17 @@ def test_angle_mode_sets_the_panda_angle_bit():
   assert not qualified(off)
 
 
+def test_angle_mode_reports_the_angle_lateral_limit():
+  # the UI torque bar scales its angle-mode estimate by CP.maxLateralAccel, as on the other angle cars
+  from opendbc.car.lateral import ISO_LATERAL_ACCEL
+  off = cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(MODIFIED)]), False)
+  on = cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(MODIFIED)]), True)
+  stock = cam.apply_angle_mode(params(CAR.HONDA_CLARITY, [eps(b'39990-TRW-A020\x00\x00')]), True)
+  assert on.maxLateralAccel == ISO_LATERAL_ACCEL == 3.0
+  assert off.maxLateralAccel == stock.maxLateralAccel != on.maxLateralAccel   # torque mode / stock EPS: unchanged
+  assert abs(off.maxLateralAccel - 0.325) < 0.01                               # the Accord's measured max (substitute.toml)
+
+
 def test_angle_mode_with_a_pedal_qualifies_like_the_pedal_alone():
   # the owner's Clarity (11-21 parity drive: no lateral): panda now installs 7 RX checks + the AOL pair, so angle mode +
   # pedal must qualify exactly as the pedal alone did (544 -> 544 | 4096, alternativeExperience 32)

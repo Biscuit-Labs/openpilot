@@ -45,6 +45,7 @@ import numpy as np
 
 from opendbc.car import DT_CTRL
 from opendbc.car import structs
+from opendbc.car.lateral import ISO_LATERAL_ACCEL
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 
 ANGLE_MODE_PARAM = "HondaClarityAngleMode"   # BOOL, default "1" (params_keys.h); read once at startup
@@ -65,6 +66,14 @@ ANGLE_MAX_FRAC = 0.95
 # capped at STEER_ANGLE_MAX. Panda evaluates them at speed - 1 m/s, openpilot at v_ego, so openpilot stays inside.
 STD_ACCEL_SCALE = 0.9
 STEER_ANGLE_MAX = 500.0       # deg (panda HONDA_ANGLE_MAX); the logged wheel reached 439
+# Linear-angle EPS (build 0x0C on): the same 3.6 m/s^2 limit in the EPS's rack-linear units (0x6A2), i.e. the published
+# limit above converted through the firmware VGR map, at the EPS clamp table's knots. Generated with panda's copy
+# (honda.h honda_angle_accel_limit_linear) by rwd-xray lab/clarity/CLARITY_ANGLE_MODE_0x0C_20261122/gen_linear_limit.py;
+# the EPS clamp is never tighter. 1/v^2 above 80 m/s.
+LINEAR_LIMIT_V = [1.0, 4.13, 4.25, 4.5, 4.75, 5., 8., 10., 12., 16., 20., 25., 30., 32.5, 35., 37.5, 40., 45., 50., 60., 80.]
+LINEAR_LIMIT_DEG = [578.36, 578.30, 546.10, 486.34, 434.20, 390.11, 156.61, 102.65, 73.63, 44.91, 31.47, 22.85, 18.15,
+                    15.45, 13.35, 11.64, 10.22, 8.05, 6.52, 4.53, 2.56]
+STEER_ANGLE_MAX_LINEAR = 578.4   # deg (panda HONDA_ANGLE_MAX_LINEAR)
 # target trajectory (v2): rate and acceleration limits by speed, engage fade
 _VT = [0., 5., 10., 15., 20., 30.]
 TARGET_RATE_DEG_S = [150., 150., 100., 60., 40., 25.]
@@ -118,6 +127,11 @@ def apply_angle_mode(CP, requested: bool):
     # is allowed, |target| within the 3.6 m/s^2 angle, per-frame steps within the 3.6 m/s^3 jerk step, the first target
     # within one step of the wheel
     CP.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.CLARITY_ANGLE.value
+    # as the other angle cars (torque_data/override.toml): maxLateralAccel is the angle-mode limit the UI torque bar's
+    # lateral-acceleration estimate is scaled to. The torque-mode value (0.32, the Accord's measured max via substitute.toml)
+    # pegs the bar at a tenth of what openpilot can command; controls clip lateral accel at ISO_LATERAL_ACCEL (3.0, no roll).
+    # Nothing else reads it in angle mode (the torque controller is not used, controls use their own limit).
+    CP.maxLateralAccel = ISO_LATERAL_ACCEL
   return CP
 
 
@@ -125,9 +139,13 @@ def angle_mode(CP) -> bool:
   return bool(CP.flags & HondaFlags.CLARITY_ANGLE_MODE)
 
 
-def std_angle_limit(v_ego: float) -> float:
-  """The 3.6 m/s^2 steering-wheel angle (deg), panda's absolute limit at this speed."""
+def std_angle_limit(v_ego: float, linear: bool = False) -> float:
+  """The 3.6 m/s^2 steering-wheel angle (deg), panda's absolute limit at this speed (linear: in rack-linear units)."""
   v = max(float(v_ego), 1.0)
+  if linear:
+    lim = float(np.interp(v, LINEAR_LIMIT_V, LINEAR_LIMIT_DEG)) if v <= LINEAR_LIMIT_V[-1] else \
+          LINEAR_LIMIT_DEG[-1] * (LINEAR_LIMIT_V[-1] / v) ** 2
+    return min(lim, STEER_ANGLE_MAX_LINEAR)
   if v < AMAX_V[0]:
     lim = STD_ACCEL_SCALE * EPS_AMAX_DEG[0] * (AMAX_V[0] / v) ** 2
   elif v > AMAX_V[-1]:
@@ -137,14 +155,16 @@ def std_angle_limit(v_ego: float) -> float:
   return min(lim, STEER_ANGLE_MAX)
 
 
-def std_angle_step(v_ego: float) -> float:
+def std_angle_step(v_ego: float, linear: bool = False) -> float:
   """Per-frame step (deg) from the 3.6 m/s^3 jerk limit: jerk = accel = 3.6, so the 3.6 m/s^2 angle per second."""
-  return std_angle_limit(v_ego) * DT_CTRL
+  return std_angle_limit(v_ego, linear) * DT_CTRL
 
 
-def angle_limit(v_ego: float) -> float:
+def angle_limit(v_ego: float, linear: bool = False) -> float:
   # 0.95 x the EPS's 4.0 m/s^2 table (inside the 0x0B 3.6 clamp only below 5 m/s, where 1/v^2 takes over) and never past
   # panda's 3.6 m/s^2 angle
+  if linear:   # the 0.95 x 4.0 table only binds below 5 m/s, where the 1/v^2 panda limit is tighter anyway
+    return std_angle_limit(v_ego, True)
   return min(ANGLE_MAX_FRAC * float(np.interp(v_ego, AMAX_V, EPS_AMAX_DEG)), std_angle_limit(v_ego))
 
 
@@ -159,13 +179,14 @@ class AngleModeSender:
     self.apply_rate = 0.0
     self.active_frames = 0
     self.sent_active = False
+    self.linear = False   # linear-angle EPS (0x0C on): desired / measured / limits are rack-linear (CarController sets it)
     self.out_angle = 0.0      # the angle actually sent (= apply_angle once the effort fade is done)
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
              rate_limit_deg_s: float = 0.0, effort_fade: bool = True) -> tuple[int, bool, int]:
     active = bool(lat_active and angle_ready)
-    if active and not self.sent_active and abs(float(measured_deg)) > std_angle_limit(v_ego):
+    if active and not self.sent_active and abs(float(measured_deg)) > std_angle_limit(v_ego, self.linear):
       # no engage while the wheel is beyond panda's 3.6 m/s^2 angle: the first target must be within one step of the
       # wheel and inside the limit, so panda would block every frame (the Hyundai EV9 path gates the request the same
       # way). CarController reports the dropped request to the loop-running interlock, so it does not count.
@@ -175,13 +196,13 @@ class AngleModeSender:
       self.out_angle = float(measured_deg)
       self.active_frames, self.sent_active = 0, False
       return 0, False, 0
-    lim = angle_limit(v_ego)
+    lim = angle_limit(v_ego, self.linear)
     # clamp the target, not the output, so the output still moves along the limited trajectory (from a measured angle
     # above the clamp it walks down to it instead of jumping, which the EPS would reject)
     target = float(np.clip(float(desired_deg), -lim, lim))
     fade = 1.0 if engage_s <= 0.0 else min(1.0, ENGAGE_FLOOR + (1.0 - ENGAGE_FLOOR) * self.active_frames * DT_CTRL / engage_s)
     # step: 0.6 x the EPS jump threshold and panda's jerk step (the 3.6 m/s^3 standard)
-    step = min(float(np.interp(v_ego, _V, ANGLE_STEP_DEG)), std_angle_step(v_ego))
+    step = min(float(np.interp(v_ego, _V, ANGLE_STEP_DEG)), std_angle_step(v_ego, self.linear))
     rate_cap = min(float(np.interp(v_ego, _VT, TARGET_RATE_DEG_S)), step / DT_CTRL)
     if rate_limit_deg_s > 0.0:                # Steering Angle Rate Limit (Night Star / Galaxy), 0 = off
       rate_cap = min(rate_cap, rate_limit_deg_s)
@@ -210,7 +231,7 @@ class AngleModeSender:
       out = float(measured_deg) + w * (self.apply_angle - float(measured_deg))
     if not self.sent_active:
       self.out_angle = float(measured_deg)   # panda: the first target within one step of the measured angle
-    std_lim = std_angle_limit(v_ego)
+    std_lim = std_angle_limit(v_ego, self.linear)
     self.out_angle = float(np.clip(self.out_angle + np.clip(out - self.out_angle, -step, step), -std_lim, std_lim))
     self.active_frames += 1
     self.sent_active = True

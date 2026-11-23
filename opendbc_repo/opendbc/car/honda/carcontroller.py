@@ -272,6 +272,9 @@ class CarController(CarControllerBase):
       settings = current_settings(self.modified_eps_settings)
       # 0xE4 byte 3 (meps/protocol.py, v2): MODE 1 with AUTH = 15 - CUT (15 = full)
       self.eps_mode = meps_protocol.byte3_v2(self.angle_cut)
+      # linear-angle EPS: desired (controls), measured (carState) and the sender's limits are all rack-linear; the EPS and
+      # panda take the target in those units, so nothing is converted here
+      self.angle_sender.linear = CS.linear_angle.latched
       self.apply_angle_raw, lkas_active, angle_payload = self.angle_sender.update(
         lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, CS.eps_cal_status.angle_ready,
         CS.out.steeringRateDeg, HOLD_LIMITS_FADE_S if self.angle_hold else settings.fade_up_s,   # hold: authority ramp is the fade

@@ -16,8 +16,13 @@ class LatControlHondaAngle(LatControlAngle):
     super().__init__(CP, CI, dt)
     self.rack_map = get_rack_map(CP, eps_firmware_calibration(CP))
     self.vgr_inverse = get_honda_vgr_inverse(CP.flags)
+    # linear-angle EPS (opendbc honda/meps/linear_angle.py; controlsd sets this from starpilotCarState.steeringAngleLinear):
+    # carState's angle is rack-linear, so the plain vehicle model with paramsd's ratio applies; no VGR table, no rack map
+    self.linear = False
 
   def desired_angle_no_offset(self, desired_curvature: float, v_ego: float, roll: float, VM) -> float:
+    if self.linear:
+      return math.degrees(VM.get_steer_from_curvature(-desired_curvature, v_ego, roll))
     if self.rack_map is not None:
       return self.rack_map.angle_from_curvature(desired_curvature, v_ego, roll)
     return vgr_linear_to_physical(math.degrees(VM.get_steer_from_curvature(-desired_curvature, v_ego, roll)), self.vgr_inverse)

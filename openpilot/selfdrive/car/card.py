@@ -1123,6 +1123,12 @@ class Car:
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
       companion.starpilotCarState.pedalLongActive = bool(internal.enableLongControl)
       companion.starpilotCarState.pedalMaxRegen = internal.pccEvent == 'pedalMaxRegen'
+    linear_angle = getattr(self.CI.CS, 'linear_angle', None)
+    if self.CP.brand == 'honda' and linear_angle is not None and linear_angle.enabled:
+      # Honda linear-angle EPS (opendbc honda/meps/linear_angle.py): tells controls carState's angle is rack-linear
+      companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
+      companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+      companion.starpilotCarState.steeringAngleLinear = bool(linear_angle.latched)
     steering_authority = getattr(self.CI.CS, 'steering_authority', None)
     if self.CP.brand == 'gm' and steering_authority is not None and steering_authority.enabled:
       companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))

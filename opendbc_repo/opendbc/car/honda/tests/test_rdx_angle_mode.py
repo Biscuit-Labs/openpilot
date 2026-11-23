@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from opendbc.can import CANPacker
-from opendbc.car import structs
+from opendbc.car import Bus, structs
 from opendbc.car.honda import clarity_angle_mode as cam
 from opendbc.car.honda.angle_profiles import ANGLE_PROFILES, OWN_GEOMETRY, safety_param_bits, vm_angle_limit
 from opendbc.car.honda.hondacan import CanBus
@@ -15,7 +15,7 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.meps.linear_angle import SEND_FRAMES, STALE_FRAMES
 from opendbc.car.honda.tests.test_eps_cal_status import honda_checksum, v4
 from opendbc.car.honda.tests.test_modified_eps import eps, params
-from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
+from opendbc.car.honda.values import CAR, DBC, HondaFlags, HondaSafetyFlags
 from opendbc.safety.tests.libsafety import libsafety_py
 
 ANGLE_FW = b'39990+TJB+A220\x00\x00'   # angle PTM (build 0x0C)
@@ -50,9 +50,9 @@ class Car:
     self.ref_latched = 1
     self.bus = CanBus(ci.CP)
     self.k, self.t = 0, 1_000_000_000
-    self.packer = CANPacker("acura_rdx_2020_can_generated")
+    self.packer = CANPacker(DBC[ci.CP.carFingerprint][Bus.pt])     # the platform's own DBC (any profile car)
     self.rate = 0.0
-    SAFETY.set_safety_hooks(int(structs.CarParams.SafetyModel.hondaBosch), int(ci.CP.safetyConfigs[-1].safetyParam))
+    SAFETY.set_safety_hooks(ci.CP.safetyConfigs[-1].safetyModel.raw, int(ci.CP.safetyConfigs[-1].safetyParam))   # hondaBosch / hondaNidec
     SAFETY.set_controls_allowed(True)
     self.set_speed(v)
 

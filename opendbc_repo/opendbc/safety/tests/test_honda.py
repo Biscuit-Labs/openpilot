@@ -1085,6 +1085,43 @@ class TestHondaBoschInsightLinearAngleSafety(_HondaBoschSh2aLinearAngleBase):
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
   LIMITS = ((21., 293), (31., 169), (11., 961))
 
+
+class TestHondaNidecFitAngleSafety(TestHondaNidecPcmAltSafety):
+  """
+    Fit (T5R-C030) on angle-profile row 7 (PROVISIONAL: its CarSpecs model, no Fit routes): the profile rule (0x6A2 the RX
+    check, the vehicle model) on the Nidec hooks with alt SCM messages. Every Nidec alt PCM test still runs.
+  """
+  PROFILE = ANGLE_PROFILES[HONDA_CAR.HONDA_FIT]
+  SAFETY_PARAM = HondaSafetyFlags.NIDEC_ALT | HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
+  ANGLE_MAX_CAN = 5785
+  JUMP = TestHondaNidecClarityAngleSafety.JUMP
+  _angle_msg = TestHondaBoschRdxLinearAngleSafety._angle_msg
+  _lin_msg = TestHondaBoschRdxLinearAngleSafety._lin_msg
+  _set_meas = TestHondaBoschRdxLinearAngleSafety._set_meas
+  _meas_msg = TestHondaBoschRdxLinearAngleSafety._meas_msg
+  _set_speed = TestHondaBoschRdxLinearAngleSafety._set_speed
+  _start = TestHondaBoschRdxLinearAngleSafety._start
+  _lim = TestHondaBoschRdxLinearAngleSafety._lim
+  _std = TestHondaBoschRdxLinearAngleSafety._std
+  _step = TestHondaBoschRdxLinearAngleSafety._step
+  test_angle_frames_need_lateral = TestHondaBoschRdxLinearAngleSafety.test_angle_frames_need_lateral
+  test_inactive_frame_is_all_zero = TestHondaBoschRdxLinearAngleSafety.test_inactive_frame_is_all_zero
+  test_first_target_within_one_step_of_the_wheel = TestHondaBoschRdxLinearAngleSafety.test_first_target_within_one_step_of_the_wheel
+  test_step_limit_by_speed = TestHondaBoschRdxLinearAngleSafety.test_step_limit_by_speed
+  test_lateral_accel_limit = TestHondaBoschRdxLinearAngleSafety.test_lateral_accel_limit
+  test_drift_never_passes_the_limit = TestHondaBoschRdxLinearAngleSafety.test_drift_never_passes_the_limit
+  test_stale_or_invalid_measured_angle = TestHondaBoschRdxLinearAngleSafety.test_stale_or_invalid_measured_angle
+  test_no_measured_angle_after_init = TestHondaBoschRdxLinearAngleSafety.test_no_measured_angle_after_init
+  test_other_angle_messages_do_not_feed = TestHondaBoschRdxLinearAngleSafety.test_other_angle_messages_do_not_feed
+  test_angle_bit_needs_the_linear_angle = TestHondaBoschRdxLinearAngleSafety.test_angle_bit_needs_the_linear_angle
+
+  def test_limit_numbers(self):
+    # row 7 = the Fit's own model: 3.6 m/s^2 angle at speed - 1 m/s, 0.1 deg, +1 (panda's rounding), capped at 578.4 deg
+    for v in (6., 11., 21., 31., 41.):
+      self.assertEqual(self._lim(v), int(vm_angle_limit(v - 1., self.PROFILE) * 10 + 1), v)
+    self.assertEqual(self._lim(2.), 5785)
+
+
 class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschBcanTurnSignalSafetyBase):
   """
     Covers the Honda Bosch safety mode with longitudinal control

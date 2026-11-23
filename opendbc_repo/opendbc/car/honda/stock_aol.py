@@ -126,12 +126,17 @@ def qualified(cp, *, marked_only=False):
         expected |= int(HondaSafetyFlags.NIDEC_PEDAL_AOL)
     if fingerprint == CAR.HONDA_ODYSSEY_TWN and cp.alternativeExperience == 32:
       expected |= 256
-    angle = bool(flags & int(HondaFlags.CLARITY_ANGLE_MODE))
+    angle_bits = 0
+    if flags & int(HondaFlags.CLARITY_ANGLE_MODE):
+      # the Clarity: the angle bit alone (profile 0); a Nidec profile car (the Fit): the angle bit plus its profile, which
+      # panda masks out of the Nidec word as it does on Bosch (honda.h)
+      profile = angle_profile(cp)
+      angle_bits = NIDEC_ANGLE_BIT | (safety_param_bits(profile) if profile is not None else 0)
     # angle mode + pedal: panda installs 7 RX checks + the AOL pair (honda_stock_aol.h, 9-entry workspace), so it
     # qualifies exactly as the pedal alone did (the owner's Clarity: 544 | 4096, alternativeExperience 32)
     return (bool(cp.pcmCruise) == (not pedal) and cp.openpilotLongitudinalControl and
-            safety.safetyModel == _HONDA_NIDEC and (safety.safetyParam & ~NIDEC_ANGLE_BIT) == expected and
-            bool(safety.safetyParam & NIDEC_ANGLE_BIT) == angle)
+            safety.safetyModel == _HONDA_NIDEC and (safety.safetyParam & ~BOSCH_ANGLE_MASK) == expected and
+            (safety.safetyParam & BOSCH_ANGLE_MASK) == angle_bits)
   if fingerprint in CLASSIC_BOSCH and flags & _BOSCH and not flags & _BOSCH_RADARLESS:
     expected = int(bool(flags & _BOSCH_ALT_BRAKE))
     if cp.openpilotLongitudinalControl:

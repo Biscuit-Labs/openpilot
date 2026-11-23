@@ -593,6 +593,8 @@ MODIFIED_EPS_FW = {
   CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00',),
   # PTM 2026-11-10 (the RDX car build ported to THR, its code parent): every variant record reports the comma
   CAR.HONDA_ODYSSEY: (b'39990-THR,A020\x00\x00',),
+  # angle PTM image only (build 0x0C, rwd-xray THR_0x0C_PORTS/t5r): no Fit torque-PTM image exists; mode 0 is stock
+  CAR.HONDA_FIT: (b'39990+T5R+C030\x00\x00',),
 }
 
 MANUAL_TRANS_CARS = frozenset((CAR.HONDA_ACCORD, CAR.HONDA_CIVIC_2022))

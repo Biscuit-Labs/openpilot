@@ -9,8 +9,9 @@ LaneChangeDirection = log.LaneChangeDirection
 LANE_CHANGE_SPEED_MIN = 20 * CV.MPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 LANE_CHANGE_START_TIME = 0.5
-# By ~2.75-3.0 s the car's edge reaches the lane line; after that the target-side BSM increasingly sees the lane beyond
-# the target lane, so a lit blindspot past 3.0 s is ignored.
+# Measured from entering laneChangeStarting (the driver's nudge or the auto trigger), not from the blinker: the 34 logged
+# Accord changes put the car's edge on the lane line at 2.0-3.2 s from there at 60+ mph. After that the target-side BSM
+# increasingly sees the lane beyond the target lane, so a lit blindspot past 3.0 s is ignored.
 LANE_CHANGE_ABORT_WINDOW_S = 3.0
 ABORT_ALERT_S = 3.0
 
@@ -75,6 +76,8 @@ class DesireHelper:
         self.lane_change_state = LaneChangeState.preLaneChange
         self.lane_change_timer = 0.0
         self.pre_lane_change_timer = 0.0
+        # A new signal ends an earlier abort's alert, so this attempt gets its own blocked or waiting status
+        self.abort_alert_timer = 0.0
         # Initialize lane change direction to prevent UI alert flicker
         self.lane_change_direction = self.get_lane_change_direction(carstate)
 

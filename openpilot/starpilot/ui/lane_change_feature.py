@@ -174,7 +174,8 @@ class LaneChangeFeature:
       bsm_row = replace(common, key=ABORT, label="Abort Lane Change for Blind Spot",
                         value="On" if policy.abort_on_blindspot else "Off", choices=("Off", "On"), available=allowed,
                         reason="Cancels a lane change during its first three seconds if the target-side blind spot lights and " +
-                               "tells the driver to take control, since the car may keep moving; the driver must signal again to retry.")
+                               "alerts the driver to take control. The car may still finish the lane change, so be ready to steer " +
+                               "back; signal again to retry.")
       rows.insert(next(index for index, row in enumerate(rows) if row.key == ONE) + 1, bsm_row)
 
     defaults = LaneChangePolicy()

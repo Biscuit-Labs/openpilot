@@ -51,7 +51,7 @@ def test_abort_alert_module_maps_phases_and_honours_valid_until():
   aborted = LaneChangeStatus("s", 3, 9, 10, 20, 30, Phase.ABORTED_BLINDSPOT, Direction.NONE, False, True)
   alert = lane_change_abort_alert(aborted, 25)
   assert (alert.alert_text_1, alert.alert_text_2) == ("Take Control", "Lane Change Aborted: Vehicle in Blind Spot")
-  assert (alert.alert_status, alert.alert_size) == (AlertStatus.userPrompt, AlertSize.mid)
+  assert (alert.alert_status, alert.alert_size) == (AlertStatus.critical, AlertSize.mid)
   assert (alert.priority, alert.visual_alert, alert.audible_alert) == \
     (Priority.HIGH, car.CarControl.HUDControl.VisualAlert.steerRequired, AudibleAlert.warningImmediate)
   assert (alert.alert_type, alert.event_type) == (ABORTED_ALERT_TYPE, ABORTED_EVENT_TYPE)

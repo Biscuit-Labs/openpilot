@@ -22,7 +22,8 @@ DESCRIPTIONS = {
   'lane_change:speed': 'Sets the lowest speed at which lane-change assistance can begin.',
   'lane_change:one': 'Allows one assisted lane change until you release the turn signal.',
   'lane_change:abort_blindspot': ('Cancels a lane change during its first three seconds if the target-side blind spot lights and ' +
-    'tells the driver to take control, since the car may keep moving; the driver must signal again to retry.'),
+    'alerts the driver to take control. The car may still finish the lane change, so be ready to steer back; ' +
+    'signal again to retry.'),
   'lane_change:require_cruise': ('Limits nudgeless lane changes to when factory cruise or openpilot speed control is engaged. ' +
     'With cruise off, use a wheel nudge. If cruise engages after signaling, release and reapply the signal. ' +
     'Off also allows automatic changes during lateral-only driving; lane and blindspot checks still apply.'),

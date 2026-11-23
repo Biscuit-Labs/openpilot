@@ -1028,11 +1028,11 @@ class TestHondaNidecCivicLinearAngleSafety(TestHondaNidecProfileAngleSafety):
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
 
   def test_limit_numbers(self):
-    # row 2: 26.0 deg at 20 m/s, 14.4 at 30, 88.4 at 10; capped at 578.4 deg
+    # row 2 (measured understeer, 11-23): 24.5 deg at 20 m/s, 12.9 at 30, 86.9 at 10; capped at 578.4 deg
     self.assertEqual(self.PROFILE.index, 2)
-    self.assertEqual(self._lim(21.), 260)
-    self.assertEqual(self._lim(31.), 145)
-    self.assertEqual(self._lim(11.), 884)
+    self.assertEqual(self._lim(21.), 246)
+    self.assertEqual(self._lim(31.), 130)
+    self.assertEqual(self._lim(11.), 870)
     self.assertEqual(self._lim(2.), 5785)
 
 
@@ -1065,25 +1065,25 @@ class _HondaBoschSh2aLinearAngleBase(HondaPcmEnableBase, TestHondaBoschSafetyBas
 
 
 class TestHondaBoschCivicLinearAngleSafety(_HondaBoschSh2aLinearAngleBase):
-  """Civic Bosch (TGG-A120, TBA-C020, TBA-C120) on build 0x0C, row 3 (16.0: paramsd on 7 TGG/C020 routes)."""
+  """Civic Bosch (TGG-A120, TBA-C020, TBA-C120) on build 0x0C/0x0D, row 3 (its own measured model: 16.0 paramsd, K_us 0.00068 - 1 sigma)."""
   PROFILE = ANGLE_PROFILES[HONDA_CAR.HONDA_CIVIC_BOSCH]
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
-  LIMITS = ((21., 278), (31., 154), (11., 944))
+  LIMITS = ((21., 279), (31., 156), (11., 945))
 
 
 class TestHondaBoschCrv5gLinearAngleSafety(_HondaBoschSh2aLinearAngleBase):
-  """CR-V 5G (TLA-A040, TLA-A220) on build 0x0C, row 1 (its own model, shared by the RDX: 16.28 on 6 A220 routes)."""
+  """CR-V 5G (TLA-A040, TLA-A220) on build 0x0C/0x0D, row 1 (its own measured model, shared by the RDX and the Insight)."""
   PROFILE = ANGLE_PROFILES[HONDA_CAR.HONDA_CRV_5G]
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
-  LIMITS = ((21., 306), (31., 182), (11., 974))
+  LIMITS = ((21., 293), (31., 169), (11., 961))
 
 
 class TestHondaBoschInsightLinearAngleSafety(_HondaBoschSh2aLinearAngleBase):
-  """Insight (TXM-A040) on build 0x0C, row 4 (17.46: paramsd on its route)."""
+  """Insight (TXM-A040) on build 0x0C/0x0D, row 1 (the CR-V's measured model; the Insight's own 17.66/-0.00074 is 0.91-1.00 of it)."""
   DBC = "honda_insight_ex_2019_can_generated"
   PROFILE = ANGLE_PROFILES[HONDA_CAR.HONDA_INSIGHT]
   SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
-  LIMITS = ((21., 316), (31., 182), (11., 1043))
+  LIMITS = ((21., 293), (31., 169), (11., 961))
 
 class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschBcanTurnSignalSafetyBase):
   """

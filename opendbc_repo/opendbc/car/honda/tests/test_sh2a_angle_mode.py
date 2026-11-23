@@ -1,6 +1,6 @@
-"""SH-2A family linear-angle EPS builds 0x0C (rwd-xray lab/ptm-family/SH2A_0x0C_PORTS_20261122) on their angle-profile rows:
+"""SH-2A family linear-angle EPS builds 0x0C / 0x0D (rwd-xray lab/ptm-family/SH2A_0x0C_PORTS_20261122, SH2A_0x0D_PORTS_20261123) on their angle-profile rows:
 Civic (Nidec, row 2: TBA-A030, TEG-A010), Civic Bosch (row 3: TGG-A120, TBA-C020, TBA-C120), CR-V 5G (row 1: TLA-A040,
-TLA-A220), Insight (row 4: TXM-A040).
+TLA-A220), Insight (row 1, shared with the CR-V: TXM-A040).
 
 Same harness as test_rdx_angle_mode.py: the real CarInterface on the car's angle PTM image ('+' in both separator slots),
 carState from the 0x6A2 / 0x6A4 frames the EPS sends (0x6A2 byte 6 = loop running | REF_LATCHED 1: the SH-2A reference is
@@ -28,7 +28,7 @@ SH2A = [
   (CAR.HONDA_INSIGHT, "TXM", "A040"),
 ]
 IDS = [f"{code}-{var}" for _, code, var in SH2A]
-ROW = {CAR.HONDA_CRV_5G: 1, CAR.HONDA_CIVIC: 2, CAR.HONDA_CIVIC_BOSCH: 3, CAR.HONDA_INSIGHT: 4}   # orchestrator allocation 11-23
+ROW = {CAR.HONDA_CRV_5G: 1, CAR.HONDA_CIVIC: 2, CAR.HONDA_CIVIC_BOSCH: 3, CAR.HONDA_INSIGHT: 1}   # orchestrator allocation 11-23 (measured rows, 767ceebb60)
 
 
 def fw(code, var, sep):
@@ -105,6 +105,16 @@ def test_carstate_angle_is_the_linear_angle(build):
     cs, *_ = car.step(False, 0.)
   assert car.ci.CS.linear_angle.latched and car.ci.CS.linear_angle.ref_latched and not cs.steerFaultTemporary
   assert cs.steeringAngleDeg == pytest.approx(12.5, abs=0.05)
+
+
+@pytest.mark.parametrize("bid", [0x0C, 0x0D])
+def test_builds_0c_and_0d_steer_the_same(build, bid):
+  # 0x0D = 0x0C + the EPS-internal lock taper, same wire format: both latch the linear angle and steer
+  car = Car(make(*build), wheel=3.0, build=bid)
+  for _ in range(30):
+    cs, dat, ok, _ = car.step(True, 3.)
+    assert ok
+  assert car.ci.CS.linear_angle.latched and request(dat) and not cs.steerFaultTemporary
 
 
 def test_no_linear_angle_never_steers(build):

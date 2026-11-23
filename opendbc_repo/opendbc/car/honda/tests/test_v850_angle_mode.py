@@ -79,8 +79,10 @@ def test_stock_image_and_setting_off_keep_torque_mode(candidate, which, angle):
 # --- the 0x6A2 latch ---
 
 @pytest.mark.parametrize("candidate", CARS)
-def test_carstate_angle_is_the_linear_angle(candidate):
-  car = Car(interface(candidate), wheel=-9.5)
+@pytest.mark.parametrize("build", [0x0C, 0x0D])
+def test_carstate_angle_is_the_linear_angle(candidate, build):
+  # 0x0D = 0x0C + the firmware lock taper and stall cap (same protocol, same 0x6A2)
+  car = Car(interface(candidate), wheel=-9.5, build=build)
   for _ in range(6):
     cs, *_ = car.step(False, 0.)
   assert car.ci.CS.linear_angle.latched and not cs.steerFaultTemporary and car.ci.CS.eps_cal_status.angle_ready
@@ -124,9 +126,10 @@ def test_stale_linear_angle_faults_and_drops_the_request(candidate):
 @pytest.mark.parametrize("candidate", CARS)
 @pytest.mark.parametrize("v", [3., 10., 20., 30., 40.])
 @pytest.mark.parametrize("sign", [1., -1.])
-def test_sender_at_its_clamp_passes_panda(candidate, v, sign):
+@pytest.mark.parametrize("build", [0x0C, 0x0D])
+def test_sender_at_its_clamp_passes_panda(candidate, v, sign, build):
   profile = ANGLE_PROFILES[candidate]
-  car = Car(interface(candidate), v=v)
+  car = Car(interface(candidate), v=v, build=build)
   desired = sign * 1.2 * vm_angle_limit(v, profile)
   for i in range(700):
     _, dat, ok, target = car.step(True, desired)

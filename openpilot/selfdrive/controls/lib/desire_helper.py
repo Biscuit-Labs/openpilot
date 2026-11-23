@@ -9,6 +9,10 @@ LaneChangeDirection = log.LaneChangeDirection
 LANE_CHANGE_SPEED_MIN = 20 * CV.MPH_TO_MS
 LANE_CHANGE_TIME_MAX = 10.
 LANE_CHANGE_START_TIME = 0.5
+# By ~2.75-3.0 s the car's edge reaches the lane line; after that the target-side BSM increasingly sees the lane beyond
+# the target lane, so a lit blindspot past 3.0 s is ignored.
+LANE_CHANGE_ABORT_WINDOW_S = 3.0
+ABORT_ALERT_S = 3.0
 
 class DesireHelper:
   def __init__(self, policy: LaneChangePolicy | None = None, nudge_torque: float | None = None):
@@ -26,6 +30,12 @@ class DesireHelper:
     self.auto_signal_blocked = False
     self.last_signal_direction = LaneChangeDirection.none
     self.auto_status = "manualRequired"
+    self.abort_latched = False
+    self.abort_alert_timer = 0.0
+
+  @property
+  def aborted_alert_active(self):
+    return self.abort_alert_timer > 0.0
 
   @staticmethod
   def get_lane_change_direction(CS):
@@ -34,9 +44,11 @@ class DesireHelper:
   def update(self, carstate, lateral_active, lane_change_prob, *, auto_evidence=False, engaged=False, navigation_turn=False):
     v_ego = carstate.vEgo
     one_blinker = carstate.leftBlinker != carstate.rightBlinker
+    self.abort_alert_timer = max(0.0, self.abort_alert_timer - DT_MDL)
     if not carstate.leftBlinker and not carstate.rightBlinker:
       self.lane_change_performed = False
       self.auto_signal_blocked = False
+      self.abort_latched = False
     signal_direction = self.get_lane_change_direction(carstate) if one_blinker else LaneChangeDirection.none
     if self.policy.auto_lane_change and (carstate.leftBlinker or carstate.rightBlinker) and (
       not one_blinker or not lateral_active or not engaged or
@@ -58,7 +70,8 @@ class DesireHelper:
         self.lane_change_direction = LaneChangeDirection.none
         self.pre_lane_change_timer = 0.0
       if (self.lane_change_state == LaneChangeState.off and one_blinker and not self.prev_one_blinker and
-          not below_lane_change_speed and not navigation_turn and not (self.policy.one_per_signal and self.lane_change_performed)):
+          not below_lane_change_speed and not navigation_turn and not self.abort_latched and
+          not (self.policy.one_per_signal and self.lane_change_performed)):
         self.lane_change_state = LaneChangeState.preLaneChange
         self.lane_change_timer = 0.0
         self.pre_lane_change_timer = 0.0
@@ -97,13 +110,28 @@ class DesireHelper:
           self.lane_change_state = LaneChangeState.laneChangeStarting
           self.lane_change_timer = 0.0
           self.pre_lane_change_timer = 0.0
+          self.abort_alert_timer = 0.0
           if self.policy.one_per_signal:
             self.lane_change_performed = True
 
       elif self.lane_change_state == LaneChangeState.laneChangeStarting:
         self.lane_change_timer += DT_MDL
 
-        if lane_change_prob < 0.02 and self.lane_change_timer >= LANE_CHANGE_START_TIME:
+        # A target-side blind spot aborts the maneuver while it is young; the normal exit check must still run on every
+        # frame that does not abort, or the change sits in laneChangeStarting until the time max or blinker release.
+        target_blindspot = (carstate.leftBlindspot if self.lane_change_direction == LaneChangeDirection.left else
+                            carstate.rightBlindspot)
+        aborted = False
+        if self.policy.abort_on_blindspot and target_blindspot and self.lane_change_timer <= LANE_CHANGE_ABORT_WINDOW_S:
+          aborted = True
+          self.lane_change_state = LaneChangeState.off
+          self.lane_change_direction = LaneChangeDirection.none
+          self.lane_change_timer = 0.0
+          self.pre_lane_change_timer = 0.0
+          self.lane_change_performed = True
+          self.abort_latched = True
+          self.abort_alert_timer = ABORT_ALERT_S
+        if not aborted and lane_change_prob < 0.02 and self.lane_change_timer >= LANE_CHANGE_START_TIME:
           self.lane_change_timer = 0.0
           if one_blinker and not (self.policy.one_per_signal and self.lane_change_performed):
             self.lane_change_state = LaneChangeState.preLaneChange

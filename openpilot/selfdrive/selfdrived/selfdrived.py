@@ -62,6 +62,7 @@ from openpilot.starpilot.conditional_mode.status import settings_fingerprint
 from openpilot.starpilot.feature_runtime import enabled as feature_enabled
 from openpilot.starpilot.nostalgia import LONGITUDINAL_ONLY_EVENTS, aol_no_entry, paddle_cancel, physical_cancel, saved_enabled as nostalgia_saved_enabled
 from openpilot.starpilot.lateral.low_speed_advisory import LowSpeedAdvisory, advisory_eligible
+from openpilot.starpilot.lateral.lane_change_abort_alerts import lane_change_abort_alert
 from openpilot.starpilot.lateral.lane_change_status_wire import alert_wording, decode as decode_lane_status, fresh_for_model, \
   turn_alert_direction
 from openpilot.selfdrive.selfdrived.alertmanager import AlertManager, set_offroad_alert
@@ -1186,6 +1187,17 @@ class SelfdriveD:
       alerts.append(blindspot)
     else:
       self.AM.alerts.pop(BSM_ALERT, None)
+    # modeld's own blindspot-abort status; the wire's valid_until bounds both warnings.
+    abort_alert = None
+    seen = getattr(self.sm, 'seen', None)  # a stand-in sm in a test has no per-service state: no abort alert then
+    try:
+      if (seen is not None and seen['laneChangeAssistWire'] and
+          self.sm.alive['laneChangeAssistWire'] and self.sm.valid['laneChangeAssistWire']):
+        abort_alert = lane_change_abort_alert(decode_lane_status(self.sm['laneChangeAssistWire']), now_ns)
+    except KeyError:
+      abort_alert = None
+    if abort_alert is not None:
+      alerts.append(abort_alert)
     switchback = bool(self.switchback_capable and self.sm.seen['slcState'] and self.sm.alive['slcState'] and
                       self.sm.valid['slcState'] and self.sm['carControl'].latActive and
                       self.switchback_status.sample_state(self.sm['slcState'], drive_id=drive, now_ns=now_ns,

@@ -22,6 +22,11 @@ class Sources:
     self.seen = self.valid = self.alive = dict.fromkeys(names, True)
     self.logMonoTime = dict.fromkeys(names, NOW - 10_000_000)
     self.recv_time = dict.fromkeys(names, (NOW - 5_000_000) / 1e9)
+    # laneChangeAssistWire is a Data (bytes) field, so it cannot be built with new_message(); keep it absent from the alert path.
+    self.data['laneChangeAssistWire'] = b''
+    self.seen['laneChangeAssistWire'] = False  # seen, valid and alive are the same dict object
+    self.logMonoTime['laneChangeAssistWire'] = NOW - 10_000_000
+    self.recv_time['laneChangeAssistWire'] = (NOW - 5_000_000) / 1e9
     self.frame = 1
     self.data['deviceState'].started = True
     self.data['deviceState'].startedMonoTime = NOW - 1_000_000_000

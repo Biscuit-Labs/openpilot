@@ -14,7 +14,7 @@ from openpilot.common.params import Params
 from openpilot.starpilot.lateral.lane_change_preferences import KEY, LaneChangePolicy, decode, effective, read_saved, to_value
 from openpilot.starpilot.ui.feature_settings_owner import FeatureSettingsOwner
 from openpilot.starpilot.ui.feature_settings_state import FeaturePage, FeatureSettingsRequest, row_change, row_default
-from openpilot.starpilot.ui.lane_change_feature import AUTO, CLOSE, DELAY, ENABLED, GAP, ONE, PACE, REQUIRE_CRUISE, RESET, SPEED, WIDTH
+from openpilot.starpilot.ui.lane_change_feature import ABORT, AUTO, CLOSE, DELAY, ENABLED, GAP, ONE, PACE, REQUIRE_CRUISE, RESET, SPEED, WIDTH
 from openpilot.starpilot.ui import feature_settings_compact as compact
 from openpilot.starpilot import saved_document
 
@@ -147,6 +147,26 @@ class LaneChangeFeatureTests(unittest.TestCase):
     self.assertFalse(read_saved(self.params).policy.one_per_signal)
     self.assertTrue(self.owner.apply(self.request(self.row(ENABLED), -1)))
     self.assertFalse(read_saved(self.params).policy.enabled)
+
+  def test_abort_blindspot_row_requires_bsm_and_toggles_the_saved_policy(self):
+    self.cp.deprecated.enableBsm = False
+    state = self.owner.snapshot(FeaturePage.LANE_CHANGE, parked=self.parked, system_long=False,
+                                lateral_context=True, metric=False)
+    self.assertFalse(any(row.key == ABORT for row in state.rows))
+    no_params = FeatureSettingsOwner(self.params, lambda group: self.parked and group in ("lane_change", "parked_preferences"),
+                                     vehicle_fingerprint=lambda: self.fingerprint, vehicle_params=lambda: None)
+    state = no_params.snapshot(FeaturePage.LANE_CHANGE, parked=self.parked, system_long=False,
+                               lateral_context=True, metric=False)
+    self.assertFalse(any(row.key == ABORT for row in state.rows))
+    self.cp.deprecated.enableBsm = True
+    row = self.row(ABORT)
+    self.assertEqual((row.label, row.value, row.default_value), ("Abort Lane Change for Blind Spot", "Off", "Off"))
+    self.assertTrue(row.available)
+    self.assertTrue(self.owner.apply(self.request(row)))
+    saved = read_saved(self.params)
+    self.assertTrue(saved.policy.abort_on_blindspot)
+    assert saved.raw is not None
+    self.assertEqual(json.loads(saved.raw)["abortOnBlindspot"], True)
 
   def test_force_turn_desires_rows_edit_the_saved_policy(self):
     from openpilot.starpilot.ui.lane_change_feature import TURN, TURN_SPEED

@@ -74,6 +74,12 @@
       ]
     },
     {
+      "source": "Abort Lane Change for Blind Spot",
+      "refs": [
+        "openpilot/starpilot/ui/lane_change_feature.py"
+      ]
+    },
+    {
       "source": "A combined log archive is unavailable. Download individual log files above.",
       "refs": [
         "openpilot/starpilot/galaxy/web/js/route-workspace.js"

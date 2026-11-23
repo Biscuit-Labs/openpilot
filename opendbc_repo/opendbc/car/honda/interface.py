@@ -86,6 +86,7 @@ class CarInterface(CarInterfaceBase):
     # BSI radars live on B-CAN; a body-harness gateway panda forwards them onto the radar bus as 29-bit IDs
     if candidate in (CAR.HONDA_CRV_5G, CAR.HONDA_ACCORD) and 0x12f8bfa7 in fingerprint[CAN.radar]:
       ret.flags |= HondaFlags.HAS_BSM.value
+      ret.deprecated.enableBsm = True
 
     # Detect Bosch cars with new HUD msgs
     if any(0x33DA in f for f in fingerprint.values()):

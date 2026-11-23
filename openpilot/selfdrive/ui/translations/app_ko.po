@@ -20912,6 +20912,10 @@ msgstr "AEB: 충돌 위험"
 msgid "Abnormal tire stiffness"
 msgstr "비정상적인 타이어 강성"
 
+#: openpilot/starpilot/ui/lane_change_feature.py
+msgid "Abort Lane Change for Blind Spot"
+msgstr "사각지대에서 차선 변경 중단"
+
 #: openpilot/starpilot/galaxy/web/js/offline-road-maps.js
 msgid "Active route: {} of {} corridor tiles checked."
 msgstr "활성 경로: {} / {} 경로 주변 타일 확인됨."

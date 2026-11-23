@@ -20912,6 +20912,10 @@ msgstr "AEB: Nguy cơ va chạm"
 msgid "Abnormal tire stiffness"
 msgstr "Độ cứng lốp bất thường"
 
+#: openpilot/starpilot/ui/lane_change_feature.py
+msgid "Abort Lane Change for Blind Spot"
+msgstr "Hủy đổi làn khi có xe trong điểm mù"
+
 #: openpilot/starpilot/galaxy/web/js/offline-road-maps.js
 msgid "Active route: {} of {} corridor tiles checked."
 msgstr "Tuyến đường đang dùng: đã kiểm tra {} trên {} ô hành lang."

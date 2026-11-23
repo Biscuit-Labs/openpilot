@@ -20916,6 +20916,10 @@ msgstr "AEB: Riesgo de colisión"
 msgid "Abnormal tire stiffness"
 msgstr "Rigidez anormal de los neumáticos"
 
+#: openpilot/starpilot/ui/lane_change_feature.py
+msgid "Abort Lane Change for Blind Spot"
+msgstr "Cancelar el cambio de carril por punto ciego"
+
 #: openpilot/starpilot/galaxy/web/js/offline-road-maps.js
 msgid "Active route: {} of {} corridor tiles checked."
 msgstr "Ruta activa: {} de {} teselas del corredor comprobadas."

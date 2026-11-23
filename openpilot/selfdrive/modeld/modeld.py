@@ -746,6 +746,8 @@ def main(demo=False):
 
       phase = {"manualRequired": StatusPhase.MANUAL_REQUIRED, "waitingForDelay": StatusPhase.WAITING_FOR_DELAY,
                "laneUnavailable": StatusPhase.LANE_UNAVAILABLE, "blindspotBlocked": StatusPhase.BLINDSPOT_BLOCKED}[DH.auto_status]
+      if DH.aborted_alert_active:
+        phase = StatusPhase.ABORTED_BLINDSPOT
       status_direction = (StatusDirection.LEFT if DH.lane_change_direction == log.LaneChangeDirection.left else
                           StatusDirection.RIGHT if DH.lane_change_direction == log.LaneChangeDirection.right else StatusDirection.NONE)
       lane_status = LaneChangeStatus(lane_status_session, lane_status_sequence,

@@ -22,7 +22,7 @@ STOCK_STEER_THRESHOLD = 1200
 @dataclass(frozen=True)
 class ModifiedEpsSettings:
   override_threshold: int = 2000         # HondaDriverOverrideThreshold, driver torque for steeringPressed (stock 1200)
-  min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this
+  min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this (0 = no speed gate)
   fade_down_s: float = 0.0               # HondaOverrideFadeDownSecs, soft cut on a press, request held while it eases out (0 = cut at once)
   fade_up_s: float = 1.25                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle hold: the authority climb)
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
@@ -99,6 +99,12 @@ class SteeringPressedHysteresis:
     return self.pressed
 
 
+def below_min_steer_speed(v_ego: float, min_steer_speed_mph: float) -> bool:
+  """The Min Steer Speed gate. 0 turns it off: at standstill vEgo dithers around zero (-1e-5 .. 0), so `v < 0` would
+  drop the request on every negative sample (Clarity joystick 11-24: request on/off every 0.3 s at a stop)."""
+  return min_steer_speed_mph > 0 and v_ego < min_steer_speed_mph * CV.MPH_TO_MS
+
+
 def get_eps_modified_steering_pressed(
   raw_pressed: bool, steering_torque: float, torque_cmd: float, filter_s: float, previous_pressed: bool
 ) -> tuple[float, bool]:
@@ -120,8 +126,8 @@ class ModifiedEpsSteering:
     torque_cmd = float(CC.actuators.torque) if CC.latActive else 0.0
     steering_pressed = False
     releasing = False
-    below_min_steer_speed = CS.out.vEgo < settings.min_steer_speed_mph * CV.MPH_TO_MS
-    if below_min_steer_speed:
+    below_min_speed = below_min_steer_speed(CS.out.vEgo, settings.min_steer_speed_mph)
+    if below_min_speed:
       torque_cmd = 0.0
 
     if CC.latActive:
@@ -163,5 +169,5 @@ class ModifiedEpsSteering:
 
     self.last_torque = torque_cmd
     self.lat_active_prev = CC.latActive
-    lkas_active = CC.latActive and (settings.assist_during_override or releasing or not steering_pressed) and not below_min_steer_speed
+    lkas_active = CC.latActive and (settings.assist_during_override or releasing or not steering_pressed) and not below_min_speed
     return torque_cmd, lkas_active, steering_pressed

@@ -37,6 +37,8 @@ def _geometry(lines):
     commands.append(1 | 1 << 3)
     commands += [_zigzag(line[0][0] - x), _zigzag(line[0][1] - y)]
     x, y = line[0]
+    if len(line) == 1:  # a point: MoveTo only
+      continue
     commands.append(2 | (len(line) - 1) << 3)
     for px, py in line[1:]:
       commands += [_zigzag(px - x), _zigzag(py - y)]
@@ -70,7 +72,7 @@ def test_decoder_keeps_drawable_road_classes_only():
               ("service", 2, [[(5, 5), (6, 6)]]),
               ("path", 2, [[(7, 7), (8, 8)]]),
               ("major_rail", 2, [[(9, 9), (10, 10)]]),
-              ("traffic_signals", 1, [[(1, 1), (1, 1)]])])
+              ("traffic_signals", 1, [[(1, 1)]])])
   roads = decode_mvt_roads(data)
   assert set(roads) == {MOTORWAY, MAJOR, STREET, LINK, MINOR}
   assert roads[MOTORWAY][0].tolist() == [[0, 0], [100, 50], [200, 50]]

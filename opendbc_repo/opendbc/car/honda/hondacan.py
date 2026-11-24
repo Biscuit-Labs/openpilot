@@ -143,8 +143,13 @@ def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control,
     else:
       set_me |= angle_payload
   if arm_bits and lkas_active:
-    # Clarity angle hold: the stock engage arm bits in byte 2 (clarity_angle_mode.stock_arm_bits), with the request
-    set_me |= arm_bits
+    # Clarity angle hold: the stock engage arm bits in byte 2 (clarity_angle_mode.stock_arm_bits), with the request.
+    # Bosch has no SET_ME_X00 (byte 2 bit 1 is DRIVER_OVERRIDE): bits 3:2 are STEER_CONTROL_ARM, bit 6 its own signal
+    if "SET_ME_X00" in packer.dbc.name_to_msg["STEERING_CONTROL"].sigs:
+      set_me |= arm_bits
+    else:
+      values["STEER_CONTROL_ARM"] = (arm_bits >> 2) & 0x3
+      values["STEER_CONTROL_ARM_B6"] = (arm_bits >> 6) & 0x1
   if set_me:
     values["SET_ME_X00"] = set_me
 

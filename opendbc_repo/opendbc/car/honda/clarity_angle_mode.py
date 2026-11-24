@@ -169,10 +169,26 @@ def apply_angle_mode(CP, requested: bool):
   return CP
 
 
+# SH-2A family angle images (build 0x0D) whose 0xE4 byte 2 arm/abort path is the Clarity A020's instruction for instruction
+# (rwd-xray lab/ptm-family/SH2A_0x0D_PORTS_20261123/abort, 11-24): the byte 2 bit extraction, the latch -> record copy,
+# engage arm select, abort to state 4, release type, bit 6 edges, hold flag, and the ramp counts (1024/1024/32/100/500/1024)
+# all match with only addresses relocated. Emulator, release images: arm 2 tracks hands-off (0.10 s ramp-in), a press with
+# the abort bits drops LKAS (3 -> 4 -> 1) and disarms the stock steering-overspeed monitor (DTC 0x20) 4-5 ms after the EPS
+# takes the first abort frame (today the monitor stays armed through the press), re-arms 0.10 s after the release, no fault
+# or lockout. Keyed by image, not fingerprint: the torque images on these fingerprints and every other family (TJB/THR/T5R,
+# V850) keep arm bits 0.
+STOCK_ARM_IMAGES = (b'39990+TBA+C020\x00\x00', b'39990+TBA+C120\x00\x00', b'39990+TBA+A030\x00\x00', b'39990+TEG+A010\x00\x00',
+                    b'39990+TGG+A120\x00\x00', b'39990+TEA+H020\x00\x00', b'39990+TLA+A040\x00\x00', b'39990+TXM+A040\x00\x00',
+                    b'39990+TLA+A220\x00\x00')
+
+
 def stock_arm_bits_supported(CP) -> bool:
-  """The stock 0xE4 byte 2 engage-arm field (stock_arm_bits) is traced on the Clarity's A020 only (E4 field map 11-15).
-  Other EPS images read byte 2 differently (TJB/THR merge bit 5 with byte 4 bit 6), so they get no arm bits."""
-  return CP.carFingerprint == CAR.HONDA_CLARITY
+  """The stock 0xE4 byte 2 engage-arm field (stock_arm_bits): traced on the Clarity's A020 (E4 field map 11-15) and shown
+  identical on the SH-2A family angle images in STOCK_ARM_IMAGES. Other EPS images read byte 2 differently (TJB/THR merge
+  bit 5 with byte 4 bit 6) or are not checked, so they get no arm bits."""
+  if CP.carFingerprint == CAR.HONDA_CLARITY:
+    return True
+  return any(fw.ecu == "eps" and fw.fwVersion in STOCK_ARM_IMAGES for fw in CP.carFw)
 
 
 def angle_mode(CP) -> bool:

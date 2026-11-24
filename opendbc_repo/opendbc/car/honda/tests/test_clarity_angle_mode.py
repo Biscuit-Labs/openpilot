@@ -691,3 +691,75 @@ def test_arm_bits_only_with_the_request():
   assert d[2] == 0xE4
   _, d, _ = hondacan.create_steering_control(packer, can, 100, False, False, eps_mode=0xF1, angle_payload=0x20, arm_bits=cam.E4_ARM2)
   assert d[0:3] == bytes(3)                                              # no request: byte 2 stays 0
+
+
+# the SH-2A family angle images whose 0xE4 byte 2 arm/abort path is the A020's (clarity_angle_mode.STOCK_ARM_IMAGES)
+SH2A_ARM_CASES = [
+  (CAR.HONDA_CIVIC_BOSCH, b'39990+TBA+C020\x00\x00'), (CAR.HONDA_CIVIC_BOSCH, b'39990+TBA+C120\x00\x00'),
+  (CAR.HONDA_CIVIC, b'39990+TBA+A030\x00\x00'), (CAR.HONDA_CIVIC, b'39990+TEG+A010\x00\x00'),
+  (CAR.HONDA_CIVIC_BOSCH, b'39990+TGG+A120\x00\x00'), (CAR.HONDA_CRV_5G, b'39990+TLA+A040\x00\x00'),
+  (CAR.HONDA_CRV_5G, b'39990+TLA+A220\x00\x00'), (CAR.HONDA_INSIGHT, b'39990+TXM+A040\x00\x00'),
+]
+# same fingerprints on their torque images, and the angle images of the other families (TJB/THR/T5R SH-2A, V850): no arm bits
+NO_ARM_CASES = [
+  (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), (CAR.HONDA_CIVIC, b'39990-TBA,A030\x00\x00'),
+  (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00'), (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00'),
+  (CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), (CAR.HONDA_ODYSSEY, b'39990+THR+A020\x00\x00'),
+  (CAR.HONDA_FIT, b'39990+T5R+C030\x00\x00'), (CAR.HONDA_RIDGELINE, b'39990+T6Z+A110\x00\x00'),
+  (CAR.HONDA_PILOT, b'39990+TG7+A070\x00\x00'), (CAR.HONDA_PILOT, b'39990+TG7+A060\x00\x00'),
+]
+
+
+def _fw_cp(candidate, fw, angle):
+  # card: CarParams from the interface (car_helpers sets carFw), then the pre-create hook applies the setting
+  cp = params(candidate, [eps(fw)])
+  cp.carFw = [eps(fw)]
+  return cam.apply_angle_mode(cp, angle)
+
+
+@pytest.mark.parametrize("candidate,fw", SH2A_ARM_CASES)
+def test_stock_arm_bits_on_the_sh2a_angle_images(candidate, fw):
+  from opendbc.car.honda.carcontroller import CarController
+  from opendbc.car.honda.values import DBC
+  CP = _fw_cp(candidate, fw, True)
+  assert cam.angle_mode(CP) and cam.stock_arm_bits_supported(CP)
+  assert CarController(DBC[candidate], CP).stock_arm
+  # angle mode off: the image runs its stock torque mode (no angle sender, so no hold and no arm bits are ever sent)
+  CP = _fw_cp(candidate, fw, False)
+  assert not cam.angle_mode(CP) and CarController(DBC[candidate], CP).angle_sender is None
+
+
+@pytest.mark.parametrize("candidate,fw", NO_ARM_CASES)
+def test_no_stock_arm_bits_elsewhere(candidate, fw):
+  from opendbc.car.honda.carcontroller import CarController
+  from opendbc.car.honda.values import DBC
+  CP = _fw_cp(candidate, fw, True)
+  assert not cam.stock_arm_bits_supported(CP)
+  assert not CarController(DBC[candidate], CP).stock_arm
+
+
+def test_stock_arm_images_are_the_sh2a_family_list():
+  # every listed image is an angle image ('+' separators); H020 (TEA) is in the proven set though openpilot has no TEA row yet
+  assert len(cam.STOCK_ARM_IMAGES) == 9 and len(set(cam.STOCK_ARM_IMAGES)) == 9
+  from opendbc.car.honda.values import is_angle_image
+  assert all(is_angle_image(fw) for fw in cam.STOCK_ARM_IMAGES)
+  assert {fw for _, fw in SH2A_ARM_CASES} | {b'39990+TEA+H020\x00\x00'} == set(cam.STOCK_ARM_IMAGES)
+  for fw in (b'39990+TRW+A020\x00\x00', b'39990-TRW,A020\x00\x00'):      # the Clarity, by fingerprint as before
+    assert cam.stock_arm_bits_supported(_fw_cp(CAR.HONDA_CLARITY, fw, False))
+
+
+@pytest.mark.parametrize("candidate", [CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC])
+def test_arm_bits_pack_on_bosch_and_nidec(candidate):
+  # Bosch STEERING_CONTROL has no SET_ME_X00: the arm field goes out as STEER_CONTROL_ARM (bits 3:2) + STEER_CONTROL_ARM_B6;
+  # the byte on the wire is the same as the Clarity's (Nidec SET_ME_X00)
+  from opendbc.can import CANPacker
+  from opendbc.car.honda import hondacan
+  from opendbc.car.honda.values import DBC
+  from opendbc.car import Bus
+  packer = CANPacker(DBC[candidate][Bus.pt])
+  can = type("C", (), {"lkas": 0})()
+  for bits, byte2 in ((cam.E4_ARM2, 0xE8), (cam.E4_ARM2_ABORT, 0xE4), (0, 0xA0)):
+    _, d, _ = hondacan.create_steering_control(packer, can, 100, True, False, eps_mode=0x01, angle_payload=0x20, arm_bits=bits)
+    assert d[2] == byte2, (candidate, hex(d[2]))
+  _, d, _ = hondacan.create_steering_control(packer, can, 100, False, False, eps_mode=0xF1, angle_payload=0x20, arm_bits=cam.E4_ARM2)
+  assert d[2] == 0                                                       # no request: no arm bits

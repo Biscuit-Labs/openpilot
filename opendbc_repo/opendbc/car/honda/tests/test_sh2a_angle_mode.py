@@ -84,7 +84,8 @@ def test_angle_image_selects_angle_mode_on_its_row(build):
   assert sc.safetyModel == (structs.CarParams.SafetyModel.hondaBosch if bosch else structs.CarParams.SafetyModel.hondaNidec)
   assert ci.CP.steerRatio == pytest.approx(OWN_GEOMETRY[car].steer_ratio)
   assert ci.CP.maxLateralAccel == 3.0
-  assert ci.CC.angle_sender.profile is ANGLE_PROFILES[car] and ci.CC.angle_sender.linear and not ci.CC.stock_arm
+  # the stock byte 2 arm/abort path is the Clarity A020's on every SH-2A family angle image (clarity_angle_mode.STOCK_ARM_IMAGES)
+  assert ci.CC.angle_sender.profile is ANGLE_PROFILES[car] and ci.CC.angle_sender.linear and ci.CC.stock_arm
   assert ci.CS.linear_angle.required and ci.CC.eps_mode == 0xF1
 
 
@@ -161,16 +162,19 @@ def test_sender_through_an_override_passes_panda(build, v):
   car, code, var = build
   c = Car(make(car, code, var), v=v)
   plan = 0.5 * vm_angle_limit(v, ANGLE_PROFILES[car])
-  auth = []
+  auth, arm = [], []
   for i in range(700):
     pressed = 150 <= i < 400
     c.wheel = min(c.wheel + 3.5, 450.) if pressed else c.wheel + 0.2 * (c.ci.CC.angle_sender.out_angle - c.wheel)
     _, dat, ok, target = c.step(True, plan, pressed=pressed, torque=3000. if pressed else 0.)
     assert ok, (v, i, target)
     if i > 20:
-      assert request(dat) and (dat[2] & 0x7F) == 0x20, (i, hex(dat[2]))
+      # payload bit 5 + the stock arm field: arm 2 (0x48), abort (0x44) while the driver yields; panda reads only bits 7 / 5
+      assert request(dat) and (dat[2] & 0x7F) in (0x20 | cam.E4_ARM2, 0x20 | cam.E4_ARM2_ABORT), (i, hex(dat[2]))
     auth.append(dat[3] >> 4)
+    arm.append(dat[2] & 0x4C)
   assert min(auth[160:400]) == 0 and auth[-1] == 15
+  assert set(arm[21:150]) == {cam.E4_ARM2} and set(arm[160:400]) == {cam.E4_ARM2_ABORT} and set(arm[450:]) == {cam.E4_ARM2}
   assert target == pytest.approx(plan, abs=0.06)
 
 

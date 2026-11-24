@@ -283,11 +283,11 @@ def test_angle_images_fingerprint_exactly():
       continue
     for image in filter(is_angle_image, images):
       if image.replace(b'+', b'-') not in fw[eps_keys[0]]:
-        continue                                      # stock image not listed either (RDX 3G A220: fuzzy match today)
+        continue                                      # stock image not listed for this platform
       assert image in fw[eps_keys[0]], (car, image)
       live = [structs.CarParams.CarFw(ecu=ecu, fwVersion=(image if k == eps_keys[0] else vers[0]), address=addr,
                                       subAddress=sub or 0, brand="honda") for k, vers in fw.items() for ecu, addr, sub in [k]]
       exact, matches = match_fw_to_car(live, "", allow_fuzzy=False, log=False)
       assert exact and car in matches, (car, image, matches)
       checked += 1
-  assert checked >= 13
+  assert checked >= 14

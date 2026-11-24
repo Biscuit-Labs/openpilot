@@ -891,6 +891,9 @@ FW_VERSIONS = {
       b'39990-TJB-A030\x00\x00',
       b'39990-TJB-A040\x00\x00',
       b'39990-TJB-A130\x00\x00',
+      b'39990-TJB-A220\x00\x00',
+      b'39990-TJB,A220\x00\x00',  # modified A220 image
+      b'39990+TJB+A220\x00\x00',  # angle PTM image (EPS build 0x0C on)
     ],
   },
   # mid-model refresh

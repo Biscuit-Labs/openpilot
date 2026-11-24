@@ -50,7 +50,8 @@ class BootstrapTest(unittest.TestCase):
     with patch('openpilot.starpilot.bluetooth.radio_preference.RadioPreference.enabled', return_value=True):
       self.worker.step()
     self.assertTrue(any('start' in call and UNIT in call for call in self.calls))
-    joined = ' '.join(' '.join(call) for call in self.calls)
+    # the random temp root (e.g. /tmp/tmpip_xxxx) must not count as a command word
+    joined = ' '.join(' '.join(call) for call in self.calls).replace(str(self.root), '<root>')
     for word in ('install', 'pip', 'uv ', 'venv'):
       self.assertNotIn(word, joined)
 

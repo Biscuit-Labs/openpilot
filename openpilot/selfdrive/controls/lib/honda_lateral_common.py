@@ -49,7 +49,7 @@ CIVIC_BOSCH_SR_CURVE_V = [14.960, 14.960, 14.910, 14.740, 14.210, 13.630, 13.120
 
 # CR-V 5G road-measured curve, carried over unchanged from 4f3271d6af. The A040 image also has an exact
 # firmware position map (steer_ratio.py, the owner's static decode, not road-checked), but this measured
-# effective-ratio curve stays the default: HondaEpsFirmwareVgr must be turned on to select the firmware map.
+# effective-ratio curve is what is used (the old HondaEpsFirmwareVgr switch had no reader and was retired 11-24).
 CRV_5G_SR_CURVE_BP = [0., 50., 100., 150., 175., 200.]  # |wheel angle|, deg
 CRV_5G_SR_CURVE_V = [18.10, 17.80, 16.30, 15.30, 14.90, 14.60]
 

@@ -4,7 +4,7 @@ Kept free of openpilot settings: openpilot attaches a source of ModifiedEpsSetti
 to the car controller and car state; without one the defaults below apply.
 
 INVARIANT: every stage here may only reduce the command because the car genuinely cannot deliver it -- below the
-minimum steer speed, cut for a driver override, or held back by the opt-in steer-delta limiter. controlsd turns any
+minimum steer speed or cut for a driver override. controlsd turns any
 difference between CC.actuators.torque and what is sent into steer_limited_by_safety, which freezes the lateral
 integrator, so comfort shaping (the output low-pass) lives in the lateral controller, never here.
 """
@@ -27,9 +27,6 @@ class ModifiedEpsSettings:
   fade_up_s: float = 1.25                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle hold: the authority climb)
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
   assist_during_override: bool = False   # HondaDriverAssistDuringOverride, keep LKAS active while pressed
-  delta_limiter: bool = False            # HondaSteerDeltaLimiter, the stock steer rate limit, opt-in
-  delta_up: float = 3.0                  # HondaSteerDeltaUp, per second of the normalized command
-  delta_down: float = 3.0                # HondaSteerDeltaDown
   angle_hold_override: bool = True       # HondaClarityAngleHoldOverride, Clarity angle mode: hold the request through an override (authority -> 0)
   angle_rate_limit_deg_s: float = 300.0  # HondaEpsAngleRateLimit, Clarity angle mode: cap on the target's rate in CarController (0 = off)
 
@@ -164,8 +161,6 @@ class ModifiedEpsSteering:
 
     # Unlike a low-pass filter, the limiter withholds authority for as long as it is saturated, so reporting it as
     # limiting -- and freezing the integrator against it -- is correct.
-    if settings.delta_limiter:
-      torque_cmd = rate_limit(torque_cmd, self.last_torque, -settings.delta_down * DT_CTRL, settings.delta_up * DT_CTRL)
 
     self.last_torque = torque_cmd
     self.lat_active_prev = CC.latActive

@@ -21,13 +21,11 @@ class TestModifiedEpsPreferences(unittest.TestCase):
     self.params.put("HondaMinSteerSpeed", 0, block=True)
     self.params.put("HondaOverrideFadeUpSecs", 0.8, block=True)
     self.params.put("HondaOverrideTorqueScale", 250, block=True)
-    self.params.put_bool("HondaSteerDeltaLimiter", True, block=True)
     settings = read_settings(self.params)
     self.assertEqual(settings.override_threshold, 1840)
     self.assertEqual(settings.min_steer_speed_mph, 0)
     self.assertAlmostEqual(settings.fade_up_s, 0.8)
     self.assertEqual(settings.torque_scale, 1.0)
-    self.assertTrue(settings.delta_limiter)
 
   def test_refreshes_once_a_second(self):
     now = [0]

@@ -11,26 +11,27 @@ from pathlib import Path
 # old name -> current name, as vfn's manager renamed them. The old names are the literal keys still saved on cars, so
 # they stay spelled exactly as they were.
 HONDA_EPS_KEY_RENAMES = {
-  "HondaTorqueLowPassFilter": "HondaTorqueOutputLowPassFilter",
-  "HondaLpfTauLowSpeed": "HondaTorqueOutputLpfTauLowSpeed",
-  "HondaLpfTauStandard": "HondaTorqueOutputLpfTauStandard",
-  "HondaLpfTauHighway": "HondaTorqueOutputLpfTauHighway",
-  "NrdrLatUseFirmwareVgr": "HondaEpsFirmwareVgr",
   "NrdrLatAngleRateLimit": "HondaEpsAngleRateLimit",
   "NrdrDriverOverrideThreshold": "HondaDriverOverrideThreshold",
   "NrdrMinSteerSpeed": "HondaMinSteerSpeed",
 }
 
-HONDA_EPS_PRESERVED_KEYS = frozenset({
-  "HondaEpsAngleRateLimit", "HondaEpsFirmwareVgr", "HondaOverrideFadeUpSecs",
+# Retired settings (2026-11-24): nothing reads them any more and no settings page showed them, so their saved files are
+# deleted at start, under vfn's old names and their later names alike. The values they held were the defaults now
+# fixed in code (torque output low-pass on, 0.07/0.05/0.01 s; PID trims 1/1/1, 0.2/1/0, 1/1/1; delta limiter off).
+RETIRED_HONDA_EPS_KEYS = (
+  "HondaTorqueLowPassFilter", "HondaLpfTauLowSpeed", "HondaLpfTauStandard", "HondaLpfTauHighway", "NrdrLatUseFirmwareVgr",
   "HondaTorqueOutputLowPassFilter", "HondaTorqueOutputLpfTauLowSpeed", "HondaTorqueOutputLpfTauStandard",
-  "HondaTorqueOutputLpfTauHighway",
-  "LatPScaleLowSpeed", "LatPScaleStandard", "LatPScaleHighway",
-  "LatIScaleLowSpeed", "LatIScaleStandard", "LatIScaleHighway",
-  "LatFScaleLowSpeed", "LatFScaleStandard", "LatFScaleHighway",
+  "HondaTorqueOutputLpfTauHighway", "HondaEpsFirmwareVgr", "HondaClarityAngleCap3",
+  "HondaSteerDeltaLimiter", "HondaSteerDeltaUp", "HondaSteerDeltaDown",
+  *(f"Lat{gain}Scale{band}" for gain in "PIF" for band in ("LowSpeed", "Standard", "Highway")),
+)
+
+HONDA_EPS_PRESERVED_KEYS = frozenset({
+  "HondaEpsAngleRateLimit", "HondaOverrideFadeUpSecs",
   "HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
-  "HondaDriverAssistDuringOverride", "HondaSteerDeltaLimiter", "HondaSteerDeltaUp", "HondaSteerDeltaDown",
-  "HondaClarityAngleMode", "HondaClarityAngleCap3", "HondaClarityAngleHoldOverride", "HondaAngleDefaultsReset",
+  "HondaDriverAssistDuringOverride",
+  "HondaClarityAngleMode", "HondaClarityAngleHoldOverride", "HondaAngleDefaultsReset",
   "DisableSeatbeltCheck",
 })
 
@@ -52,6 +53,11 @@ def migrate_honda_eps_param_names(params) -> list[str]:
         pass
     try:
       old_path.unlink()
+    except OSError:
+      pass
+  for key in RETIRED_HONDA_EPS_KEYS:
+    try:
+      Path(params.get_param_path(key)).unlink()
     except OSError:
       pass
   return renamed

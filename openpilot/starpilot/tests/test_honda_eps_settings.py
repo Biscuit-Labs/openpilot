@@ -40,26 +40,34 @@ class TestHondaEpsSettings(unittest.TestCase):
     renamed = migrate_honda_eps_param_names(self.params)
 
     self.assertEqual(self.params.get("HondaEpsAngleRateLimit"), 219)
-    self.assertTrue(self.params.get_bool("HondaEpsFirmwareVgr"))
-    self.assertAlmostEqual(self.params.get("HondaTorqueOutputLpfTauLowSpeed"), 0.07)
     self.assertEqual(self.params.get("HondaMinSteerSpeed"), 6)
     self.assertNotIn("NrdrMinSteerSpeed->HondaMinSteerSpeed", renamed)
     for old_key in HONDA_EPS_KEY_RENAMES:
       self.assertFalse(Path(self.params.get_param_path(old_key)).exists(), old_key)
+    # retired settings: their files go, under vfn's old names and their later names alike
+    for key in ("NrdrLatUseFirmwareVgr", "HondaLpfTauLowSpeed"):
+      self.assertFalse(Path(self.params.get_param_path(key)).exists(), key)
     self.assertEqual(migrate_honda_eps_param_names(self.params), [])   # idempotent
+
+  def test_retired_settings_are_deleted(self):
+    from openpilot.starpilot.honda_eps_settings import RETIRED_HONDA_EPS_KEYS
+    for key in ("HondaSteerDeltaLimiter", "LatPScaleHighway", "HondaTorqueOutputLowPassFilter", "HondaEpsFirmwareVgr"):
+      self.assertIn(key, RETIRED_HONDA_EPS_KEYS)
+      self.write_raw(key, b"1")
+    migrate_honda_eps_param_names(self.params)
+    for key in RETIRED_HONDA_EPS_KEYS:
+      self.assertFalse(Path(self.params.get_param_path(key)).exists(), key)
 
   def test_honda_eps_tuning_survives_7_0s_first_start(self):
     self.write_raw("NrdrLatAngleRateLimit", b"219")
-    self.params.put("HondaTorqueOutputLpfTauLowSpeed", 0.07, block=True)
-    self.params.put("LatPScaleHighway", 125, block=True)
+    self.params.put("HondaOverrideTorqueScale", 25, block=True)
     self.params.put_bool("AlwaysOnLateral", True, block=True)   # a StarPilot preference: 7.0 starts it fresh
 
     migrate_honda_eps_param_names(self.params)
     prepare_manager_start(self.params, self.storage, auto_migrate=True)
 
     self.assertEqual(self.params.get("HondaEpsAngleRateLimit"), 219)
-    self.assertAlmostEqual(self.params.get("HondaTorqueOutputLpfTauLowSpeed"), 0.07)
-    self.assertEqual(self.params.get("LatPScaleHighway"), 125)
+    self.assertEqual(self.params.get("HondaOverrideTorqueScale"), 25)
     self.assertFalse(self.params.get_bool("AlwaysOnLateral"))
 
 

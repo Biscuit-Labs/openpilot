@@ -32,9 +32,6 @@ def read_settings(params) -> ModifiedEpsSettings:
     fade_up_s=_number(params, "HondaOverrideFadeUpSecs", d.fade_up_s, 0.0, 10.0),
     torque_scale=_number(params, "HondaOverrideTorqueScale", d.torque_scale * 100.0, 0.0, 100.0) / 100.0,
     assist_during_override=_flag(params, "HondaDriverAssistDuringOverride", d.assist_during_override),
-    delta_limiter=_flag(params, "HondaSteerDeltaLimiter", d.delta_limiter),
-    delta_up=_number(params, "HondaSteerDeltaUp", d.delta_up, 0.0, 100.0),
-    delta_down=_number(params, "HondaSteerDeltaDown", d.delta_down, 0.0, 100.0),
     angle_hold_override=_flag(params, "HondaClarityAngleHoldOverride", d.angle_hold_override),
     angle_rate_limit_deg_s=_number(params, "HondaEpsAngleRateLimit", d.angle_rate_limit_deg_s, 0.0, 2000.0),
   )

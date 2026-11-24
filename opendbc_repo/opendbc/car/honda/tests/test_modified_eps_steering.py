@@ -155,10 +155,6 @@ class TestHondaSteeringCommandFidelity:
     assert all(lkas for _, lkas, _ in out)
     assert out[-1][0] == pytest.approx(0.15)
 
-  def test_steer_delta_limiter_is_reported_as_limited(self):
-    delivered = self._drive(self._ready(), [1.0], settings=replace(self.SETTINGS, delta_limiter=True))
-    assert abs(1.0 - delivered[0]) > 1e-2
-
   def test_the_car_controller_sends_the_command_through_the_stage(self):
     CP = _modified_cp()
     controller = CarController(DBC[CP.carFingerprint], CP)

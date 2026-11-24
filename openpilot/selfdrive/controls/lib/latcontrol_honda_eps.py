@@ -18,14 +18,12 @@ published specs (honda_eps_spec_plant).
 This shell does what LatControlPID does around its PID for a modified-EPS Honda, reusing the same helpers so
 each setting behaves identically, except the geometry: curvature -> wheel angle through the calibration's rack map
 (the firmware VGR table, a rack ratio by angle and a slip factor, honda_eps_rack_map.HondaEpsRackMap; every calibration
-has one, so HondaEpsFirmwareVgr and the road-measured ratio curves are LatControlPID's only), the angle-rate ceiling
+has one, so the road-measured ratio curves are LatControlPID's only), the angle-rate ceiling
 (HondaEpsAngleRateLimit), the shared
-driver-override detector, and the speed-banded output low-pass (HondaTorqueOutputLowPassFilter /
-HondaTorqueOutputLpfTau*). Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
+driver-override detector, and the speed-banded output low-pass (always on, fixed per-band time constants). Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
 
-Not read here, on purpose: LatPScale*, LatIScale*, HondaLateralPidKp/KiScale (the PID is fixed per car to the
-tune the feedforward was validated with) and LatFScale* (they scaled the kf * angle * v^2 feedforward this
-replaces).
+No PID trims (the PID is fixed per car to the tune the feedforward was validated with; the LatP/I/FScale
+settings were retired 11-24).
 """
 import math
 from collections import deque
@@ -56,8 +54,6 @@ from openpilot.selfdrive.controls.lib.honda_eps_rack_map import HondaEpsRackMap
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.honda_lateral_common import (
   HONDA_ANGLE_RATE_LIMIT_DEG_S,
-  HONDA_TORQUE_OUTPUT_LPF_TAU,
-  _get_param_bool,
   _get_param_float,
   rate_limit_desired_angle,
 )
@@ -233,12 +229,6 @@ class LatControlHondaEps(LatControl):
 
   def _read_settings(self):
     self.angle_rate_limit_deg_s = _get_param_float(self.params, "HondaEpsAngleRateLimit", HONDA_ANGLE_RATE_LIMIT_DEG_S, 0.0, 2000.0)
-    self.core.output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
-    self.core.output_lpf_tau = tuple(
-      _get_param_float(self.params, key, default, 0.0, 5.0)
-      for key, default in zip(("HondaTorqueOutputLpfTauLowSpeed", "HondaTorqueOutputLpfTauStandard", "HondaTorqueOutputLpfTauHighway"),
-                              HONDA_TORQUE_OUTPUT_LPF_TAU, strict=True)
-    )
     self.core.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs", OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
 
   def update_lateral_source(self, source: str) -> None:

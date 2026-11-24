@@ -12,7 +12,8 @@ from openpilot.starpilot.models.jetlink_status import JetlinkStatus, JetlinkStat
 
 
 def status(**kw):
-  base = {'enabled': True, 'mode': 'usb', 'present': True, 'port_state': 'connected', 'active': False, 'reason': None, 'running': None, 'ready': False, 'progress': None}
+  base = {'enabled': True, 'mode': 'usb', 'present': True, 'port_state': 'connected', 'active': False, 'reason': None, 'running': None,
+          'ready': False, 'progress': None}
   return NS(**{**base, **kw})
 
 

@@ -267,3 +267,27 @@ def test_min_steer_speed_zero_is_no_gate():
   assert below_min_steer_speed(-1e-5, 1) and below_min_steer_speed(0.0, 1)
   assert below_min_steer_speed(1 * CV.MPH_TO_MS - 1e-6, 1) and not below_min_steer_speed(1 * CV.MPH_TO_MS, 1)
 
+
+
+def test_angle_images_fingerprint_exactly():
+  # after a flash the EPS reports its '+' image (39990+TLA+A220); with only the '-'/',' forms listed the exact match failed
+  # and the car fell to fuzzy matching (or dashcam). Every angle image of a platform that lists its EPS must match exactly.
+  from opendbc.car.fw_versions import match_fw_to_car
+  from opendbc.car.honda.fingerprints import FW_VERSIONS
+  from opendbc.car.honda.values import MODIFIED_EPS_FW, is_angle_image
+  checked = 0
+  for car, images in MODIFIED_EPS_FW.items():
+    fw = FW_VERSIONS.get(car, {})
+    eps_keys = [k for k in fw if k[1] == 0x18da30f1]
+    if not eps_keys:
+      continue
+    for image in filter(is_angle_image, images):
+      if image.replace(b'+', b'-') not in fw[eps_keys[0]]:
+        continue                                      # stock image not listed either (RDX 3G A220: fuzzy match today)
+      assert image in fw[eps_keys[0]], (car, image)
+      live = [structs.CarParams.CarFw(ecu=ecu, fwVersion=(image if k == eps_keys[0] else vers[0]), address=addr,
+                                      subAddress=sub or 0, brand="honda") for k, vers in fw.items() for ecu, addr, sub in [k]]
+      exact, matches = match_fw_to_car(live, "", allow_fuzzy=False, log=False)
+      assert exact and car in matches, (car, image, matches)
+      checked += 1
+  assert checked >= 13

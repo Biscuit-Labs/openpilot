@@ -196,9 +196,11 @@ FW_VERSIONS = {
     ],
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-TBA-A030\x00\x00',
+      b'39990+TBA+A030\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TBG-A030\x00\x00',
       b'39990-TEA-T020\x00\x00',
       b'39990-TEG-A010\x00\x00',
+      b'39990+TEG+A010\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TBA,A030\x00\x00',
     ],
     (Ecu.srs, 0x18da53f1, None): [
@@ -267,13 +269,16 @@ FW_VERSIONS = {
     ],
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-TBA-C020\x00\x00',
+      b'39990+TBA+C020\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TBA-C120\x00\x00',
+      b'39990+TBA+C120\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TBF-A610\x00\x00',
       b'39990-TEA-T330\x00\x00',
       b'39990-TEA-T820\x00\x00',
       b'39990-TEZ-T020\x00\x00',
       b'39990-TGG-A020\x00\x00',
       b'39990-TGG-A120\x00\x00',
+      b'39990+TGG+A120\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TGG-J510\x00\x00',
       b'39990-TGH-J020\x00\x00',
       b'39990-TGH-J530\x00\x00',
@@ -415,8 +420,10 @@ FW_VERSIONS = {
     ],
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-TLA-A040\x00\x00',
+      b'39990+TLA+A040\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TLA-A110\x00\x00',
       b'39990-TLA-A220\x00\x00',
+      b'39990+TLA+A220\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TME-T030\x00\x00',
       b'39990-TME-T120\x00\x00',
       b'39990-TMT-T010\x00\x00',
@@ -534,6 +541,7 @@ FW_VERSIONS = {
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-T5R-C020\x00\x00',
       b'39990-T5R-C030\x00\x00',
+      b'39990+T5R+C030\x00\x00',  # angle PTM image (EPS build 0x0C on)
     ],
     (Ecu.gateway, 0x18daeff1, None): [
       b'38897-T5A-J010\x00\x00',
@@ -624,6 +632,7 @@ FW_VERSIONS = {
     ],
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-THR-A020\x00\x00',
+      b'39990+THR+A020\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-THR,A020\x00\x00',
       b'39990-THR-A030\x00\x00',
     ],
@@ -768,7 +777,9 @@ FW_VERSIONS = {
       b'39990-TG7-A030\x00\x00',
       b'39990-TG7-A040\x00\x00',
       b'39990-TG7-A060\x00\x00',
+      b'39990+TG7+A060\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TG7-A070\x00\x00',
+      b'39990+TG7+A070\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-TGS-A230\x00\x00',
       b'39990-TGS-A320\x00\x00',
       b'39990-TGS-A410\x00\x00',
@@ -897,6 +908,7 @@ FW_VERSIONS = {
       b'39990-T6Z-A030\x00\x00',
       b'39990-T6Z-A050\x00\x00',
       b'39990-T6Z-A110\x00\x00',
+      b'39990+T6Z+A110\x00\x00',  # angle PTM image (EPS build 0x0C on)
       b'39990-T6Z,A110\x00\x00',
     ],
     (Ecu.fwdRadar, 0x18dab0f1, None): [
@@ -928,6 +940,7 @@ FW_VERSIONS = {
   CAR.HONDA_INSIGHT: {
     (Ecu.eps, 0x18da30f1, None): [
       b'39990-TXM-A040\x00\x00',
+      b'39990+TXM+A040\x00\x00',  # angle PTM image (EPS build 0x0C on)
     ],
     (Ecu.fwdRadar, 0x18dab0f1, None): [
       b'36802-TXM-A070\x00\x00',

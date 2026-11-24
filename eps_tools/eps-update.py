@@ -1,4 +1,5 @@
 import gzip
+import math
 import os
 import struct
 import sys
@@ -138,6 +139,22 @@ def get_seed_secret(fw, app_id):
 def get_can_address(fw):
   return 0x18da00f1 | struct.unpack('!B', fw.file_headers[2].values[0].value)[0] << 8
 
+# The extended session drops after about 5 s without a request (S3; measured on the V850 app and boot server, 5.0 s kept,
+# 5.5 s dropped). A seed retry 10 s later then got 7F 27 7F and the flash stopped: the common case is recovery, right
+# after a power cycle, when the boot's seed delay is still running. Tester present every 2 s holds the session while
+# the seed requests themselves keep their slow interval.
+SESSION_KEEPALIVE_S = 2.0
+
+
+def keep_session_alive(uds_client, wait_s):
+  """Sleep wait_s, sending tester present between 2 s slices so the extended session survives the wait."""
+  slices = max(1, math.ceil(wait_s / SESSION_KEEPALIVE_S))
+  for i in range(slices):
+    time.sleep(min(SESSION_KEEPALIVE_S, wait_s - i * SESSION_KEEPALIVE_S))
+    if i < slices - 1:
+      uds_client.tester_present()
+
+
 def request_seed(uds_client, timeout_s):
   """Request a security-access seed, waiting out the ECU's delay timer.
 
@@ -169,7 +186,7 @@ def request_seed(uds_client, timeout_s):
       wait = min(SEED_RETRY_INTERVAL_S, remaining)
       print(f"  attempt {attempt}: {reason} — waiting {wait:.0f}s "
             f"({remaining:.0f}s of {timeout_s:.0f}s budget left)")
-      time.sleep(wait)
+      keep_session_alive(uds_client, wait)
 
 def leave_diagnostic_session(uds_client):
   """Drop back to the default session so the EPS isn't left in extended/programming."""

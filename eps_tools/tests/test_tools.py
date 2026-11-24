@@ -211,6 +211,22 @@ class ValidationTests(unittest.TestCase):
                     code = status.code
         return modules, output.getvalue(), code
 
+    def test_seed_delay_keeps_the_session_alive(self):
+        # the extended session drops after ~5 s idle (S3), so the 10 s seed retry wait sends tester present every 2 s
+        modules = dependencies()
+
+        class Pending(Exception):
+            error_code = 0x37
+        modules['opendbc.car.uds'].NegativeResponseError = Pending
+        with patch.dict(sys.modules, modules):
+            update = load('eps_update_seed', 'eps-update.py')
+        client = Mock()
+        client.security_access.side_effect = [Pending(), b'\x12\x34']
+        with patch('time.sleep') as sleep, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(update.request_seed(client, 120.0), b'\x12\x34')
+        self.assertEqual(client.tester_present.call_count, 4)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [2.0] * 5)
+
     def test_v850_images_are_programmed(self):
         # the V850 bootloader takes the same sequence (lab/pilot-tg7/V850_FLASH_PROTOCOL_20261124.md)
         check_rwd.require_uds_flashable(x5a(t6z_image()))

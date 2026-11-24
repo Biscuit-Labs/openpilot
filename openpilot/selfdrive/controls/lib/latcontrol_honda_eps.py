@@ -20,7 +20,8 @@ each setting behaves identically, except the geometry: curvature -> wheel angle 
 (the firmware VGR table, a rack ratio by angle and a slip factor, honda_eps_rack_map.HondaEpsRackMap; every calibration
 has one, so the road-measured ratio curves are LatControlPID's only), the angle-rate ceiling
 (HondaEpsAngleRateLimit), the shared
-driver-override detector, and the speed-banded output low-pass (always on, fixed per-band time constants). Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
+driver-override detector, and the speed-banded output low-pass (always on, fixed per-band time constants).
+Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
 
 No PID trims (the PID is fixed per car to the tune the feedforward was validated with; the LatP/I/FScale
 settings were retired 11-24).

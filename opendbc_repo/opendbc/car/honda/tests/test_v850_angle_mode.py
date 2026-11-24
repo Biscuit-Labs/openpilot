@@ -61,7 +61,7 @@ def test_angle_image_selects_angle_mode_with_its_profile(candidate):
   assert ci.CP.maxLateralAccel == 3.0
   # the EPS steers to standstill in angle mode (its angle row's min speed is 0; the stock row keeps 20 kph)
   assert ci.CP.steerAtStandstill and ci.CP.minSteerSpeed == -1.0
-  assert ci.CC.angle_sender.profile is profile and ci.CC.angle_sender.linear and not ci.CC.stock_arm
+  assert ci.CC.angle_sender.profile is profile and ci.CC.angle_sender.linear and ci.CC.stock_arm   # Clarity arm/abort field (STOCK_ARM_IMAGES)
   assert ci.CS.eps_cal_status.enabled and ci.CS.linear_angle.required
   assert ci.CC.eps_mode == 0xF1
 
@@ -148,8 +148,8 @@ def test_sender_at_its_clamp_passes_panda(candidate, v, sign, build):
     _, dat, ok, target = car.step(True, desired)
     assert ok, (v, i, target)
     car.wheel = target
-  # 5-byte Nidec frame: byte 2 = request | payload exactly (the V850 reads bit 5 only on a v2 angle frame), byte 3 MODE 1 | AUTH 15
-  assert len(dat) == 5 and dat[2] == 0xA0 and dat[3] == 0xF1
+  # 5-byte Nidec frame: byte 2 = request | payload (the V850 reads bit 5 only on a v2 angle frame) | stock arm 2, byte 3 MODE 1 | AUTH 15
+  assert len(dat) == 5 and dat[2] == 0xA0 | cam.E4_ARM2 and dat[3] == 0xF1
   assert abs(target) > 0.98 * vm_angle_limit(v, profile)
   assert abs(target) <= vm_angle_limit(max(v - 1., 1.), profile) + 0.1
 

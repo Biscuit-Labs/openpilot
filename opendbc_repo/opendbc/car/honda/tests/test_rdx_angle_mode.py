@@ -107,7 +107,7 @@ def test_angle_image_selects_angle_mode_with_profile_1():
   assert param & HondaSafetyFlags.CLARITY_ANGLE and (param & 0xE000) == safety_param_bits(PROFILE) == 1 << 13
   assert ci.CP.steerRatio == pytest.approx(OWN_GEOMETRY[CAR.ACURA_RDX_3G].steer_ratio) == pytest.approx(16.79)         # paramsd starts at the on-center ratio, not 11.95
   assert ci.CP.maxLateralAccel == 3.0                               # the torque bar's angle-mode scale (ISO)
-  assert ci.CC.angle_sender.profile is PROFILE and ci.CC.angle_sender.linear and not ci.CC.stock_arm
+  assert ci.CC.angle_sender.profile is PROFILE and ci.CC.angle_sender.linear and ci.CC.stock_arm   # Clarity arm/abort field (STOCK_ARM_IMAGES)
   assert ci.CS.eps_cal_status.enabled and ci.CS.linear_angle.required
   assert ci.CC.eps_mode == 0xF1
 
@@ -226,19 +226,22 @@ def test_sender_at_its_clamp_passes_panda(v, sign):
 @pytest.mark.parametrize("v", [2.2, 10., 20.])
 def test_sender_through_an_override_passes_panda(v):
   # hold through override (default on): the request stays up, AUTH drops to 0 while the driver turns the wheel away at
-  # 350 deg/s, then climbs back; the target stays on the plan. No stock arm bits on this EPS (byte 2 = 0xA0 exactly).
+  # 350 deg/s, then climbs back; the target stays on the plan. Stock arm 2, abort while pressed.
   car = Car(rdx(), v=v)
   plan = 0.5 * vm_angle_limit(v, PROFILE)
-  auth = []
+  auth, arm = [], []
   for i in range(700):
     pressed = 150 <= i < 400
     car.wheel = min(car.wheel + 3.5, 450.) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
     _, dat, ok, target = car.step(True, plan, pressed=pressed, torque=3000. if pressed else 0.)
     assert ok, (v, i, target)
     if i > 20:
-      assert request(dat) and (dat[2] & 0x7F) == 0x20, (i, hex(dat[2]))
+      # payload bit 5 + the stock arm field: arm 2 (0x48), abort (0x44) while the driver yields; panda reads only bits 7 / 5
+      assert request(dat) and (dat[2] & 0x7F) in (0x20 | cam.E4_ARM2, 0x20 | cam.E4_ARM2_ABORT), (i, hex(dat[2]))
     auth.append(dat[3] >> 4)
+    arm.append(dat[2] & 0x4C)
   assert min(auth[160:400]) == 0 and auth[-1] == 15          # no authority while pressed, full again after the release
+  assert set(arm[21:150]) == {cam.E4_ARM2} and set(arm[160:400]) == {cam.E4_ARM2_ABORT} and set(arm[450:]) == {cam.E4_ARM2}
   assert target == pytest.approx(plan, abs=0.06)
 
 

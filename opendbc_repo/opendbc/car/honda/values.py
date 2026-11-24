@@ -130,6 +130,9 @@ class HondaSafetyFlags(IntFlag):
   ALT_RADAR_AOL = 1024  # Exact marked DEBUG alpha owner; physical EPS/gear token.
   NIDEC_PEDAL_AOL = 512  # Model1 only; distinct from model20 STOCK_TJA.
   STOCK_TJA = 512  # Marked MDX4G AOL; EPS status1 is healthy TJA lockout.
+  # Nidec Clarity angle-mode EPS (HondaFlags.CLARITY_ANGLE_MODE): panda bounds the 0xE4 angle target (honda.h). Independent
+  # of every other Nidec option, which panda and stock_aol compare with this bit masked out.
+  CLARITY_ANGLE = 4096
 
 
 class HondaFlags(IntFlag):
@@ -171,8 +174,11 @@ class HondaFlags(IntFlag):
   VGR_RIDGELINE_T6Z_A110 = 4194304
   # the Odyssey's THR-A020 rack is constant-ratio by Honda's spec and its image has no angle table (see steer_ratio.py)
   VGR_ODYSSEY_THR_A020 = 8388608
+  # Clarity angle-mode EPS build (rwd-xray lab/clarity/CLARITY_ANGLE_MODE_20261117): openpilot sends an angle target in
+  # 0xE4 instead of a torque, only once 0x6A4 reports mode 3 on an angle build (clarity_angle_mode.py). Chosen at startup.
+  CLARITY_ANGLE_MODE = 16777216
   # the Accord EPS reports the angle-loop firmware (is_accord_eps_angle_loop_fw); also selects its rack map (steer_ratio.py)
-  EPS_ANGLE_LOOP_FW = 16777216
+  EPS_ANGLE_LOOP_FW = 33554432  # 16777216 is CLARITY_ANGLE_MODE
 
 
 # Accord EPS angle-loop firmware families: 39990-TVA,A16 (the A160 compile: A16A, A16B, A16C ...) or 39990-TVA,A34
@@ -559,8 +565,15 @@ class CAR(Platforms):
   )
 
 
+def is_angle_image(fw_version: bytes) -> bool:
+  """An angle image: '+' in both separator slots (39990+TJB+A220; EPS build 0x0C on). Its torque mode is the STOCK
+  firmware (protocol v2 MODE 0), so it gets the stock tune and calibration whenever angle mode is off."""
+  return fw_version[5:6] == b"+" and fw_version[9:10] == b"+"
+
+
 MODIFIED_EPS_FW = {
-  CAR.HONDA_CLARITY: (b'39990-TRW,A020\x00\x00',),
+  # '+' in both separator slots marks PTM 2.0 / angle PTM images (EPS build 0x05 on; rwd-xray lab CLARITY_ANGLE_MODE_0x05_20261118)
+  CAR.HONDA_CLARITY: (b'39990-TRW,A020\x00\x00', b'39990+TRW+A020\x00\x00'),
   # TEG-A010 shares the Civic fingerprint (its own measured calibration lives in honda_eps_firmware_ff)
   CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00'),
   # 2x torque images. ,A160 / ,A340 end in a digit: the angle-loop family (is_accord_eps_angle_loop_fw) ends in a letter
@@ -570,8 +583,9 @@ MODIFIED_EPS_FW = {
   CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00'),
   # modified-EPS fleet beyond 7.0's list
   CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00',),
-  CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00',),  # PTM; stock A220 accepts every RDX 3G image as a source
-  CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00',),
+  # PTM; stock A220 accepts every RDX 3G image as a source. '+': the angle PTM image (build 0x0C on, angle_profiles.py)
+  CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
+  CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
   # PTM rev b5 only: it reports the hybrid part number (dash, comma). The earlier builds, including the PTM2045 one,
   # report 39990,T6Z,A110 and are not calibrated, so they stay dashcam.
   CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00',),
@@ -611,7 +625,7 @@ HONDA_ALT_VERSION_RESPONSE = bytes([uds.SERVICE_TYPE.READ_DATA_BY_IDENTIFIER + 0
 
 FW_QUERY_CONFIG = FwQueryConfig(
   validate_fw_match=validate_fw_match,
-  fw_version_regex=br"[A-Z0-9]{5}-[A-Z0-9]{3}(-|,)[A-Z0-9]{4}(\x00){2}$",
+  fw_version_regex=br"[A-Z0-9]{5}(-|,|\+)[A-Z0-9]{3}(-|,|\+)[A-Z0-9]{4}(\x00){2}$",   # "+": PTM 2.0 / angle PTM (Clarity 0x05 on)
   requests=[
     # Currently used to fingerprint
     Request(

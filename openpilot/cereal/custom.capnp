@@ -249,6 +249,7 @@ struct StarPilotCarState @0xf35cc4560bbf6ec2 {
   # phantom lead). car.capnp's RadarPoint is upstream-owned, so card carries it here. Empty for other radars.
   radarPointStatus @40 :List(RadarPointStatus);  # @39 is upstream steeringLimitInfo
   radarTracksMonoTime @41 :UInt64;  # logMonoTime of that radarTracks message; 0 = no radar point status
+  steeringAngleLinear @42 :Bool;  # carState.steeringAngleDeg is the EPS's rack-linear (pre-VSR) angle (Honda MEPS 0x6A2)
 
   struct RadarPointStatus {
     trackId @0 :UInt64;

@@ -59,7 +59,7 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertEqual([label for label in labels if label in order], order)
     rows = {row['label']: row for row in self.page()['rows']}
     self.assertEqual(rows['Override Fade Down']['value'], '0.0')   # the registered defaults, nothing saved
-    self.assertEqual(rows['Override Fade Up']['value'], '0.5')
+    self.assertEqual(rows['Override Fade Up']['value'], '1.25')
 
   def test_override_fades_are_live_onroad(self):
     self.assertTrue(self.set('Override Fade Up', '1.2'))
@@ -74,7 +74,7 @@ class TestNightStarSettings(unittest.TestCase):
       self.set('Override Fade Up', '10.5')
     with self.assertRaises(SettingsChanged):
       self.set('Override Fade Down', '-0.1')
-    self.assertIsNone(self.params.get('HondaOverrideFadeUpSecs'))   # nothing saved, so the 0.5 s default still holds
+    self.assertIsNone(self.params.get('HondaOverrideFadeUpSecs'))   # nothing saved, so the 1.25 s default still holds
     self.assertIsNone(self.params.get('HondaOverrideFadeDownSecs'))
 
   def test_saved_fade_survives_the_page(self):
@@ -94,6 +94,16 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertEqual(row['value'], '219')
     self.assertTrue(self.set('Steering Angle Rate Limit', direction=1))   # the Clarity saved 219, off the 10 grid
     self.assertEqual(self.params.get('HondaEpsAngleRateLimit'), 229)
+
+  def test_clarity_has_angle_mode_on_by_default(self):
+    row = next(row for row in self.page()['rows'] if row['label'] == 'Angle Mode')
+    self.assertEqual((row['value'], row.get('default_value', 'On')), ('On', 'On'))
+    self.assertTrue(self.set('Angle Mode', 'Off'))
+    self.assertFalse(self.params.get_bool('HondaClarityAngleMode'))
+
+  def test_angle_mode_is_clarity_only(self):
+    self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), parked=True)
+    self.assertNotIn('Angle Mode', self.labels())
 
   def test_the_steer_rate_limiter_has_no_rows(self):
     labels = self.labels()

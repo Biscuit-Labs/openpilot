@@ -1,0 +1,30 @@
+BO_ 1698 EPS_LINEAR_ANGLE: 8 EPS
+ SG_ LINEAR_ANGLE : 7|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ PUBLISHED_ANGLE : 23|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ INTEGRATOR : 39|16@0- (1,0) [-32768|32767] "" EON
+ SG_ LOOP_RUNNING : 48|1@0+ (1,0) [0|1] "" EON
+ SG_ REF_LATCHED : 49|1@0+ (1,0) [0|1] "" EON
+ SG_ COUNTER : 61|2@0+ (1,0) [0|3] "" EON
+ SG_ CHECKSUM : 59|4@0+ (1,0) [0|15] "" EON
+
+BO_ 1700 EPS_CAL_STATUS: 8 EPS
+ SG_ REQUESTED_MODE : 7|4@0+ (1,0) [0|15] "" EON
+ SG_ ANGLE_LOOP_RUNNING : 3|1@0+ (1,0) [0|1] "" EON
+ SG_ ACTIVE_MODE : 2|3@0+ (1,0) [0|7] "" EON
+ SG_ BUILD_ID : 15|8@0+ (1,0) [0|255] "" EON
+ SG_ ANGLE_FAULT : 16|1@0+ (1,0) [0|1] "" EON
+ SG_ ANGLE_FAULT_WHY : 18|2@0+ (1,0) [0|3] "" EON
+ SG_ ANGLE_TARGET_HELD : 19|1@0+ (1,0) [0|1] "" EON
+ SG_ ANGLE_LOOP_ACTIVE : 20|1@0+ (1,0) [0|1] "" EON
+ SG_ ANGLE_REF : 31|16@0- (-0.1,0) [-3276.8|3276.7] "deg" EON
+ SG_ ANGLE_OUT : 47|16@0- (1,0) [-32768|32767] "" EON
+ SG_ COUNTER : 61|2@0+ (1,0) [0|3] "" EON
+ SG_ CHECKSUM : 59|4@0+ (1,0) [0|15] "" EON
+
+CM_ BO_ 1698 "Honda linear-angle EPS builds 0x0C on (fleet contract rwd-xray lab/FLEET_0x0C_LINEAR_SPEC_20261123.md): 100 Hz. LINEAR_ANGLE = the EPS's rack-linear angle (motor/resolver raw minus reference, before any VGR map), in steering-wheel degrees at the on-center ratio; PUBLISHED_ANGLE = the car's published steering angle of the same pass; same scale and sign as STEER_ANGLE.";
+CM_ SG_ 1698 REF_LATCHED "1: the EPS reference is latched, LINEAR_ANGLE is the linear angle. 0 (an EPS whose reference is latched from an external SAS, before the latch): LINEAR_ANGLE carries the published SAS and the EPS will not steer";
+CM_ SG_ 1698 INTEGRATOR "angle-loop integrator, latch counts (I >> 16)";
+CM_ BO_ 1700 "Honda modified-EPS protocol v2 status (opendbc car/honda/meps/protocol.py), 50 Hz. Layout 4 (byte 0 bit 7 set) is decoded from these layout-3 signals: byte 0 = layout | FAULT | STEERING | CLAMP | stock LKAS state (3:2) | active MODE (1:0); byte 1 build ID; byte 2 gain (7:4) | REASON (3:0); bytes 3-4 reference, 5-6 output.";
+CM_ SG_ 1700 BUILD_ID "EPS build; implies the frame layout and the modes built in";
+CM_ SG_ 1700 ANGLE_REF "the loop reference angle, same scale and sign as STEER_ANGLE";
+CM_ SG_ 1700 ANGLE_OUT "the value the loop wrote into the 0xE4 torque latch";

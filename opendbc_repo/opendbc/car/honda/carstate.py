@@ -8,8 +8,12 @@ from opendbc.car.carlog import carlog
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import pcm_acc
 from opendbc.car.honda.bcan_blinker import TapHold
+from opendbc.car.honda.angle_profiles import angle_profile
+from opendbc.car.honda.eps_cal_status import MSG as EPS_CAL_STATUS_MSG, EpsCalStatus
+from opendbc.car.honda.meps.linear_angle import MSG as EPS_LINEAR_ANGLE_MSG, LinearAngle
 from opendbc.car.honda.hondacan import CanBus
-from opendbc.car.honda.modified_eps import SteeringPressedHysteresis, current_settings, modified_eps, steering_pressed_threshold
+from opendbc.car.honda.modified_eps import SteeringPressedHysteresis, angle_mode_threshold, current_settings, modified_eps, \
+  steering_pressed_threshold
 from opendbc.car.honda.yaw_rate import get_yaw_rate_calibration
 from opendbc.car.honda.values import CAR, DBC, STEER_THRESHOLD, HondaFlags, CruiseButtons, CruiseSettings, \
                                                  GearShifter, CarControllerParams
@@ -29,6 +33,10 @@ class CarState(CarStateBase):
   def __init__(self, CP):
     super().__init__(CP)
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
+    self.eps_cal_status = EpsCalStatus(CP)
+    # angle mode on a switch-capable EPS; a profile car (angle_profiles.py) is linear from the start
+    self.linear_angle = LinearAngle(self.eps_cal_status.angle, required=angle_profile(CP) is not None)
+    self.published_angle_deg = 0.0
 
     if CP.transmissionType != TransmissionType.manual:
       self.gearbox_msg = "GEARBOX_AUTO"
@@ -160,6 +168,10 @@ class CarState(CarStateBase):
       if not all(sensors[f"STEER_SENSOR_STATUS_{i}"] == 1 for i in (1, 2, 3)):
         ret.steerFaultTemporary = True
 
+    # Clarity mode-switch EPS: don't steer unless the EPS reports the calibration the controller is built for (0x6A4)
+    if self.eps_cal_status.update(cp):
+      ret.steerFaultTemporary = True
+
     # All Honda EPS cut off slightly above standstill, some much higher
     # Don't alert in the near-standstill range, but alert for per-vehicle configured minimums above that
     if CarControllerParams.STEER_GLOBAL_MIN_SPEED < ret.vEgo < (self.CP.minSteerSpeed + 0.5):
@@ -192,6 +204,12 @@ class CarState(CarStateBase):
 
     ret.steeringAngleDeg = cp.vl["STEERING_SENSORS"]["STEER_ANGLE"]
     ret.steeringRateDeg = cp.vl["STEERING_SENSORS"]["STEER_ANGLE_RATE"]
+    # linear-angle EPS (meps/linear_angle.py): openpilot steers in the rack-linear angle; 0x14A stays the display angle
+    self.published_angle_deg = ret.steeringAngleDeg
+    if self.linear_angle.update(cp, self.eps_cal_status.build_id):
+      ret.steerFaultTemporary = True
+    if self.linear_angle.latched:
+      ret.steeringAngleDeg = self.linear_angle.angle_deg
 
     # instantaneous stalk states, before the hold in update_blinker_from_stalk
     self.left_stalk_raw = bool(cp.vl["SCM_FEEDBACK"]["LEFT_BLINKER"])
@@ -227,6 +245,8 @@ class CarState(CarStateBase):
     ret.steeringTorque = cp.vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"]
     if self.modified_eps:
       steer_threshold = steering_pressed_threshold(self.CP, current_settings(self.modified_eps_settings).override_threshold)
+      if self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE:   # lower toward center, the full setting from 45 deg
+        steer_threshold = angle_mode_threshold(steer_threshold, self.published_angle_deg)
       ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, steer_threshold)
     else:
       steer_threshold = STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
@@ -338,6 +358,9 @@ class CarState(CarStateBase):
     pt_messages = [("CAMERA_MESSAGES", math.nan)] if has_tsr and on_pt else []
     if CP.flags & HondaFlags.GAS_INTERCEPTOR:
       pt_messages.append(("GAS_SENSOR", 50))
+    if EpsCalStatus(CP).enabled:
+      pt_messages.append((EPS_CAL_STATUS_MSG, math.nan))   # optional: only switch-capable EPS builds send it
+      pt_messages.append((EPS_LINEAR_ANGLE_MSG, math.nan))  # optional: only linear-angle builds (0x0C on) send it
     parsers = {
       Bus.pt: CANParser(dbc_name, pt_messages, CanBus(CP).pt),
       Bus.cam: CANParser(dbc_name, [("CAMERA_MESSAGES", math.nan)] if has_tsr and not on_pt else [], CanBus(CP).camera),

@@ -30,6 +30,7 @@ HONDA_EPS_PRESERVED_KEYS = frozenset({
   "LatFScaleLowSpeed", "LatFScaleStandard", "LatFScaleHighway",
   "HondaDriverOverrideThreshold", "HondaMinSteerSpeed", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
   "HondaDriverAssistDuringOverride", "HondaSteerDeltaLimiter", "HondaSteerDeltaUp", "HondaSteerDeltaDown",
+  "HondaClarityAngleMode", "HondaClarityAngleCap3", "HondaClarityAngleHoldOverride", "HondaAngleDefaultsReset",
   "DisableSeatbeltCheck",
 })
 
@@ -54,3 +55,21 @@ def migrate_honda_eps_param_names(params) -> list[str]:
     except OSError:
       pass
   return renamed
+
+
+ANGLE_DEFAULTS_RESET_KEY = "HondaAngleDefaultsReset"
+# the override settings the angle hold was tuned with (Override Fade Up 1.25 s, Fade Down 0.0 s, Override Threshold 2000):
+# clearing a saved value brings back the registered default (params_keys.h)
+ANGLE_DEFAULT_KEYS = ("HondaOverrideFadeUpSecs", "HondaOverrideFadeDownSecs", "HondaDriverOverrideThreshold")
+
+
+def reset_angle_defaults_once(params) -> list[str]:
+  """Once per device: clear the saved override settings so the angle-hold defaults apply. A value set afterwards is kept.
+  Returns the keys that held a saved value."""
+  if params.get_bool(ANGLE_DEFAULTS_RESET_KEY):
+    return []
+  cleared = [key for key in ANGLE_DEFAULT_KEYS if params.get(key) is not None]
+  for key in ANGLE_DEFAULT_KEYS:
+    params.remove(key)
+  params.put_bool(ANGLE_DEFAULTS_RESET_KEY, True, block=True)
+  return cleared

@@ -4,7 +4,7 @@ from opendbc.car import gen_empty_fingerprint, structs
 from opendbc.car.fw_versions import match_fw_to_car
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
-from opendbc.car.honda.values import CAR, CarControllerParams, HondaFlags, MODIFIED_EPS_FW
+from opendbc.car.honda.values import CAR, CarControllerParams, HondaFlags, MODIFIED_EPS_FW, is_angle_image
 
 Ecu = structs.CarParams.Ecu
 SOURCE_BASELINES = {
@@ -75,6 +75,7 @@ SOURCE_BASELINES = {
 
 KNOWN_CASES = (
   (CAR.HONDA_CLARITY, b'39990-TRW,A020\x00\x00'),
+  (CAR.HONDA_CLARITY, b'39990+TRW+A020\x00\x00'),   # PTM 2.0 / angle PTM marker
   (CAR.HONDA_CIVIC, b'39990-TBA,A030\x00\x00'),
   (CAR.HONDA_ACCORD, b'39990-TVA,A150\x00\x00'),
   (CAR.HONDA_ACCORD, b'39990-TVA,A160\x00\x00'),
@@ -93,6 +94,8 @@ FLEET_CASES = (
   (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00'),
   (CAR.ACURA_RDX_3G, b'39990-TJB,A220\x00\x00'),
   (CAR.ACURA_RDX_3G_MMR, b'39990-TJB,A220\x00\x00'),
+  (CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'),       # angle PTM (build 0x0C)
+  (CAR.ACURA_RDX_3G_MMR, b'39990+TJB+A220\x00\x00'),
   (CAR.HONDA_RIDGELINE, b'39990-T6Z,A110\x00\x00'),  # PTM rev b5 only
   (CAR.HONDA_ODYSSEY, b'39990-THR,A020\x00\x00'),
 )
@@ -105,6 +108,11 @@ MODIFIED_EPS_CAP = {CAR.HONDA_CLARITY: 3840, CAR.HONDA_CIVIC: 3840, CAR.HONDA_IN
 
 
 def assert_modified_eps_tune(candidate, version, cp):
+  if is_angle_image(version):
+    # an angle image's torque mode is the stock firmware (v2 MODE 0): the stock tune and command maps
+    # (the command maps follow EPS_MODIFIED, which the startup hook clears with angle mode off: test below)
+    assert str(cp.lateralTuning) == str(params(candidate, []).lateralTuning)
+    return
   # the shared four-point modified-EPS tune and the modified-EPS command maps
   assert list(cp.lateralTuning.pid.kpV) == pytest.approx(MODIFIED_EPS_KP)
   assert list(cp.lateralTuning.pid.kiV) == pytest.approx(MODIFIED_EPS_KI)
@@ -200,3 +208,35 @@ def test_stock_eps_command_range_stops_at_the_firmware_clamp(candidate, expected
   assert not CP.flags & HondaFlags.EPS_MODIFIED
   ccp = CarControllerParams(CP)
   assert ccp.STEER_MAX == expected and ccp.STEER_LOOKUP == [-expected, 0, expected]
+
+
+ANGLE_IMAGE_CASES = [(car, version) for car, versions in MODIFIED_EPS_FW.items() for version in versions if is_angle_image(version)]
+
+
+def fingerprinted(candidate, version):
+  # as get_car: CarParams with carFw set, the state card's startup hook sees
+  cp = params(candidate, [eps(version)])
+  cp.carFw = [eps(version)]
+  return cp
+
+
+@pytest.mark.parametrize("candidate,version", ANGLE_IMAGE_CASES)
+def test_angle_image_torque_mode_is_stock(candidate, version):
+  from opendbc.car.honda.clarity_angle_mode import angle_mode, apply_angle_mode
+  # angle mode off: no modified-EPS behaviour anywhere (the firmware runs stock in MODE 0)
+  cp = apply_angle_mode(fingerprinted(candidate, version), False)
+  assert not cp.flags & HondaFlags.EPS_MODIFIED and not angle_mode(cp)
+  assert CarControllerParams(cp).STEER_LOOKUP_V == CarControllerParams(params(candidate, [])).STEER_LOOKUP_V
+  # angle mode on: the angle build
+  cp = apply_angle_mode(fingerprinted(candidate, version), True)
+  assert cp.flags & HondaFlags.EPS_MODIFIED and angle_mode(cp)
+  assert cp.steerAtStandstill and cp.minSteerSpeed < 0   # angle mode steers to standstill whatever the stock tune says
+
+
+def test_torque_ptm_images_untouched_by_the_angle_setting():
+  from opendbc.car.honda.clarity_angle_mode import apply_angle_mode
+  for candidate, version in KNOWN_CASES + FLEET_CASES:
+    if is_angle_image(version):
+      continue
+    cp = apply_angle_mode(fingerprinted(candidate, version), False)
+    assert cp.flags & HondaFlags.EPS_MODIFIED, (candidate, version)

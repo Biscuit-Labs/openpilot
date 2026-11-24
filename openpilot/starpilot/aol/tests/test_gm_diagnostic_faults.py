@@ -226,3 +226,26 @@ def test_interceptor_clarity_admits_only_interrupt_rate_faults():
   civic = CarInterface.get_params(CAR.HONDA_CIVIC, fp, [], False, False, False)
   civic.safetyConfigs[0].safetyParam = 544
   assert blocking_fault_mask(1 << 3, civic)  # only the Clarity is qualified
+
+
+def test_interceptor_clarity_in_angle_mode_keeps_the_same_admission():
+  # the owner's car: Clarity + pedal + stock AOL + angle mode = 544 | 4096 (11-21: the exact 544 match missed 4640)
+  from opendbc.car import gen_empty_fingerprint
+  from opendbc.car.honda.interface import CarInterface
+  from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
+  from openpilot.starpilot.aol.panda_faults import blocking_fault_mask
+  fp = gen_empty_fingerprint()
+  fp[0][0x201] = 6
+  cp = CarInterface.get_params(CAR.HONDA_CLARITY, fp, [], False, False, False)
+  cp.flags |= int(HondaFlags.EPS_MODIFIED | HondaFlags.CLARITY_ANGLE_MODE)
+  cp.steerControlType = 'angle'
+  cp.safetyConfigs[0].safetyParam = 544 | int(HondaSafetyFlags.CLARITY_ANGLE)
+  cp.alternativeExperience = 32
+  assert cp.safetyConfigs[0].safetyParam == 4640
+  for bits in (0, 1 << 2, 1 << 3, (1 << 2) | (1 << 3)):
+    assert not blocking_fault_mask(bits, cp)
+  for bits in (1 << 0, 1 << 18, (1 << 3) | (1 << 0)):
+    assert blocking_fault_mask(bits, cp)
+  # the angle bit must match the angle-mode flag
+  cp.flags &= ~int(HondaFlags.CLARITY_ANGLE_MODE)
+  assert blocking_fault_mask(1 << 3, cp)

@@ -14,10 +14,15 @@ def _diagnostic_mask(cp):
     # startup, with normal engagement unaffected (seen before and after its AOL word); it is admitted as the Bolt CC's is.
     # Upstream's Nidec pedal AOL leaves Nidec at mask 0, so this is ours. Checked ahead of upstream's Bosch Honda
     # exemption below, which returns for every Honda; anything this does not qualify falls through to it.
-    if cp.brand == 'honda' and len(cp.safetyConfigs) == 1 and int(cp.safetyConfigs[0].safetyParam) == 544:
-      from opendbc.car.honda.stock_aol import qualified
+    # Clarity angle mode adds its panda angle-rule bit (4096, only tightens 0xE4): 544 | 4096 is the same configuration,
+    # and the bit must match the angle-mode flag (11-21: the exact 544 match missed the owner's 4640).
+    if cp.brand == 'honda' and len(cp.safetyConfigs) == 1:
+      from opendbc.car.honda.stock_aol import qualified, NIDEC_ANGLE_BIT
       from opendbc.car.honda.values import CAR, HondaFlags
-      if (cp.carFingerprint == CAR.HONDA_CLARITY and int(cp.flags) & int(HondaFlags.GAS_INTERCEPTOR) and
+      param = int(cp.safetyConfigs[0].safetyParam)
+      angle = bool(int(cp.flags) & int(HondaFlags.CLARITY_ANGLE_MODE))
+      if ((param & ~NIDEC_ANGLE_BIT) == 544 and bool(param & NIDEC_ANGLE_BIT) == angle and
+          cp.carFingerprint == CAR.HONDA_CLARITY and int(cp.flags) & int(HondaFlags.GAS_INTERCEPTOR) and
           qualified(cp, marked_only=True)):
         return (1 << 2) | (1 << 3)
     if cp.brand == 'honda':

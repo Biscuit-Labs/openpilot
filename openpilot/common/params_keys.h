@@ -407,7 +407,12 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     // Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
-    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.5"}},  // s; Night Star page
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page (angle hold: the authority climb)
+    {"HondaAngleDefaultsReset", {PERSISTENT, BOOL}},  // one-time clear of saved Fade Up / Fade Down / Override Threshold
+    {"HondaClarityAngleMode", {PERSISTENT, BOOL, "1"}},  // Clarity on the angle-mode EPS build (0x04): steer by angle; read at car start
+    {"HondaClarityAngleCap3", {PERSISTENT, BOOL, "0"}},  // Clarity angle mode: use mode 4 (3.0 m/s^2 clamp) when the EPS build has it (0x05, 0x06, 0x08, 0x09); live
+    {"NrdrClarityAngleLookaheadMs", {PERSISTENT, INT, "0"}},  // Steering Prediction Time (nrdr 25f309ef): Clarity angle mode, absolute lateral horizon 5-400 ms step 5 for a timed action head; 0 = previous timing; read at modeld start (offroad)
+    {"HondaClarityAngleHoldOverride", {PERSISTENT, BOOL, "1"}},  // Clarity angle mode on EPS build 0x06/0x08/0x09: hold the request through an override at zero loop authority; live
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
     {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "1"}},  // on unless set off (vfn seeded it on at first start)
     {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.01"}},

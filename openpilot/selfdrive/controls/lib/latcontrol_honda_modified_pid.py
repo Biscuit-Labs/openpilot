@@ -53,7 +53,7 @@ MODIFIED_EPS_KF_CARS = frozenset({
 # that window. The held I now bleeds toward 0 during the fade instead. 0.5 s leaves 37 % of it
 # after a 0.5 s fade.
 OVERRIDE_FADE_I_BLEED_TAU = 0.5
-OVERRIDE_FADE_UP_S_DEFAULT = 0.5   # carcontroller's HondaOverrideFadeUpSecs default
+OVERRIDE_FADE_UP_S_DEFAULT = 1.25  # carcontroller's HondaOverrideFadeUpSecs default
 
 
 def use_honda_modified_pid(CP) -> bool:

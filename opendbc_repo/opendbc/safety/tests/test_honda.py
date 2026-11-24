@@ -2,7 +2,8 @@
 import unittest
 import numpy as np
 
-from opendbc.car.honda.values import HondaSafetyFlags
+from opendbc.car.honda.values import HondaSafetyFlags, CAR as HONDA_CAR
+from opendbc.car.honda.angle_profiles import ANGLE_PROFILES, ANGLE_PROFILE_SHIFT, safety_param_bits, vm_angle_limit
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
 from opendbc.car.structs import CarParams
@@ -352,13 +353,382 @@ class TestHondaNidecHybridSafety(TestHondaNidecPcmSafety):
     values = {"COMPUTER_BRAKE_HYBRID": brake, "AEB_REQ_1": aeb_req}
     return self.packer.make_can_msg_safety("BRAKE_COMMAND", bus, values)
 
-  def test_the_larger_brake_field_is_limited(self):
+  # the hybrid field may reach the stock ACC camera's ceiling; COMPUTER_BRAKE keeps the Nidec 255
+  MAX_BRAKE = 320
+  MAX_STANDARD_BRAKE = 255
+
+  def test_each_brake_field_has_its_own_limit(self):
     self.safety.set_controls_allowed(True)
-    for standard, hybrid in ((self.MAX_BRAKE, 0), (0, self.MAX_BRAKE), (self.MAX_BRAKE + 1, 0), (0, self.MAX_BRAKE + 1),
-                             (self.MAX_BRAKE + 1, self.MAX_BRAKE)):
+    std, hyb = self.MAX_STANDARD_BRAKE, self.MAX_BRAKE
+    for standard, hybrid, ok in ((std, 0, True), (0, hyb, True), (std + 1, 0, False), (0, hyb + 1, False),
+                                 (std, hyb, True), (std + 1, hyb, False), (0, 300, True)):
       values = {"COMPUTER_BRAKE": standard, "COMPUTER_BRAKE_HYBRID": hybrid}
       msg = self.packer.make_can_msg_safety("BRAKE_COMMAND", self.PT_BUS, values)
-      self.assertEqual(max(standard, hybrid) <= self.MAX_BRAKE, self._tx(msg), msg=(standard, hybrid))
+      self.assertEqual(ok, self._tx(msg), msg=(standard, hybrid))
+
+  def test_hybrid_brake_needs_controls_allowed(self):
+    self.safety.set_controls_allowed(False)
+    self.assertFalse(self._tx(self._send_brake_msg(1)))
+    self.assertTrue(self._tx(self._send_brake_msg(0)))
+
+
+class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
+  """
+    Clarity on the angle-mode EPS build (safety bit CLARITY_ANGLE): 0xE4 bytes 0-1 are an angle target (0x14A raw,
+    0.1 deg) while byte 2 bits 7 (request) and 5 (payload) are set; byte 3 bits 7:4 are the authority cut (15 = none).
+    Every Nidec hybrid test still runs; the angle rule only tightens 0xE4.
+  """
+  DBC = "honda_clarity_hybrid_2018_can_generated"
+  SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE
+  LINEAR = False          # linear-angle EPS (0x6A2, build 0x0C on): see TestHondaNidecClarityLinearAngleSafety
+  ANGLE_MAX_CAN = 5001    # panda's cap + 1 (0.1 deg)
+
+  # EPS jump threshold (honda.h), speed m/s -> 0.1 deg per frame
+  JUMP = ([0., 5., 8., 10., 12., 15., 20., 25., 30.], [40, 40, 31, 25, 19, 10, 10, 10, 10])
+
+  def _angle_msg(self, target, request=True, payload=True, cut=0):
+    values = {"STEER_TORQUE": target, "STEER_TORQUE_REQUEST": request, "SET_ME_X00": 0x20 if payload else 0,
+              "SET_ME_X00_2": ((15 - cut) << 4) | 0x01}   # byte 3 = MODE 1 | AUTH (protocol v2; panda never reads it)
+    return self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)
+
+  def _set_meas(self, raw, checksum_ok=True):
+    for _ in range(6):
+      corrupt = None if checksum_ok else (lambda m: (m[0], m[1][:7] + bytes([m[1][7] ^ 0x01]), m[2]))
+      self._rx(self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEER_ANGLE": -raw / 10.}, fix_checksum=corrupt))
+
+  def _set_speed(self, v_ms):
+    for _ in range(6):
+      self._rx(self._speed_msg(v_ms * 3.6))
+
+  def _meas_msg(self, raw):
+    # one measured-angle frame: 0x14A here, 0x6A2 on a linear-angle EPS
+    return self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEER_ANGLE": -raw / 10.})
+
+  def _std(self, v_ms):
+    from opendbc.car.honda import clarity_angle_mode as cam
+    return cam.std_angle_limit(v_ms, self.LINEAR)
+
+  def _alim(self, v_ms):
+    from opendbc.car.honda import clarity_angle_mode as cam
+    return cam.angle_limit(v_ms, self.LINEAR)
+
+  def _sender(self):
+    from opendbc.car.honda import clarity_angle_mode as cam
+    sender = cam.AngleModeSender()
+    sender.linear = self.LINEAR
+    return sender
+
+  def _lim(self, v_ms):
+    # panda's 3.6 m/s^2 angle at speed - 1 m/s (0.1 deg), the same function the sender uses at its own speed
+    return int(self._std(max(v_ms - 1., 1.)) * 10 + 1)
+
+  def _step(self, v_ms):
+    from opendbc.car.honda import clarity_angle_mode as cam
+    s = max(v_ms - 1., 1.)
+    return int(min(self._std(s) * 10 / 100., float(np.interp(s, *self.JUMP))) + 1)
+
+  def _start(self, meas=0, v_ms=10., allowed=True):
+    self.safety.set_timer(1_000_000)
+    self.safety.set_controls_allowed(allowed)
+    self._set_speed(v_ms)
+    self._set_meas(meas)
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))   # not steering: the next target starts from the wheel
+    self.safety.set_controls_allowed(allowed)
+
+  def test_angle_frames_need_lateral(self):
+    # the audit's case: a target of 0 with request + payload is "steer to centre", not "no torque"
+    self._start(allowed=False)
+    for target, request, payload in ((0, True, True), (0, True, False), (0, False, True), (100, False, False), (100, True, True)):
+      self.assertFalse(self._tx(self._angle_msg(target, request, payload)), (target, request, payload))
+    for cut in (0, 15):
+      self.assertTrue(self._tx(self._angle_msg(0, False, False, cut)))
+
+  def test_inactive_frame_is_all_zero(self):
+    self._start()
+    self.assertFalse(self._tx(self._angle_msg(0, True, False)))      # request without payload
+    self.assertFalse(self._tx(self._angle_msg(0, False, True)))      # payload without request
+    self.assertFalse(self._tx(self._angle_msg(100, False, False)))   # a torque word on an angle car
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+
+  def test_first_target_within_one_step_of_the_wheel(self):
+    for v in (3., 10., 21.):
+      step = self._step(v)
+      for meas in (-100, 0, 150):
+        for offset, ok in ((0, True), (step, True), (-step, True), (step + 1, False), (-step - 1, False), (900, False)):
+          self._start(meas, v)
+          self.assertEqual(ok, self._tx(self._angle_msg(meas + offset)), (v, meas, offset))
+
+  def test_step_limit_by_speed(self):
+    for v in (0., 3., 6., 9., 11., 13., 16., 21., 31., 40.):
+      step = self._step(v)
+      for sign in (1, -1):
+        self._start(0, v)
+        self.assertTrue(self._tx(self._angle_msg(0)))
+        self.assertTrue(self._tx(self._angle_msg(sign * step)), (v, step))
+        self.assertFalse(self._tx(self._angle_msg(sign * (2 * step + 1))), (v, step))
+        # after a violation the last target is the measured angle: the next one starts from the wheel
+        self.assertFalse(self._tx(self._angle_msg(sign * (step + 1))))
+        self.assertTrue(self._tx(self._angle_msg(sign * step)))
+
+  def test_jerk_step_is_the_standard_rate(self):
+    # 3.6 m/s^3 = the 3.6 m/s^2 angle per second; at 21 m/s (panda speed 20) that is 31.8 deg/s, 0.318 deg per frame
+    self.assertEqual(self._step(21.), 4)
+    self.assertEqual(self._step(3.), 41)    # low speed: the EPS jump threshold (4 deg/frame) is tighter
+
+  def test_lateral_accel_limit(self):
+    # absolute: no exemption for no authority (cut 15), for moving back in, or for an engage at the wheel
+    for v in (1., 2., 6., 11., 17., 21., 31., 40.):
+      lim = self._lim(v)
+      self.assertLessEqual(lim, self.ANGLE_MAX_CAN)
+      for cut in (0, 15):
+        self._start(lim, v)
+        self.assertTrue(self._tx(self._angle_msg(lim, cut=cut)), (v, lim))
+        self.assertFalse(self._tx(self._angle_msg(lim + 1, cut=cut)), (v, lim))
+        self._start(-lim - 5, v)
+        self.assertFalse(self._tx(self._angle_msg(-lim - 5, cut=cut)), (v, lim))   # engage beyond the limit
+        self.assertFalse(self._tx(self._angle_msg(-lim - 2, cut=cut)), (v, lim))   # moving back in, still beyond
+
+  def test_limit_numbers(self):
+    # 0.9 x angle_ref AMAX: 31.8 deg at 20 m/s, 18.4 at 30; 1/v^2 outside 5-30 m/s; capped at 500 deg
+    self.assertEqual(self._lim(21.), 318)
+    self.assertEqual(self._lim(31.), 184)
+    self.assertEqual(self._lim(41.), int(183.6 * 900 / 1600 + 1))
+    self.assertEqual(self._lim(5.), int(3411 * 25 / 16 + 1) if 3411 * 25 / 16 < 5000 else 5001)
+    self.assertEqual(self._lim(2.), 5001)
+
+  def test_held_target_as_the_limit_shrinks(self):
+    lim10 = self._lim(10.)
+    self._start(lim10 - 5, 10.)
+    for _ in range(200):
+      self.assertTrue(self._tx(self._angle_msg(lim10 - 5)))
+    self._set_speed(30.)
+    self._set_meas(lim10 - 5)
+    self.assertFalse(self._tx(self._angle_msg(lim10 - 5)))
+
+  def test_drift_never_passes_the_limit(self):
+    # closed loop: the wheel follows every target that passes; a target drifting at the jerk step goes no further
+    # than the limit, and blocked frames never let it restart beyond it (review R-1)
+    v = 21.
+    lim, step = self._lim(v), self._step(v)
+    self._start(0, v)
+    target = wheel = 0
+    for _ in range(300):
+      target += step - 1
+      if self._tx(self._angle_msg(target)):
+        wheel = target
+      else:
+        target = wheel
+      self._set_meas(wheel)
+    self.assertLessEqual(wheel, lim)
+    self.assertGreater(wheel, lim - step)
+
+  def test_stale_or_invalid_measured_angle(self):
+    self._start(100)
+    self.safety.set_timer(1_000_000 + 50_000)
+    self.assertTrue(self._tx(self._angle_msg(100)))
+    self.safety.set_timer(1_000_000 + 50_001)
+    self.assertFalse(self._tx(self._angle_msg(100)))
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+    # a 0x14A with a bad checksum fails its RX check: it neither refreshes nor moves the measured angle
+    self._set_meas(500, checksum_ok=False)
+    self.safety.set_controls_allowed(True)
+    self.assertFalse(self._tx(self._angle_msg(500)))
+    self._set_meas(500)
+    self.safety.set_controls_allowed(True)
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+    self.assertTrue(self._tx(self._angle_msg(500)))
+
+  def test_sender_at_its_clamp_passes(self):
+    # openpilot's own sender asked for more than its clamp, with the wheel at the last target: panda must pass every frame
+    from opendbc.car.honda import clarity_angle_mode as cam
+    for v in (3., 10., 15., 20., 30., 40.):
+      for byte3 in (0xF1,):
+        for sign in (1., -1.):
+          self._start(0, v)
+          sender, meas = self._sender(), 0
+          desired = sign * 1.2 * self._std(v)   # op degrees; raw = -10 x deg
+          for i in range(600):
+            raw, req, pay = sender.update(True, desired, -meas / 10., v, True, 0.0, cam.ENGAGE_S)
+            values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": byte3}
+            self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, i, raw))
+            meas = raw
+            self._set_meas(meas)
+          self.assertGreater(abs(raw), 0.98 * self._alim(v) * 10, v)   # it reached the clamp
+
+  def test_sender_through_an_override_passes(self):
+    # hold through override: the request stays up with no authority (cut 15) and the target stays on the plan while the
+    # driver turns the wheel away at 350 deg/s; those are ordinary frames, so panda passes every one, also at the release
+    from opendbc.car.honda import clarity_angle_mode as cam
+    for v in (2.2, 10., 20.):
+      self._start(0, v)
+      sender, wheel, plan = self._sender(), 0., 0.5 * self._alim(v)
+      for i in range(600):
+        pressed = 100 <= i < 400
+        wheel = min(wheel + 3.5, 450.) if pressed else wheel + 0.2 * (-wheel)   # driver turns away, then lets go
+        self._set_meas(int(-10 * wheel))
+        raw, req, pay = sender.update(True, plan, wheel, v, True, 0., 0.)
+        values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay,
+                  "SET_ME_X00_2": ((0 if pressed else 15) << 4) | 0x01}
+        self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, i, raw))
+        if i > 200 + int(max(0., plan - 250.)):         # (a larger plan takes longer to reach at the 150 deg/s cap)
+          self.assertAlmostEqual(raw / -10., plan, delta=0.06)   # on the plan through the press and the release
+
+  def test_first_target_window_is_the_recent_wheel_samples(self):
+    # from the wheel = within one step of any of the last 6 0x14A samples (the standard's inactive check window)
+    v = 21.
+    step = self._step(v)
+    self._start(0, v)
+    for meas in (0, 30, 60, 90, 120, 150):      # wheel moving 3 deg per sample
+      self._rx(self._meas_msg(meas))
+    for target, ok in ((-step, True), (150 + step, True), (75, True), (-step - 1, False), (150 + step + 1, False)):
+      self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+      self.assertEqual(self._tx(self._angle_msg(target)), ok, target)
+
+  def test_sender_engage_with_the_wheel_moving(self):
+    # review Q-1: the request rises while the wheel is turning; openpilot sees the angle 1-2 frames late (carState is
+    # 10-20 ms older than the newest 0x14A). After 0.3 s the wheel follows what passes. Every frame must pass.
+    from opendbc.car.honda import clarity_angle_mode as cam
+    for v in (10., 20., 30.):
+      for rate in (20., 60.):
+        for lag in (1, 2):
+          self._start(0, v)
+          sender, hist, wheel = self._sender(), [0.] * 3, 0.
+          for i in range(130):
+            if i < 30:
+              wheel += rate * 0.01
+            hist = [wheel] + hist[:2]
+            # one 0x14A per 10 ms frame, as on the car
+            self._rx(self._meas_msg(round(10 * wheel)))
+            raw, req, pay = sender.update(True, 0., hist[lag], v, True, rate if i < 30 else 0., 0.)
+            values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": 0xF1}
+            self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, rate, lag, i))
+            if i >= 30:
+              wheel = raw / -10.
+
+  def test_sender_waits_for_the_wheel_inside_the_limit(self):
+    # review Q-2: engaging in a tight turn with the wheel beyond the 3.6 m/s^2 angle: openpilot holds the request
+    # down (all-zero frames, which pass) until the wheel comes inside, then engages at the wheel
+    from opendbc.car.honda import clarity_angle_mode as cam
+    for v, start in ((8., 180.), (7., 230.), (12., 80.)):
+      lim = self._std(v)
+      start = max(start, 1.05 * lim)          # beyond the limit in this class's units (unchanged for 0x14A)
+      self.assertGreater(start, lim)
+      self._start(0, v)
+      sender, wheel, engaged = self._sender(), start, False
+      for i in range(400):
+        wheel = max(wheel - 0.5, 0.5 * lim)     # the driver unwinds at 50 deg/s
+        self._set_meas(int(-10 * wheel))
+        raw, req, pay = sender.update(True, 0.5 * lim, wheel, v, True, -50., 0.)
+        values = {"STEER_TORQUE": raw, "STEER_TORQUE_REQUEST": req, "SET_ME_X00": pay, "SET_ME_X00_2": 0xF1}
+        self.assertTrue(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)), (v, i, wheel, raw))
+        if req:
+          self.assertLessEqual(abs(raw) / 10., lim + 0.06)
+        else:
+          self.assertGreater(wheel, lim)
+        engaged = engaged or req
+      self.assertTrue(engaged)
+
+  def test_protocol_v2_frames_pass_the_same_rule(self):
+    # protocol v2 (EPS build 0x0B) only changes 0xE4 byte 3 (MODE 1 | AUTH, 15 = full); panda's angle rule never reads
+    # byte 3, so v2 frames are bounded exactly like v1 frames (the v2 EPS itself refuses a malformed byte 3)
+    def frame(target, request, payload, byte3):
+      values = {"STEER_TORQUE": target, "STEER_TORQUE_REQUEST": request, "SET_ME_X00": 0x20 if payload else 0, "SET_ME_X00_2": byte3}
+      return self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)
+    for auth in (0, 7, 15):
+      b3 = (auth << 4) | 0x01
+      self._start(0, 21.)
+      self.assertTrue(self._tx(frame(0, False, False, 0xF1)))                   # v2 idle
+      self.assertTrue(self._tx(frame(0, True, True, b3)))                       # v2 angle frame at the wheel
+      self.assertTrue(self._tx(frame(self._step(21.), True, True, b3)))
+      self.assertFalse(self._tx(frame(3 * self._step(21.), True, True, b3)))   # the same step limit
+      self.assertFalse(self._tx(frame(0, True, False, b3)))                     # request without payload
+      self.safety.set_controls_allowed(False)
+      self.assertFalse(self._tx(frame(0, True, True, b3)))                      # not allowed
+
+  def test_no_measured_angle_after_init(self):
+    self.safety.set_timer(1_000_000)
+    self.safety.set_controls_allowed(True)
+    self._set_speed(10.)
+    self.assertFalse(self._tx(self._angle_msg(0)))
+
+
+class TestHondaNidecClarityLinearAngleSafety(TestHondaNidecClarityAngleSafety):
+  """
+    Clarity on a linear-angle EPS build (0x0C on): the first valid 0x6A2 EPS_LINEAR_ANGLE latches linear mode; the target
+    and the measured angle are the rack-linear angle and the limits are the same physical limits in linear units. Every
+    test of the 0x14A rule runs again here with the measured angle sent on 0x6A2.
+  """
+  LINEAR = True
+  ANGLE_MAX_CAN = 5785
+
+  def _lin_msg(self, raw, counter=None, corrupt=False):
+    values = {"LINEAR_ANGLE": -raw / 10., "PUBLISHED_ANGLE": -raw / 10.}
+    if counter is not None:
+      values["COUNTER"] = counter
+    fix = (lambda m: (m[0], m[1][:7] + bytes([m[1][7] ^ 0x01]), m[2])) if corrupt else None
+    return self.packer.make_can_msg_safety("EPS_LINEAR_ANGLE", self.PT_BUS, values, fix_checksum=fix)
+
+  def _set_meas(self, raw, checksum_ok=True):
+    for _ in range(6):
+      self._rx(self._lin_msg(raw, corrupt=not checksum_ok))
+
+  def _meas_msg(self, raw):
+    return self._lin_msg(raw)
+
+  def _set_true(self, raw):
+    for _ in range(6):
+      self._rx(self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEER_ANGLE": -raw / 10.}))
+
+  def test_limit_numbers(self):
+    # the published limits through the firmware VGR map: 31.5 deg at 20 m/s (published 31.8), 18.2 at 30 (18.4),
+    # 390 at 5 (341); the 500 deg published cap is 578.4 linear
+    # then scaled by the car-to-car spread (1 + 0.00049 v^2) / (1 + 0.00062 v^2): -4 % at 20 m/s, -7.5 % at 30
+    self.assertEqual(self._lim(21.), 302)
+    self.assertEqual(self._lim(31.), 168)
+    self.assertEqual(self._lim(6.), 3889)
+    self.assertEqual(self._lim(2.), 5783)                # 578.3 deg at 1 m/s, just under the 578.4 cap
+
+  def test_latched_linear_ignores_the_published_angle(self):
+    self._start(0, 10.)
+    self._set_true(900)                                 # 0x14A no longer moves the measured window
+    self.assertFalse(self._tx(self._angle_msg(900)))
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+    self.assertTrue(self._tx(self._angle_msg(0)))
+
+  def test_stale_linear_angle_blocks_even_with_0x14a(self):
+    self._start(100, 10.)
+    self.safety.set_timer(1_000_000 + 50_000)
+    self.assertTrue(self._tx(self._angle_msg(100)))
+    self.safety.set_timer(1_000_000 + 50_001)
+    self._set_true(100)                                 # a fresh 0x14A does not stand in for 0x6A2
+    self.assertFalse(self._tx(self._angle_msg(100)))
+
+  def test_bad_checksum_never_latches(self):
+    v = 6.
+    from opendbc.car.honda import clarity_angle_mode as cam
+    pub = int(cam.std_angle_limit(v - 1.) * 10 + 1)     # the published-rule limit (0x14A mode)
+    self.safety.set_timer(1_000_000)
+    self.safety.set_controls_allowed(True)
+    self._set_speed(v)
+    for _ in range(6):
+      self._rx(self._lin_msg(pub + 50, corrupt=True))   # never valid: no latch
+    self._set_true(pub + 50)
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+    self.assertFalse(self._tx(self._angle_msg(pub + 50)))   # still the published rule: beyond its limit
+    self._set_meas(pub + 50)                            # a valid 0x6A2 latches: the linear limit is wider here
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+    self.assertTrue(self._tx(self._angle_msg(pub + 50)))
+
+  def test_out_of_sequence_counter_does_not_refresh(self):
+    self._start(0, 10.)
+    self.safety.set_timer(1_000_000 + 40_000)
+    self._rx(self._lin_msg(0, counter=0))
+    self._rx(self._lin_msg(0, counter=2))               # skipped one: not a fresh sample
+    self.safety.set_timer(1_000_000 + 60_000)
+    self.assertFalse(self._tx(self._angle_msg(0)))      # the last in-sequence sample is 60 ms old
+    self._rx(self._lin_msg(0, counter=3))
+    self.assertTrue(self._tx(self._angle_msg(0, False, False)))
+    self.assertTrue(self._tx(self._angle_msg(0)))
 
 
 class TestHondaNidecPcmAltSafety(TestHondaNidecPcmSafety):
@@ -504,6 +874,147 @@ class TestHondaBoschAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSaf
   """
     Covers the Honda Bosch safety mode with stock longitudinal and an alternate brake message
   """
+
+
+class TestHondaBoschRdxLinearAngleSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase):
+  """
+    RDX 3G (TJB) on the linear-angle EPS build 0x0C: the Clarity 0xE4 angle frame and rules on Bosch. The EPS has no
+    0x14A, so 0x6A2 EPS_LINEAR_ANGLE on the powertrain bus is an RX check and the only measured angle, linear from the
+    start; the 3.6 m/s^2 angle is the standard vehicle model at the on-center ratio. Every Bosch alt-brake test still runs.
+  """
+  DBC = "acura_rdx_2020_can_generated"
+  PROFILE = ANGLE_PROFILES[HONDA_CAR.ACURA_RDX_3G]
+  SAFETY_PARAM = HondaSafetyFlags.ALT_BRAKE | HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
+  ANGLE_MAX_CAN = 5785
+  JUMP = TestHondaNidecClarityAngleSafety.JUMP
+
+  def _angle_msg(self, target, request=True, payload=True, cut=0):
+    # Bosch's STEERING_CONTROL has no signal for the payload bit (byte 2 bit 5): the frame is built raw
+    from opendbc.car.honda.hondacan import honda_checksum
+    t = target & 0xFFFF
+    dat = bytearray([t >> 8, t & 0xFF, (0x80 if request else 0) | (0x20 if payload else 0), ((15 - cut) << 4) | 0x01, 0])
+    dat[4] = honda_checksum(0xE4, None, dat)
+    return libsafety_py.make_CANPacket(0xE4, self.STEER_BUS, bytes(dat))
+
+  def _lin_msg(self, raw, corrupt=False):
+    # EPS_LINEAR_ANGLE, built raw (not every platform DBC has it): bytes 0-1 linear, 2-3 published, counter in byte 7
+    from opendbc.car.honda.hondacan import honda_checksum
+    self._lin_counter = (getattr(self, "_lin_counter", -1) + 1) & 3
+    w = raw & 0xFFFF
+    dat = bytearray([w >> 8, w & 0xFF, w >> 8, w & 0xFF, 0, 0, 1, self._lin_counter << 4])
+    dat[7] |= honda_checksum(0x6A2, None, dat) ^ (0x01 if corrupt else 0)
+    return libsafety_py.make_CANPacket(0x6A2, self.PT_BUS, bytes(dat))
+
+  def _set_meas(self, raw, checksum_ok=True):
+    for _ in range(6):
+      self._rx(self._lin_msg(raw, corrupt=not checksum_ok))
+
+  def _meas_msg(self, raw):
+    return self._lin_msg(raw)
+
+  _set_speed = TestHondaNidecClarityAngleSafety._set_speed
+  _start = TestHondaNidecClarityAngleSafety._start
+  _lim = TestHondaNidecClarityAngleSafety._lim
+
+  def _std(self, v_ms):
+    # the vehicle-model 3.6 m/s^2 angle, deg (lateral.h get_angle_from_curvature), capped at 578.4
+    return vm_angle_limit(v_ms, self.PROFILE)
+
+  def _step(self, v_ms):
+    s = max(v_ms - 1., 1.)
+    return int(min(self._std(s) * 10 / 100., float(np.interp(s, *self.JUMP))) + 1)
+
+  test_angle_frames_need_lateral = TestHondaNidecClarityAngleSafety.test_angle_frames_need_lateral
+  test_inactive_frame_is_all_zero = TestHondaNidecClarityAngleSafety.test_inactive_frame_is_all_zero
+  test_first_target_within_one_step_of_the_wheel = TestHondaNidecClarityAngleSafety.test_first_target_within_one_step_of_the_wheel
+  test_step_limit_by_speed = TestHondaNidecClarityAngleSafety.test_step_limit_by_speed
+  test_lateral_accel_limit = TestHondaNidecClarityAngleSafety.test_lateral_accel_limit
+  test_held_target_as_the_limit_shrinks = TestHondaNidecClarityAngleSafety.test_held_target_as_the_limit_shrinks
+  test_drift_never_passes_the_limit = TestHondaNidecClarityAngleSafety.test_drift_never_passes_the_limit
+  test_stale_or_invalid_measured_angle = TestHondaNidecClarityAngleSafety.test_stale_or_invalid_measured_angle
+  test_first_target_window_is_the_recent_wheel_samples = TestHondaNidecClarityAngleSafety.test_first_target_window_is_the_recent_wheel_samples
+  test_no_measured_angle_after_init = TestHondaNidecClarityAngleSafety.test_no_measured_angle_after_init
+
+  def test_protocol_v2_frames_pass_the_same_rule(self):
+    # byte 3 (MODE 1 | AUTH) is never read: every authority is bounded the same way
+    step = self._step(21.)
+    for cut in (0, 8, 15):
+      self._start(0, 21.)
+      self.assertTrue(self._tx(self._angle_msg(0, cut=cut)))
+      self.assertTrue(self._tx(self._angle_msg(step, cut=cut)))
+      self.assertFalse(self._tx(self._angle_msg(3 * step, cut=cut)))
+      self.assertFalse(self._tx(self._angle_msg(0, True, False, cut=cut)))
+      self.safety.set_controls_allowed(False)
+      self.assertFalse(self._tx(self._angle_msg(0, cut=cut)))
+
+  def test_limit_numbers(self):
+    # row 1 (CR-V 5G measured model, shared with the RDX and Insight): 29.2 deg at 20 m/s, 16.9 at 30, 96.0 at 10; capped at 578.4
+    self.assertEqual(self._lim(21.), 293)
+    self.assertEqual(self._lim(31.), 169)
+    self.assertEqual(self._lim(11.), 961)
+    self.assertEqual(self._lim(2.), 5785)
+
+  def test_jerk_step_is_the_standard_rate(self):
+    self.assertEqual(self._step(21.), 3)   # row 1: the 29.2 deg 3.6 m/s^2 angle per second at panda speed 20, 0.29 deg/frame
+    self.assertEqual(self._step(3.), 41)
+
+  def test_other_angle_messages_do_not_feed(self):
+    # neither the column sensor 0x156 nor a 0x14A (which this EPS never sends) stands in for 0x6A2
+    from opendbc.car.honda.hondacan import honda_checksum
+    dat = bytearray(8)
+    dat[7] = honda_checksum(0x14A, None, dat)
+    for msg in (self.packer.make_can_msg_safety("STEERING_SENSORS", self.PT_BUS, {"STEER_ANGLE": -10.}),
+                libsafety_py.make_CANPacket(0x14A, self.PT_BUS, bytes(dat))):
+      self._start(0, 10.)
+      self.safety.set_timer(1_000_000 + 50_001)
+      for _ in range(6):
+        self._rx(msg)
+      self.assertFalse(self._tx(self._angle_msg(0)))
+
+  def test_profile_without_a_row_never_steers(self):
+    # Bosch angle mode is always a profile: profile 0 has no row there (all of 1..7 are allocated)
+    for profile in (0,):
+      param = HondaSafetyFlags.ALT_BRAKE | HondaSafetyFlags.CLARITY_ANGLE | (profile << ANGLE_PROFILE_SHIFT)
+      self.safety.set_safety_hooks(self.SAFETY_MODEL, param)
+      self._start(0, 10.)
+      self.assertFalse(self._tx(self._angle_msg(0)), profile)
+      self.assertTrue(self._tx(self._angle_msg(0, False, False)), profile)
+
+  def test_angle_bit_needs_the_linear_angle(self):
+    # with the angle bit, 0x6A2 is an RX check: a bad checksum fails it
+    self.assertTrue(self._rx(self._lin_msg(0)))
+    self.assertFalse(self._rx(self._lin_msg(0, corrupt=True)))
+
+
+class TestHondaNidecProfileAngleSafety(TestHondaNidecPcmSafety):
+  """
+    A Nidec platform on a linear-angle profile: the same rule as the Bosch RDX row (0x6A2 the RX check, the vehicle
+    model), on the Nidec hooks. Uses the RDX row as the example profile. Every Nidec PCM test still runs.
+  """
+  PROFILE = ANGLE_PROFILES[HONDA_CAR.ACURA_RDX_3G]
+  SAFETY_PARAM = HondaSafetyFlags.CLARITY_ANGLE | safety_param_bits(PROFILE)
+  ANGLE_MAX_CAN = 5785
+  JUMP = TestHondaNidecClarityAngleSafety.JUMP
+  _angle_msg = TestHondaBoschRdxLinearAngleSafety._angle_msg
+  _lin_msg = TestHondaBoschRdxLinearAngleSafety._lin_msg
+  _set_meas = TestHondaBoschRdxLinearAngleSafety._set_meas
+  _meas_msg = TestHondaBoschRdxLinearAngleSafety._meas_msg
+  _set_speed = TestHondaBoschRdxLinearAngleSafety._set_speed
+  _start = TestHondaBoschRdxLinearAngleSafety._start
+  _lim = TestHondaBoschRdxLinearAngleSafety._lim
+  _std = TestHondaBoschRdxLinearAngleSafety._std
+  _step = TestHondaBoschRdxLinearAngleSafety._step
+  test_angle_frames_need_lateral = TestHondaBoschRdxLinearAngleSafety.test_angle_frames_need_lateral
+  test_inactive_frame_is_all_zero = TestHondaBoschRdxLinearAngleSafety.test_inactive_frame_is_all_zero
+  test_first_target_within_one_step_of_the_wheel = TestHondaBoschRdxLinearAngleSafety.test_first_target_within_one_step_of_the_wheel
+  test_step_limit_by_speed = TestHondaBoschRdxLinearAngleSafety.test_step_limit_by_speed
+  test_lateral_accel_limit = TestHondaBoschRdxLinearAngleSafety.test_lateral_accel_limit
+  test_drift_never_passes_the_limit = TestHondaBoschRdxLinearAngleSafety.test_drift_never_passes_the_limit
+  test_stale_or_invalid_measured_angle = TestHondaBoschRdxLinearAngleSafety.test_stale_or_invalid_measured_angle
+  test_no_measured_angle_after_init = TestHondaBoschRdxLinearAngleSafety.test_no_measured_angle_after_init
+  test_limit_numbers = TestHondaBoschRdxLinearAngleSafety.test_limit_numbers
+  test_other_angle_messages_do_not_feed = TestHondaBoschRdxLinearAngleSafety.test_other_angle_messages_do_not_feed
+  test_angle_bit_needs_the_linear_angle = TestHondaBoschRdxLinearAngleSafety.test_angle_bit_needs_the_linear_angle
 
 
 class TestHondaBoschLongSafety(HondaButtonEnableBase, TestHondaBoschBcanTurnSignalSafetyBase):

@@ -123,6 +123,13 @@ DESCRIPTIONS = {
   'HondaDriverAssistDuringOverride': 'Keeps steering assist active while you override the wheel.',
   'HondaBcanTurnSignals': 'Lets openpilot hold the turn signal for a whole lane change and cancel it after. ' +
                           'Needs a body harness with B-CAN gateway; 10th-gen Accord tested.',
+  'HondaClarityAngleHoldOverride': ('Clarity angle mode: keeps steering engaged through an override, with assist faded to zero while you steer ' +
+                                    'and ramped back after you let go.'),
+  'NrdrClarityAngleLookaheadMs': ('Clarity angle mode only: how far ahead (ms) the driving model\'s steering action is taken, in place of the ' +
+                                  'learned delay. 0 keeps the previous timing. Only models with a timed action output use it. Applies at the next start.'),
+  'HondaClarityAngleMode': ('Clarity and RDX 3G: steers by wheel angle through the angle-mode EPS firmware (Clarity build 0x0B on, ' +
+                            'RDX the 0x0C angle PTM image). On a Clarity with any other EPS firmware steering stays unavailable, ' +
+                            'so turn it off. Applies at the next start.'),
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',

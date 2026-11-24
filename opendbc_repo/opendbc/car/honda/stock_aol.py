@@ -1,4 +1,5 @@
 from opendbc.car import structs
+from opendbc.car.honda.angle_profiles import ANGLE_PROFILE_SHIFT, angle_profile, safety_param_bits
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 
 CLASSIC_BOSCH = frozenset((CAR.HONDA_NBOX_2G, CAR.HONDA_ACCORD, CAR.HONDA_CIVIC_BOSCH,
@@ -32,6 +33,10 @@ ALT_RADAR_STOCK = frozenset((CAR.ACURA_RDX_3G_MMR, CAR.HONDA_ODYSSEY_5G_MMR,
   CAR.ACURA_TLX_2G, CAR.ACURA_MDX_4G))
 BOSCH_WORDS = frozenset((0, 1, 8, 9, 10, 11, 16, 17, 80, 81, 512, 513, 1058, 1059, 1570, 1571, 2082, 2083, 2211))
 NIDEC_WORDS = frozenset((0, 4, 260, 544, 548, 804))
+NIDEC_ANGLE_BIT = int(HondaSafetyFlags.CLARITY_ANGLE)
+# Bosch angle mode is always a profile (angle_profiles.py): the angle bit plus the profile in bits 15:13. Panda (honda.h)
+# compares the Bosch word with them masked out, so AOL qualifies as it would in torque mode.
+BOSCH_ANGLE_MASK = NIDEC_ANGLE_BIT | (7 << ANGLE_PROFILE_SHIFT)
 MANUAL_SELECTION_PORTS = CLASSIC_BOSCH | NIDEC | RADARLESS | CANFD_STOCK | ALT_RADAR_STOCK | {CAR.HONDA_ACCORD_11G}
 
 # qualified() runs several times per 100 Hz frame in card and selfdrived, so
@@ -46,6 +51,10 @@ _DETECTED |= int(HondaFlags.VGR_CLARITY_TRW_A020 | HondaFlags.VGR_CIVIC_TBA_C020
                  HondaFlags.VGR_CRV_TLA_A040 | HondaFlags.VGR_CIVIC_TBA_C120 | HondaFlags.VGR_RDX_TJB_A220 |
                  HondaFlags.VGR_RIDGELINE_T6Z_A110 | HondaFlags.VGR_ODYSSEY_THR_A020 |
                  HondaFlags.HYBRID_ALT_BRAKEHOLD | HondaFlags.EPS_ANGLE_LOOP_FW)
+# CLARITY_ANGLE_MODE only says what bytes 0-1 of 0xE4 mean to the angle-mode EPS build; it adds panda's angle rule
+# (safety bit CLARITY_ANGLE, which only tightens 0xE4) and keeps AOL like every other modified-EPS Clarity. The Nidec
+# word below is compared with that bit masked out, and the bit must be set exactly when the flag is.
+_DETECTED |= int(HondaFlags.CLARITY_ANGLE_MODE)
 _ALLOWED_FLAGS = {str(car): int(car.config.flags) | _DETECTED
                   for car in CLASSIC_BOSCH | NIDEC | RADARLESS | CANFD_STOCK | ALT_RADAR_STOCK | {CAR.HONDA_ACCORD_11G}}
 _BOSCH, _BOSCH_RADARLESS, _BOSCH_ALT_BRAKE = int(HondaFlags.BOSCH), int(HondaFlags.BOSCH_RADARLESS), int(HondaFlags.BOSCH_ALT_BRAKE)
@@ -54,6 +63,18 @@ _UNSUPPORTED = int(HondaFlags.BOSCH_ALT_RADAR)
 _FIXED = structs.CarParams.FingerprintSource.fixed
 _TRANSMISSIONS = (structs.CarParams.TransmissionType.automatic, structs.CarParams.TransmissionType.cvt)
 _HONDA_NIDEC, _HONDA_BOSCH = structs.CarParams.SafetyModel.hondaNidec, structs.CarParams.SafetyModel.hondaBosch
+
+
+def _bosch_param(cp, flags, param, expected) -> bool:
+  """The Bosch word equals expected with the angle bits masked out, and the angle bits are exactly the car's profile in
+  angle mode (none otherwise)."""
+  angle_bits = 0
+  if flags & int(HondaFlags.CLARITY_ANGLE_MODE):
+    profile = angle_profile(cp)
+    if profile is None:
+      return False
+    angle_bits = NIDEC_ANGLE_BIT | safety_param_bits(profile)
+  return (param & ~BOSCH_ANGLE_MASK) == expected and (param & BOSCH_ANGLE_MASK) == angle_bits
 
 
 def qualified(cp, *, marked_only=False):
@@ -83,7 +104,7 @@ def qualified(cp, *, marked_only=False):
       expected |= int(HondaSafetyFlags.STOCK_TJA)
     return (bool(flags & _BOSCH) and bool(flags & int(HondaFlags.BOSCH_ALT_RADAR)) and
             not bool(flags & int(HondaFlags.BOSCH_CANFD)) and bool(cp.pcmCruise) == (not cp.openpilotLongitudinalControl) and
-            safety.safetyModel == _HONDA_BOSCH and safety.safetyParam == expected)
+            safety.safetyModel == _HONDA_BOSCH and _bosch_param(cp, flags, safety.safetyParam, expected))
   if flags & _UNSUPPORTED:
     return False
   if fingerprint == CAR.HONDA_ACCORD_11G:
@@ -93,7 +114,7 @@ def qualified(cp, *, marked_only=False):
     expected = 16 | int(bool(flags & _BOSCH_ALT_BRAKE))
     return (bool(flags & _BOSCH) and bool(flags & int(HondaFlags.BOSCH_CANFD)) and
             cp.pcmCruise and not cp.openpilotLongitudinalControl and
-            safety.safetyModel == _HONDA_BOSCH and safety.safetyParam == expected)
+            safety.safetyModel == _HONDA_BOSCH and _bosch_param(cp, flags, safety.safetyParam, expected))
   if flags & int(HondaFlags.BOSCH_CANFD):
     return False
   if fingerprint in NIDEC and flags & _NIDEC and not flags & _BOSCH:
@@ -105,8 +126,12 @@ def qualified(cp, *, marked_only=False):
         expected |= int(HondaSafetyFlags.NIDEC_PEDAL_AOL)
     if fingerprint == CAR.HONDA_ODYSSEY_TWN and cp.alternativeExperience == 32:
       expected |= 256
+    angle = bool(flags & int(HondaFlags.CLARITY_ANGLE_MODE))
+    # angle mode + pedal: panda installs 7 RX checks + the AOL pair (honda_stock_aol.h, 9-entry workspace), so it
+    # qualifies exactly as the pedal alone did (the owner's Clarity: 544 | 4096, alternativeExperience 32)
     return (bool(cp.pcmCruise) == (not pedal) and cp.openpilotLongitudinalControl and
-            safety.safetyModel == _HONDA_NIDEC and safety.safetyParam == expected)
+            safety.safetyModel == _HONDA_NIDEC and (safety.safetyParam & ~NIDEC_ANGLE_BIT) == expected and
+            bool(safety.safetyParam & NIDEC_ANGLE_BIT) == angle)
   if fingerprint in CLASSIC_BOSCH and flags & _BOSCH and not flags & _BOSCH_RADARLESS:
     expected = int(bool(flags & _BOSCH_ALT_BRAKE))
     if cp.openpilotLongitudinalControl:
@@ -116,11 +141,11 @@ def qualified(cp, *, marked_only=False):
       if cp.alternativeExperience == 32:
         expected |= int(HondaSafetyFlags.CLASSIC_LONG_AOL | HondaSafetyFlags.AOL_BOSCH_LONG)
     return (bool(cp.pcmCruise) == (not cp.openpilotLongitudinalControl) and
-            safety.safetyModel == _HONDA_BOSCH and safety.safetyParam == expected)
+            safety.safetyModel == _HONDA_BOSCH and _bosch_param(cp, flags, safety.safetyParam, expected))
   if fingerprint in RADARLESS and flags & _BOSCH_RADARLESS:
     expected = 8 | int(bool(flags & _BOSCH_ALT_BRAKE)) | (2 if cp.openpilotLongitudinalControl else 0)
     return (bool(cp.pcmCruise) == (not cp.openpilotLongitudinalControl) and
-            safety.safetyModel == _HONDA_BOSCH and safety.safetyParam == expected)
+            safety.safetyModel == _HONDA_BOSCH and _bosch_param(cp, flags, safety.safetyParam, expected))
   return False
 
 

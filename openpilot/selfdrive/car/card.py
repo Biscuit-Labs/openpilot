@@ -298,6 +298,8 @@ class Car:
             cp, long_cp, enabled=eligible, is_release=is_release)
           self.ioniq6_long_selected = self.ioniq6_long_pending
         cp = startup_preferences.prepare(cp, fingerprints=fingerprints)
+        from openpilot.starpilot.car.honda.clarity_angle_mode import prepare as prepare_clarity_angle_mode
+        cp = prepare_clarity_angle_mode(cp, self.params)   # before the interface exists (steerControlType)
         from openpilot.starpilot.car.ford.longitudinal_preferences import prepare_release_long as prepare_ford_release_long
         cp = prepare_ford_release_long(cp, self.params, is_release=is_release, enabled=openpilot_enabled_toggle)
         return self.vehicle_startup.prepare(cp, interfaces[candidate], self.can_callbacks,
@@ -1112,6 +1114,12 @@ class Car:
       companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
       companion.starpilotCarState.pedalLongActive = bool(internal.enableLongControl)
       companion.starpilotCarState.pedalMaxRegen = internal.pccEvent == 'pedalMaxRegen'
+    linear_angle = getattr(self.CI.CS, 'linear_angle', None)
+    if self.CP.brand == 'honda' and linear_angle is not None and linear_angle.enabled:
+      # Honda linear-angle EPS (opendbc honda/meps/linear_angle.py): tells controls carState's angle is rack-linear
+      companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))
+      companion.starpilotCarState.sourceCarStateMonoTime = int(cs_send.logMonoTime)
+      companion.starpilotCarState.steeringAngleLinear = bool(linear_angle.latched)
     steering_authority = getattr(self.CI.CS, 'steering_authority', None)
     if self.CP.brand == 'gm' and steering_authority is not None and steering_authority.enabled:
       companion = messaging.new_message('starpilotCarState', valid=bool(cs_send.valid), logMonoTime=int(cs_send.logMonoTime))

@@ -521,8 +521,10 @@ class TestHondaStockAol(unittest.TestCase):
     self.assertFalse(self.safety.safety_test_honda_aol_unconfigured_sources())
     for index in range(256):
       with self.subTest(index=index):
-        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, False), index if index < 7 else -1)
-        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, True), index + 1 if index < 7 else -1)
+        # the workspace holds 9 entries (honda_stock_aol.h HONDA_RX_WORKSPACE_LEN: the Nidec baseline, the angle-mode
+        # measured-angle check, the pedal, and the EPS/gear pair), so a pair may start at index 0..7
+        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, False), index if index < 8 else -1)
+        self.assertEqual(self.safety.safety_test_honda_aol_pair_index(index, True), index + 1 if index < 8 else -1)
 
   def test_native_source_deadlines_independently_of_outer_rx_health(self):
     for case in CASES:

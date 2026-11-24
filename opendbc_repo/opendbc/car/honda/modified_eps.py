@@ -10,6 +10,8 @@ integrator, so comfort shaping (the output low-pass) lives in the lateral contro
 """
 from dataclasses import dataclass
 
+import numpy as np
+
 from opendbc.car import DT_CTRL, rate_limit
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda.values import HondaFlags, STEER_THRESHOLD
@@ -22,12 +24,14 @@ class ModifiedEpsSettings:
   override_threshold: int = 2000         # HondaDriverOverrideThreshold, driver torque for steeringPressed (stock 1200)
   min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this
   fade_down_s: float = 0.0               # HondaOverrideFadeDownSecs, soft cut on a press, request held while it eases out (0 = cut at once)
-  fade_up_s: float = 0.5                 # HondaOverrideFadeUpSecs, torque fade back in after a press
+  fade_up_s: float = 1.25                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle hold: the authority climb)
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
   assist_during_override: bool = False   # HondaDriverAssistDuringOverride, keep LKAS active while pressed
   delta_limiter: bool = False            # HondaSteerDeltaLimiter, the stock steer rate limit, opt-in
   delta_up: float = 3.0                  # HondaSteerDeltaUp, per second of the normalized command
   delta_down: float = 3.0                # HondaSteerDeltaDown
+  angle_hold_override: bool = True       # HondaClarityAngleHoldOverride, Clarity angle mode: hold the request through an override (authority -> 0)
+  angle_rate_limit_deg_s: float = 300.0  # HondaEpsAngleRateLimit, Clarity angle mode: cap on the target's rate in CarController (0 = off)
 
 
 DEFAULT_SETTINGS = ModifiedEpsSettings()
@@ -49,6 +53,21 @@ def steering_pressed_threshold(CP, override_threshold: int) -> float:
   if override_threshold <= 0:
     return stock
   return override_threshold if stock == STOCK_STEER_THRESHOLD else stock * override_threshold / STOCK_STEER_THRESHOLD
+
+
+# Clarity angle mode: the press threshold follows the wheel angle. Driver Override Threshold is the value from
+# ANGLE_THRESHOLD_BP[-1] up; toward center it scales down. Owner's 0x05 angle-mode drive 11-19 (route 000000ea, 15
+# segments, lateral active, no press within 2 s): |torque| max 1193 / p99.9 991 at 0-5 deg, 591 at 5-15, 1218 at 15-45,
+# but 1601 (p99.9 1585, 21 frames > 1300) at 45-90 deg; real presses peaked 1500-2700. So near center a press can count
+# from ~1300 (with 1660: 1295 / 1394 / 1660) and large angles keep the full setting, where a false press would fade the
+# angle loop out mid-turn. The top stays at the setting (not above): the stock EPS flags its own override at
+# |T_comp| >= 1536 and a press openpilot sees later than the EPS risks the stock lockout (scale vs this torque unverified).
+ANGLE_THRESHOLD_BP = [5., 15., 45.]       # |steering angle| deg
+ANGLE_THRESHOLD_SCALE = [0.78, 0.84, 1.0]
+
+
+def angle_mode_threshold(threshold: float, steering_angle_deg: float) -> float:
+  return threshold * float(np.interp(abs(steering_angle_deg), ANGLE_THRESHOLD_BP, ANGLE_THRESHOLD_SCALE))
 
 
 def lane_change_nudge_torque(CP) -> float | None:

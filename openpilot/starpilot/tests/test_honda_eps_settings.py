@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 
 from openpilot.common.params import Params
-from openpilot.starpilot.honda_eps_settings import HONDA_EPS_KEY_RENAMES, HONDA_EPS_PRESERVED_KEYS, migrate_honda_eps_param_names
+from openpilot.starpilot.honda_eps_settings import (HONDA_EPS_KEY_RENAMES, HONDA_EPS_PRESERVED_KEYS, ANGLE_DEFAULTS_RESET_KEY,
+                                                      migrate_honda_eps_param_names, reset_angle_defaults_once)
 from openpilot.starpilot.state_migration import OPERATIONAL_KEYS, prepare_manager_start
 
 
@@ -64,3 +65,18 @@ class TestHondaEpsSettings(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+  def test_angle_defaults_reset_clears_saved_values_once(self):
+    self.params.put('HondaOverrideFadeUpSecs', 0.5, block=True)
+    self.params.put('HondaOverrideFadeDownSecs', 0.3, block=True)
+    self.params.put('HondaDriverOverrideThreshold', 1600, block=True)
+    self.assertEqual(sorted(reset_angle_defaults_once(self.params)),
+                     ['HondaDriverOverrideThreshold', 'HondaOverrideFadeDownSecs', 'HondaOverrideFadeUpSecs'])
+    self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs', return_default=True), 1.25)
+    self.assertAlmostEqual(self.params.get('HondaOverrideFadeDownSecs', return_default=True), 0.0)
+    self.assertEqual(self.params.get('HondaDriverOverrideThreshold', return_default=True), 2000)
+    self.params.put('HondaOverrideFadeUpSecs', 0.8, block=True)            # set after the reset: kept
+    self.assertEqual(reset_angle_defaults_once(self.params), [])
+    self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs'), 0.8)
+    self.assertIn(ANGLE_DEFAULTS_RESET_KEY, HONDA_EPS_PRESERVED_KEYS)
+

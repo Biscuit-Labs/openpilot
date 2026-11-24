@@ -7,7 +7,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.disable_ecu import disable_ecu
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.values import CarControllerParams, HondaFlags, CAR, HondaSafetyFlags, MANUAL_TRANS_CARS, MODIFIED_EPS_FW, DBC, \
-                                     is_accord_eps_angle_loop_fw
+                                     is_accord_eps_angle_loop_fw, is_angle_image
 from opendbc.car.honda.steer_ratio import get_honda_vgr_profile, HONDA_VGR_PROFILE_FLAGS, ACCORD_ANGLE_LOOP_STEER_RATIO
 from opendbc.car.honda.carcontroller import CarController
 from opendbc.car.honda.carstate import CarState
@@ -123,7 +123,8 @@ class CarInterface(CarInterfaceBase):
     # logging-only queries (e.g. the EPS serial number) are not firmware images; counting them made every
     # allow-listed modified EPS look unknown and forced dashcam (seen on 39990-TBA,C020, 2026-10-21)
     eps_observations = [fw for fw in car_fw if fw.ecu == "eps" and not fw.logging]
-    modified_eps = any(b"," in fw.fwVersion for fw in eps_observations)
+    # "," marks a modified (PTM) image, "+" a PTM 2.0 / angle PTM image (Clarity build 0x05 on); unknown ones go dashcam
+    modified_eps = any(b"," in fw.fwVersion or b"+" in fw.fwVersion for fw in eps_observations)
     eps_addressed = all(fw.address == 0x18DA30F1 and fw.subAddress == 0 for fw in eps_observations)
     eps_modified = bool(modified_eps) and eps_addressed and all(
       fw.fwVersion in MODIFIED_EPS_FW.get(candidate, ()) for fw in eps_observations)
@@ -134,6 +135,10 @@ class CarInterface(CarInterfaceBase):
       ret.flags |= HondaFlags.EPS_MODIFIED.value
     elif modified_eps and not eps_angle_loop:
       ret.dashcamOnly = True
+    # an angle image ('+' in both separator slots, EPS build 0x0C) runs the STOCK firmware in its torque mode (protocol
+    # v2 MODE 0): it keeps the stock tune here; its angle mode doesn't use one, and with the angle setting off the
+    # startup hook clears EPS_MODIFIED (clarity_angle_mode.apply_angle_mode), so torque mode is stock end to end
+    ptm_tune = eps_modified and not any(is_angle_image(fw.fwVersion) for fw in eps_observations)
 
     # VGR is selected by the exact EPS image, not by vehicle family. Unknown firmware gets no VGR override and
     # keeps the normal fixed steer ratio.
@@ -142,18 +147,18 @@ class CarInterface(CarInterfaceBase):
       ret.flags |= int(HONDA_VGR_PROFILE_FLAGS[vgr_profile])
 
     if candidate == CAR.HONDA_CIVIC:
-      if eps_modified:
+      if ptm_tune:
         _modified_eps_tune(ret)
       else:
         ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[1.1], [0.33]]
 
     elif candidate in (CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CIVIC_BOSCH_DIESEL):
-      if eps_modified:
+      if ptm_tune:
         _modified_eps_tune(ret)
       else:
         ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
 
-    elif candidate == CAR.HONDA_CIVIC_2022 and eps_modified:
+    elif candidate == CAR.HONDA_CIVIC_2022 and ptm_tune:
       # 2.5x modded EPS (no CIVIC_2022 image is on MODIFIED_EPS_FW yet, so this stays off until one is added)
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.3], [0.09]]
 
@@ -162,7 +167,7 @@ class CarInterface(CarInterfaceBase):
       ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kiV = [[0, 10], [0.0125, 0.125]]
 
     elif candidate == CAR.HONDA_ACCORD:
-      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = ([[0.3], [0.09]] if eps_modified else [[0.6], [0.18]])
+      ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = ([[0.3], [0.09]] if ptm_tune else [[0.6], [0.18]])
       if eps_angle_loop:
         # the EPS closes the angle loop, openpilot sends the setpoint
         ret.flags |= HondaFlags.EPS_ANGLE_LOOP_FW.value
@@ -190,7 +195,7 @@ class CarInterface(CarInterfaceBase):
       ret.wheelSpeedFactor = 1.025
 
     elif candidate == CAR.HONDA_CRV_5G:
-      if eps_modified:
+      if ptm_tune:
         _modified_eps_tune(ret)
       else:
         ret.lateralTuning.pid.kpBP, ret.lateralTuning.pid.kpV = [[0, 10], [0.16, 0.64]]
@@ -227,8 +232,8 @@ class CarInterface(CarInterfaceBase):
       ret.lateralTuning.pid.kiBP, ret.lateralTuning.pid.kiV = [[0, 10], [0.0125, 0.125]]
 
     elif candidate == CAR.HONDA_CLARITY:
-      if eps_modified:
-        _modified_eps_tune(ret)
+      if ptm_tune:
+        _modified_eps_tune(ret)   # angle mode, if chosen, is applied after this by card's startup hook (clarity_angle_mode.py)
       else:
         ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
       ret.stopAccel = 0.0
@@ -236,7 +241,7 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.ACURA_RDX:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.8], [0.24]]
 
-    elif candidate in (CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR) and eps_modified:
+    elif candidate in (CAR.ACURA_RDX_3G, CAR.ACURA_RDX_3G_MMR) and ptm_tune:
       # 39990-TJB,A220 PTM, the same image on the same rack for 2019-21 and 2022+ (MMR). Its target map X axis runs
       # E4 0..4096 and Route A puts the 30000 top there, level with the Clarity's 29982 at its 3840 cap, so the
       # Clarity's gains carry over 1:1. LatControlHondaEps steers it (honda_eps_calibrations ACURA_RDX_TJB_A220).
@@ -246,7 +251,7 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.ACURA_RDX_3G:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.2], [0.06]]
 
-    elif candidate == CAR.HONDA_ODYSSEY and eps_modified:
+    elif candidate == CAR.HONDA_ODYSSEY and ptm_tune:
       # 39990-THR,A020 PTM: the RDX car build ported to THR (its code parent), so the same Route-A target (30000 at
       # E4 4096) and the Clarity's gains carry over. LatControlHondaEps steers it (honda_eps_calibrations ODYSSEY_THR_A020).
       _modified_eps_tune(ret)
@@ -260,7 +265,7 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.HONDA_PILOT:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.38], [0.11]]
 
-    elif candidate == CAR.HONDA_RIDGELINE and eps_modified:
+    elif candidate == CAR.HONDA_RIDGELINE and ptm_tune:
       # 39990-T6Z,A110 PTM rev b5: its target, P and fades are folded to the Clarity's percent of full scale at every
       # E4 (E4 4096 per unit), so the Clarity's gains carry over. LatControlHondaEps steers it
       # (honda_eps_calibrations RIDGELINE_T6Z_A110).
@@ -269,7 +274,7 @@ class CarInterface(CarInterfaceBase):
     elif candidate == CAR.HONDA_RIDGELINE:
       ret.lateralTuning.pid.kpV, ret.lateralTuning.pid.kiV = [[0.38], [0.11]]
 
-    elif candidate == CAR.HONDA_INSIGHT and eps_modified:
+    elif candidate == CAR.HONDA_INSIGHT and ptm_tune:
       _modified_eps_tune(ret)
 
     elif candidate in (CAR.HONDA_INSIGHT, CAR.HONDA_NBOX_2G):

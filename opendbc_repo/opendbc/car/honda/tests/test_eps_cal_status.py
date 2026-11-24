@@ -1,0 +1,107 @@
+"""0x6A4 EPS_CAL_STATUS interlock (eps_cal_status.py), protocol v2 only: layout-4 frames (build 0x0B on). v1 frames
+(MM 0x02 layout 2, angle builds 0x04-0x0A layout 3) fault "unsupported_build". Angle-mode behaviour on layout 4 is in
+test_meps_v2.py and test_clarity_angle_mode.py."""
+import pytest
+
+from opendbc.car.honda.eps_cal_status import STATUS_TIMEOUT_FRAMES
+from opendbc.car.honda.interface import CarInterface
+from opendbc.car.honda.tests.test_modified_eps import eps, params
+from opendbc.car.honda.values import CAR
+
+ADDR = 0x6A4
+
+
+def honda_checksum(b, addr=ADDR):
+  s = sum((x >> 4) + (x & 0xF) for x in b[:-1]) + (b[-1] >> 4) + sum((addr >> (4 * k)) & 0xF for k in range(3))
+  return (8 - s) & 0xF
+
+
+def v4(mode=1, steering=True, fault=False, clamp=False, lkas=2, build=0x0B, reason=0, gain=15, ref=0, out=0, counter=0):
+  """A layout-4 status frame (meps/protocol.py)."""
+  b = bytearray(8)
+  b[0] = 0x80 | (0x40 if fault else 0) | (0x20 if steering else 0) | (0x10 if clamp else 0) | ((lkas & 3) << 2) | (mode & 3)
+  b[1] = build
+  b[2] = ((gain & 0xF) << 4) | (reason & 0xF)
+  b[3:5] = (ref & 0xFFFF).to_bytes(2, "big")
+  b[5:7] = (out & 0xFFFF).to_bytes(2, "big")
+  b[7] = (counter & 3) << 4
+  b[7] |= honda_checksum(bytes(b))
+  return bytes(b)
+
+
+def v1(active=1, requested=1, build=0x02, counter=0, b0_extra=0):
+  """A v1 status frame (layout 2/3: requested mode in byte 0 bits 7:4, never bit 7)."""
+  b = bytearray([(requested << 4) | active | b0_extra, build, 0, 0, 0, 0, 0, counter << 4])
+  b[7] |= honda_checksum(bytes(b))
+  return bytes(b)
+
+
+def clarity(fw=b'39990-TRW,A020\x00\x00'):
+  ci = CarInterface(params(CAR.HONDA_CLARITY, [eps(fw)]))
+  return ci
+
+
+class Feed:
+  """carState at 100 Hz; 0x6A4 at 50 Hz (every other update), like the car."""
+  def __init__(self, ci):
+    self.ci, self.t = ci, 1_000_000_000
+
+  def step(self, data=None):
+    self.t += 10_000_000
+    cs = self.ci.update([(self.t, [(ADDR, data, 0)] if data is not None else [])])
+    return cs
+
+  def run(self, datas):
+    out = []
+    for d in datas:
+      out.append(self.step(d))
+      out.append(self.step())
+    return out
+
+
+@pytest.mark.parametrize("active,requested,build,running", [(1, 1, 0x02, 0), (0, 0, 0x02, 0), (3, 3, 0x0A, 8), (4, 4, 0x05, 8)],
+                         ids=["MM02_mode1", "MM02_stock", "0x0A_angle", "0x05_mode4"])
+def test_v1_builds_are_unsupported_in_torque_mode(active, requested, build, running):
+  ci = clarity(); f = Feed(ci)
+  states = f.run([v1(active, requested, build, counter=k % 4, b0_extra=running) for k in range(10)])
+  assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "unsupported_build"
+  assert ci.CS.eps_cal_status.build_id == build
+
+
+def test_torque_mode_on_a_v2_eps_is_not_built():
+  # v2 has no torque PTM mode: openpilot's PTM torque tune on the EPS's stock tables must not steer
+  ci = clarity(); f = Feed(ci)
+  states = f.run([v4(mode=0, steering=False, reason=1, counter=k % 4) for k in range(10)])
+  assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "mode_not_built"
+  assert ci.CC.eps_mode == 0
+
+
+def test_status_lost_after_timeout_then_recovers():
+  ci = clarity(); f = Feed(ci)
+  f.run([v1(counter=k % 4) for k in range(10)])
+  assert ci.CS.eps_cal_status.fault == "unsupported_build"
+  states = [f.step() for _ in range(STATUS_TIMEOUT_FRAMES + 2)]
+  assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "lost"
+  f.run([v1(counter=k % 4) for k in range(10, 14)])
+  assert ci.CS.eps_cal_status.fault == "unsupported_build"
+
+
+def test_no_status_frame_is_cleanptm_behaviour():
+  ci = clarity(); f = Feed(ci)
+  assert not any(s.steerFaultTemporary for s in f.run([None] * 200))
+  assert ci.CS.eps_cal_status.enabled and not ci.CS.eps_cal_status.announced
+  assert ci.CC.eps_mode == 0                          # byte 3 = 0: CleanPTM ignores it, a v2 EPS would read MODE 0
+
+
+def test_bad_checksum_frames_are_ignored():
+  ci = clarity(); f = Feed(ci)
+  bad = [v4(counter=k % 4)[:7] + bytes([v4(counter=k % 4)[7] ^ 0x01]) for k in range(40)]
+  assert not any(s.steerFaultTemporary for s in f.run(bad))
+  assert not ci.CS.eps_cal_status.announced
+
+
+def test_stock_fw_clarity_and_other_cars_ignore_the_frame():
+  ci = clarity(b'39990-TRW-A020\x00\x00'); f = Feed(ci)
+  assert not ci.CS.eps_cal_status.enabled
+  assert not any(s.steerFaultTemporary for s in f.run([v1(active=0, counter=k % 4) for k in range(20)]))
+  assert ci.CC.eps_mode == 0

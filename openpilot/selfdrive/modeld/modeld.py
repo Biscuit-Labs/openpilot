@@ -63,6 +63,7 @@ from openpilot.selfdrive.controls.lib.drive_helpers import get_accel_from_plan, 
 from openpilot.selfdrive.modeld.parse_model_outputs import Parser
 from openpilot.selfdrive.modeld.fill_model_msg import fill_model_msg, fill_driving_model_data, fill_pose_msg, PublishState
 from openpilot.selfdrive.modeld.lateral_source import lateral_source
+from openpilot.selfdrive.modeld.clarity_lookahead import clarity_manual_lookahead, lateral_model_times, timed_action_head
 from openpilot.selfdrive.modeld.constants import LAT_SMOOTH_SECONDS, ModelConstants, Plan
 from openpilot.selfdrive.modeld.helpers import MODELS_DIR, chestnut_present, modeld_pkl_path, load_oob, wait_for_chestnut
 
@@ -397,6 +398,8 @@ def main(demo=False):
   # LAT_SMOOTH_SECONDS, and the manager runs modeld by its module name, so they all see it
   global LAT_SMOOTH_SECONDS
   LAT_SMOOTH_SECONDS = lateral_smooth_seconds(CP, LAT_SMOOTH_SECONDS)  # ty: ignore[invalid-assignment]
+  # Steering Prediction Time (Clarity angle mode, default off): an absolute lateral horizon for a timed action head
+  manual_lookahead = clarity_manual_lookahead(params, CP)
   from openpilot.starpilot.car.subaru.smoothing import read_frozen, seconds as subaru_smooth_seconds, filter_action
   subaru_smoothing = read_frozen(CP, params)
 
@@ -640,7 +643,7 @@ def main(demo=False):
     transforms = {name: model_transform_extra if 'big' in name else model_transform_main for name in model.vision_input_names}
     frame_delay = DT_MDL # compensate for time passed since the frame was captured: current_time - timestamp_eof is 50ms on average
     action_delay = DT_MDL / 2 # middle of the interval between model output (current state) and next frame (expected state)
-    lat_action_t = lat_delay + frame_delay + action_delay
+    lat_delay, lat_action_t = lateral_model_times(manual_lookahead, timed_action_head(model), lat_delay, frame_delay, action_delay)
     long_action_t = long_delay + frame_delay + action_delay
     inputs: dict[str, np.ndarray] = {
       'desire_pulse': vec_desire,

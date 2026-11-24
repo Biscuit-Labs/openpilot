@@ -39,17 +39,20 @@ static void honda_stock_aol_set_flag(uint16_t bit, bool value) {
 static uint32_t honda_stock_aol_grant_ts = 0U;
 static uint8_t honda_stock_aol_eps = 0U;
 static uint32_t honda_stock_aol_main_ts = 0U;
-static uint8_t honda_stock_aol_eps_index = 8U;
-static RxCheck honda_rx_workspace[8];
+// 9 entries: the Nidec baseline (5) + the Clarity angle-mode STEERING_SENSORS check + the pedal interceptor + the stock
+// AOL EPS/gear pair. Every other configuration uses at most 8, as before.
+#define HONDA_RX_WORKSPACE_LEN 9U
+static uint8_t honda_stock_aol_eps_index = HONDA_RX_WORKSPACE_LEN;
+static RxCheck honda_rx_workspace[HONDA_RX_WORKSPACE_LEN];
 
 // EPS and gear entries are adjacent. The sentinel leaves both unavailable
-// until configuration installs a bounded pair in the eight-entry workspace.
+// until configuration installs a bounded pair in the workspace.
 static RxCheck *honda_stock_aol_eps_check(void) {
-  return (honda_stock_aol_eps_index < 7U) ? &honda_rx_workspace[honda_stock_aol_eps_index] : NULL;
+  return (honda_stock_aol_eps_index < (HONDA_RX_WORKSPACE_LEN - 1U)) ? &honda_rx_workspace[honda_stock_aol_eps_index] : NULL;
 }
 
 static RxCheck *honda_stock_aol_gear_check(void) {
-  return (honda_stock_aol_eps_index < 7U) ? &honda_rx_workspace[honda_stock_aol_eps_index + 1U] : NULL;
+  return (honda_stock_aol_eps_index < (HONDA_RX_WORKSPACE_LEN - 1U)) ? &honda_rx_workspace[honda_stock_aol_eps_index + 1U] : NULL;
 }
 
 static void honda_stock_aol_clear(void) {
@@ -81,7 +84,7 @@ static void honda_stock_aol_reset(void) {
   honda_stock_aol_set_flag(HONDA_STOCK_ALT_LONG, false);
   honda_stock_aol_eps = 0U;
   honda_stock_aol_main_ts = 0U;
-  honda_stock_aol_eps_index = 8U;
+  honda_stock_aol_eps_index = HONDA_RX_WORKSPACE_LEN;
 }
 
 static void honda_stock_aol_host_request(uint8_t mask) {
@@ -240,8 +243,8 @@ static void honda_stock_aol_rx(const CANPacket_t *msg, unsigned int pt_bus, bool
 }
 
 static safety_config honda_copy_rx(const RxCheck *source, unsigned int count, safety_config ret) {
-  const unsigned int selected_count = (count <= 8U) ? count : 0U;
-  for (unsigned int i = 0U; i < 8U; i++) {
+  const unsigned int selected_count = (count <= HONDA_RX_WORKSPACE_LEN) ? count : 0U;
+  for (unsigned int i = 0U; i < HONDA_RX_WORKSPACE_LEN; i++) {
     honda_rx_workspace[i] = (i < selected_count) ? source[i] : (RxCheck){0};
   }
   ret.rx_checks = honda_rx_workspace;
@@ -249,7 +252,11 @@ static safety_config honda_copy_rx(const RxCheck *source, unsigned int count, sa
   return ret;
 }
 
-static safety_config honda_stock_aol_configure(uint16_t param, bool nidec, bool alt_main, unsigned int pt_bus, safety_config ret) {
+// angle_rx: the Clarity angle-mode STEERING_SENSORS check is installed (Nidec only); it may take one more slot, so angle
+// mode with a pedal interceptor (7 checks) still gets the EPS/gear pair. Without it the limit stays 6, as before.
+static safety_config honda_stock_aol_configure(uint16_t param, bool nidec, bool alt_main, unsigned int pt_bus, bool angle_rx,
+                                               safety_config ret) {
+  const int max_base = angle_rx ? 7 : 6;
   honda_stock_aol_reset();
   bool valid = nidec ? ((param == 0U) || (param == 4U) || (param == 260U) || (param == 544U) || (param == 548U) || (param == 804U)) :
     ((param == 0U) || (param == 1U) || (param == 8U) || (param == 9U) || (param == 16U) || (param == 17U) || (param == 80U) || (param == 81U) || (param == 512U) || (param == 513U));
@@ -257,12 +264,12 @@ static safety_config honda_stock_aol_configure(uint16_t param, bool nidec, bool 
   valid = valid || (!nidec && ((param == 10U) || (param == 11U) || (param == 1058U) || (param == 1059U) || (param == 1570U) || (param == 1571U) || (param == 2082U) || (param == 2083U) || (param == 2211U)));
 #endif
   honda_stock_aol_set_flag(HONDA_STOCK_ENABLED, valid && ((unsigned int)alternative_experience == 32U) &&
-    (ret.rx_checks_len >= 3) && (ret.rx_checks_len <= 6) && (pt_bus <= 1U));
+    (ret.rx_checks_len >= 3) && (ret.rx_checks_len <= max_base) && (pt_bus <= 1U));
   honda_stock_aol_set_flag(HONDA_STOCK_ALT_MAIN, alt_main);
   honda_stock_aol_set_flag(HONDA_STOCK_TWN, nidec && ((param == 260U) || (param == 804U)));
   honda_stock_aol_set_flag(HONDA_STOCK_TJA, !nidec && ((param == 512U) || (param == 513U) || (param == 1570U) || (param == 1571U)));
   honda_stock_aol_set_flag(HONDA_STOCK_ALT_LONG, !nidec && ((param == 1058U) || (param == 1059U) || (param == 1570U) || (param == 1571U)));
-  if (honda_stock_aol_flag(HONDA_STOCK_ENABLED) && (ret.rx_checks_len <= 6) && (pt_bus <= 1U)) {
+  if (honda_stock_aol_flag(HONDA_STOCK_ENABLED) && (ret.rx_checks_len <= max_base) && (pt_bus <= 1U)) {
     const unsigned int count = ret.rx_checks_len;
     static const RxCheck eps[] = {
       {.msg = {{0x18F, 0U, 7, 10U, .max_counter = 3U, .ignore_quality_flag = true},

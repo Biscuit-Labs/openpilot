@@ -9,7 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
@@ -173,21 +173,89 @@ class ValidationTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertFalse(check_rwd.check(path))
 
-    def test_t6z_is_never_programmed_by_eps_update(self):
-        fw = x5a(t6z_image())
-        with self.assertRaises(ValueError):
-            check_rwd.require_uds_flashable(fw)
-        check_rwd.require_uds_flashable(x5a(image()))
+    def _v850_client(self, drop_seq=None):
+        """A fake UDS client for a V850 image: the loader replies 74 20 02 02 (514), and one 36 can go unanswered once."""
+        client = Mock()
+        client.read_data_by_identifier.return_value = b'39990-T6Z-A110\x00\x00'
+        client.security_access.return_value = b'\x00\x01'
+        client.request_download.return_value = 514
+        dropped = []
+
+        def transfer(seq, data):
+            if seq == drop_seq and not dropped:
+                dropped.append(seq)
+                raise Timeout()
+            return b''
+        client.transfer_data.side_effect = transfer
+        can_client = types.SimpleNamespace(send=Mock())
+        names = ('read_data_by_identifier', 'security_access', 'tester_present', 'diagnostic_session_control',
+                 'routine_control', 'write_data_by_identifier', 'request_download', 'transfer_data',
+                 'request_transfer_exit', 'ecu_reset')
+        fake = types.SimpleNamespace(_can_client=can_client, **{name: getattr(client, name) for name in names})
+        return client, fake, can_client
+
+    def _run_eps_update(self, fake, *flags):
         modules = dependencies()
+        modules['opendbc.car.uds'].UdsClient.return_value = fake
+        modules['tqdm'] = types.SimpleNamespace(tqdm=MagicMock())   # the progress bar is a context manager
         with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
             path = Path(folder) / 't6z.rwd'
             path.write_bytes(t6z_image())
             with patch.dict(sys.modules, modules), \
-                 patch.object(sys, 'argv', ['eps-update.py', str(path), '--danger']), \
-                 contextlib.redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as status:
-                runpy.run_path(str(TOOLS / 'eps-update.py'), run_name='__main__')
-        self.assertIn('bootloader sequence', str(status.exception))
-        modules['panda'].Panda.assert_not_called()
+                 patch.object(sys, 'argv', ['eps-update.py', str(path), *flags]), \
+                 patch('time.sleep'), contextlib.redirect_stdout(io.StringIO()) as output:
+                try:
+                    runpy.run_path(str(TOOLS / 'eps-update.py'), run_name='__main__')
+                    code = None
+                except SystemExit as status:
+                    code = status.code
+        return modules, output.getvalue(), code
+
+    def test_v850_images_are_programmed(self):
+        # the V850 bootloader takes the same sequence (lab/pilot-tg7/V850_FLASH_PROTOCOL_20261124.md)
+        check_rwd.require_uds_flashable(x5a(t6z_image()))
+        client, fake, can_client = self._v850_client(drop_seq=5)
+        raw_send = can_client.send                                   # eps-update wraps it in place
+        modules, output, code = self._run_eps_update(fake, '--danger')
+        uds = modules['opendbc.car.uds']
+        self.assertIn(code, (None, 0), output)
+        self.assertEqual([c.args[1] for c in client.routine_control.call_args_list],
+                         [uds.ROUTINE_IDENTIFIER_TYPE.ERASE_MEMORY, uds.ROUTINE_IDENTIFIER_TYPE.CHECK_PROGRAMMING_DEPENDENCIES])
+        client.write_data_by_identifier.assert_called_once_with(0xF101, b'\x01\x02\x03')
+        client.request_download.assert_called_once_with(0x10000, 0x50000)
+        seqs = [c.args[0] for c in client.transfer_data.call_args_list]
+        self.assertEqual(len(seqs), 640 + 1)                       # 640 blocks of 512 bytes, block 5 resent once
+        self.assertEqual(seqs[4:6], [5, 5])
+        self.assertEqual({len(c.args[1]) for c in client.transfer_data.call_args_list}, {512})
+        self.assertEqual(seqs[-1], 640 & 0xFF)
+        client.request_transfer_exit.assert_called_once()
+        client.ecu_reset.assert_called_once()
+        self.assertIn('resending', output)
+        # consecutive frames are spaced at least 1 ms apart, whatever STmin the ECU asks for; single frames untouched
+        fake._can_client.send([b'a', b'b'], delay=0)
+        fake._can_client.send([b'a'], delay=0)
+        self.assertEqual(raw_send.call_args_list[-2].kwargs['delay'], 0.001)
+        self.assertEqual(raw_send.call_args_list[-1].kwargs['delay'], 0)
+
+    def test_v850_transfer_gives_up_after_the_retries(self):
+        client, fake, _ = self._v850_client()
+        client.transfer_data.side_effect = Timeout()
+        _, output, code = self._run_eps_update(fake, '--danger')
+        self.assertEqual(code, 1)
+        self.assertEqual(client.transfer_data.call_count, 4)    # the first try and 3 resends of block 1
+        client.ecu_reset.assert_not_called()
+
+    def test_v850_dry_run_leaves_the_loader_by_reset(self):
+        # after 10 02 the V850 RAM loader refuses 10 01; nothing was erased, so 11 01 restarts the app
+        client, fake, _ = self._v850_client()
+        modules, output, code = self._run_eps_update(fake)
+        uds = modules['opendbc.car.uds']
+        self.assertEqual(code, 0, output)
+        self.assertIn(load('eps_flash_marker', 'flash.py').DRY_RUN_OK_MARKER, output)
+        client.ecu_reset.assert_called_once()
+        client.routine_control.assert_not_called()
+        client.transfer_data.assert_not_called()
+        self.assertNotIn(((uds.SESSION_TYPE.DEFAULT,), {}), client.diagnostic_session_control.call_args_list)
 
     def test_thr_tjb_rom_crcs(self):
         # Odyssey THR and RDX TJB images must also carry valid runtime ROM CRCs;
@@ -423,23 +491,11 @@ class FlashTests(unittest.TestCase):
                 self.assertEqual(menu.call_args.kwargs['flash_succeeded'], rc == 0)
                 self.assertEqual('Firmware programming completed.' in output.getvalue(), rc == 0)
 
-    def test_valid_t6z_is_listed_but_refused(self):
+    def test_valid_v850_image_is_flashable(self):
         with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
             path = Path(folder) / 't6z.rwd'
             path.write_bytes(t6z_image())
-            self.assertIn('bootloader sequence', self.flash.not_flashable_reason(str(path)))
-            with patch.object(sys, 'argv', ['flash.py']), \
-                 patch.object(self.flash, 'find_images', return_value=[str(path)]), \
-                 patch.object(self.flash, 'car_eps_fw', return_value=None), \
-                 patch('builtins.input', side_effect=['1', 'yes', '', 'FLASH']), \
-                 patch.object(self.flash, 'stop_openpilot') as stop, \
-                 patch.object(self.flash, 'run_real_flash') as flash, \
-                 contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as status:
-                self.flash.main()
-        self.assertIn('NOT flashable with this tool', output.getvalue())
-        self.assertIn('refusing to flash it here', str(status.exception.code))
-        stop.assert_not_called()
-        flash.assert_not_called()
+            self.assertIsNone(self.flash.not_flashable_reason(str(path)))
 
     def run_main_with_status(self, status):
         with patch.object(sys, 'argv', ['flash.py']), \

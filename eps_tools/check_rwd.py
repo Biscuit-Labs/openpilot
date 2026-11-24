@@ -112,8 +112,7 @@ T6Z_START, T6Z_LENGTH = 0x10000, 0x50000
 V850_PRODUCT, V850_PN = 0x3428, 0x3438   # app offsets: product block, part number
 T6Z_SUM_WINDOWS = ((0x00000, 0x0a000), (0x0a000, 0x1d000), (0x1d000, 0x4ff00))
 T6Z_VALIDATE_END = 0x4ff00
-T6Z_FLASHER = ("V850 (Ridgeline T6Z / Pilot TG7) images are programmed through their bootloader sequence (erase/validate "
-               "routines FF00/FF01), which eps-update.py does not implement yet")
+# V850 reflash protocol (boot/loader code, run in v850-emu): lab/pilot-tg7/V850_FLASH_PROTOCOL_20261124.md
 
 
 def is_t6z(fw):
@@ -150,9 +149,9 @@ def validate_t6z_firmware(fw):
 
 
 def require_uds_flashable(fw):
-    """Refuse images eps-update.py's UDS sequence must not program."""
-    if is_t6z(fw):
-        raise ValueError(T6Z_FLASHER)
+    """Refuse images eps-update.py's UDS sequence must not program. Every validated image can be programmed now: the V850
+    bootloader takes the same sequence (eps-update.py handles its loader exit and transfer pacing)."""
+    return None
 
 
 def validate_container(fw):
@@ -213,8 +212,6 @@ def check(path):
         print(f"  NOT VALIDATED: {e}")
         return False
     print("  Fully validated: PASS")
-    if is_t6z(fw):
-        print(f"  Note: {T6Z_FLASHER}.")
     return True
 
 

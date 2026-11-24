@@ -80,12 +80,13 @@ def rom_crc_image(software_id=b'39990-TJB,A220', start=0xc000, length=0x74000, s
     return body + struct.pack('<I', sum(body) & 0xffffffff)
 
 
-def t6z_image(software_ids=(b'39990-T6Z-A110', b'39990,T6Z,A110', b'39990-T6Z,A110'), corrupt=False, start=0x10000):
-    """A T6Z-shaped image: HNAB + part number in the app, each bank LE32-summing to 0 via its last word."""
+def t6z_image(software_ids=(b'39990-T6Z-A110', b'39990,T6Z,A110', b'39990-T6Z,A110'), corrupt=False, start=0x10000,
+              product=b'HNAB11FMM022518A', part=b'39990-T6Z,A110'):
+    """A V850-shaped image: product block + part number in the app, each bank LE32-summing to 0 via its last word."""
     length, keys = check_rwd.T6Z_LENGTH, b'\x01\x02\x03'
     app = bytearray(b'\xff' * length)
-    app[0x3428:0x3438] = b'HNAB11FMM022518A'
-    app[0x3438:0x3446] = b'39990-T6Z,A110'
+    app[0x3428:0x3438] = product
+    app[0x3438:0x3446] = part
     for win_start, win_end in check_rwd.T6Z_SUM_WINDOWS:
         hole = win_end - 4
         app[hole:hole + 4] = b'\x00' * 4
@@ -150,7 +151,13 @@ class ValidationTests(unittest.TestCase):
 
     def test_t6z_images_get_their_own_checks(self):
         # Ridgeline T6Z-A110: its own cipher and LE32 bank sums, 3 software IDs against 2 seed secrets.
-        cases = ((t6z_image(), True), (t6z_image(corrupt=True), False), (t6z_image(start=0xc000), False))
+        cases = ((t6z_image(), True), (t6z_image(corrupt=True), False), (t6z_image(start=0xc000), False),
+                 # angle builds ('+' in the header IDs and the app part number) and the Pilot TG7 (same family)
+                 (t6z_image(software_ids=(b'39990-T6Z-A110', b'39990+T6Z+A110'), part=b'39990+T6Z+A110'), True),
+                 (t6z_image(software_ids=(b'39990-TG7-A070', b'39990+TG7+A070'), product=b'HN9A10BMM019518A',
+                            part=b'39990+TG7+A070'), True),
+                 # not a V850 app: no HN product block, or another ECU's part number
+                 (t6z_image(product=b'XXAB11FMM022518A'), False), (t6z_image(part=b'39990-TJB-A220'), False))
         with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
             path = Path(folder) / 't6z.rwd'
             for raw, expected in cases:

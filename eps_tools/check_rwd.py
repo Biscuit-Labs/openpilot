@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # Usage: python3 check_rwd.py <file.rwd> [file2.rwd ...]
 
+import re
 import struct
 import sys
 
@@ -102,16 +103,21 @@ def rom_crc_definitions(fw):
 # bank so its little-endian 32-bit word sum is 0, and the bootloader's FF01 validate checks that the running
 # LE32 sum of everything programmed (0x0..0x4FF00, the last 0x36 block being 256 bytes) is still 0. Their
 # header 3 lists the dash, comma and dash-comma IDs against two seed secrets, so the 3/4 counts differ.
-T6Z_SOFTWARE_IDS = (b'39990-T6Z', b'39990,T6Z')
+# Pilot TG7 images (A060/A070) are the same family (the Ridgeline app is a Pilot-codebase port; boot code identical
+# apart from the ID block): same flash window, cipher, bank sums and FF01 span. Every separator form is accepted: stock '-',
+# PTM ',' and the angle builds' '+' (39990+T6Z+A110), in the header IDs and in the decrypted part number.
+V850_ID = re.compile(rb'39990[-,+](T6Z|TG7)[-,+]')
+T6Z_SOFTWARE_IDS = (b'39990-T6Z', b'39990,T6Z', b'39990+T6Z', b'39990-TG7', b'39990,TG7', b'39990+TG7')
 T6Z_START, T6Z_LENGTH = 0x10000, 0x50000
+V850_PRODUCT, V850_PN = 0x3428, 0x3438   # app offsets: product block, part number
 T6Z_SUM_WINDOWS = ((0x00000, 0x0a000), (0x0a000, 0x1d000), (0x1d000, 0x4ff00))
 T6Z_VALIDATE_END = 0x4ff00
-T6Z_FLASHER = ("T6Z-A110 (V850) images are programmed through its bootloader sequence (erase/validate "
-               "routines FF00/FF01), which eps-update.py does not implement")
+T6Z_FLASHER = ("V850 (Ridgeline T6Z / Pilot TG7) images are programmed through their bootloader sequence (erase/validate "
+               "routines FF00/FF01), which eps-update.py does not implement yet")
 
 
 def is_t6z(fw):
-    return any(v.value.startswith(T6Z_SOFTWARE_IDS) for v in fw.file_headers[3].values)
+    return any(V850_ID.match(v.value) for v in fw.file_headers[3].values)
 
 
 def t6z_decrypt(encrypted, keys):
@@ -129,8 +135,9 @@ def validate_t6z_firmware(fw):
         raise ValueError(f"T6Z image must start at 0x{T6Z_START:x} with length 0x{T6Z_LENGTH:x}, "
                          f"got 0x{block['start']:x}/0x{block['length']:x}")
     plain = t6z_decrypt(fw.firmware_encrypted[0], fw.keys)
-    if b'HNAB' not in plain or not any(i in plain for i in T6Z_SOFTWARE_IDS):
-        raise ValueError("T6Z image does not decrypt to a T6Z application (wrong keys or not this ECU)")
+    # product block at app 0x3428 ('HNAB11FMM022' Ridgeline, 'HN9A10BMM019' Pilot A070), part number at 0x3438
+    if plain[V850_PRODUCT:V850_PRODUCT + 2] != b'HN' or not V850_ID.match(plain, V850_PN):
+        raise ValueError("V850 image does not decrypt to a T6Z/TG7 application (wrong keys or not this ECU)")
     for start, end in T6Z_SUM_WINDOWS:
         total = le32_sum(plain, start, end)
         if total:

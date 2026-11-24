@@ -700,13 +700,17 @@ SH2A_ARM_CASES = [
   (CAR.HONDA_CIVIC_BOSCH, b'39990+TGG+A120\x00\x00'), (CAR.HONDA_CRV_5G, b'39990+TLA+A040\x00\x00'),
   (CAR.HONDA_CRV_5G, b'39990+TLA+A220\x00\x00'), (CAR.HONDA_INSIGHT, b'39990+TXM+A040\x00\x00'),
 ]
-# same fingerprints on their torque images, and the angle images of the other families (TJB/THR/T5R SH-2A, V850): no arm bits
-NO_ARM_CASES = [
-  (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), (CAR.HONDA_CIVIC, b'39990-TBA,A030\x00\x00'),
-  (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00'), (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00'),
+OTHER_ARM_CASES = [
   (CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), (CAR.HONDA_ODYSSEY, b'39990+THR+A020\x00\x00'),
   (CAR.HONDA_FIT, b'39990+T5R+C030\x00\x00'), (CAR.HONDA_RIDGELINE, b'39990+T6Z+A110\x00\x00'),
   (CAR.HONDA_PILOT, b'39990+TG7+A070\x00\x00'), (CAR.HONDA_PILOT, b'39990+TG7+A060\x00\x00'),
+]
+# the same fingerprints on their torque images: no arm bits
+NO_ARM_CASES = [
+  (CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), (CAR.HONDA_CIVIC, b'39990-TBA,A030\x00\x00'),
+  (CAR.HONDA_CRV_5G, b'39990-TLA,A220\x00\x00'), (CAR.HONDA_INSIGHT, b'39990-TXM,A040\x00\x00'),
+  (CAR.ACURA_RDX_3G, b'39990-TJB,A220\x00\x00'), (CAR.HONDA_ODYSSEY, b'39990-THR,A020\x00\x00'),
+  (CAR.HONDA_PILOT, b'39990-TG7,A060\x00\x00'),
 ]
 
 
@@ -717,8 +721,8 @@ def _fw_cp(candidate, fw, angle):
   return cam.apply_angle_mode(cp, angle)
 
 
-@pytest.mark.parametrize("candidate,fw", SH2A_ARM_CASES)
-def test_stock_arm_bits_on_the_sh2a_angle_images(candidate, fw):
+@pytest.mark.parametrize("candidate,fw", SH2A_ARM_CASES + OTHER_ARM_CASES)
+def test_stock_arm_bits_on_the_angle_images(candidate, fw):
   from opendbc.car.honda.carcontroller import CarController
   from opendbc.car.honda.values import DBC
   CP = _fw_cp(candidate, fw, True)
@@ -738,17 +742,18 @@ def test_no_stock_arm_bits_elsewhere(candidate, fw):
   assert not CarController(DBC[candidate], CP).stock_arm
 
 
-def test_stock_arm_images_are_the_sh2a_family_list():
+def test_stock_arm_images_are_the_angle_fleet():
   # every listed image is an angle image ('+' separators); H020 (TEA) is in the proven set though openpilot has no TEA row yet
-  assert len(cam.STOCK_ARM_IMAGES) == 9 and len(set(cam.STOCK_ARM_IMAGES)) == 9
+  assert len(cam.STOCK_ARM_IMAGES) == 15 and len(set(cam.STOCK_ARM_IMAGES)) == 15
   from opendbc.car.honda.values import is_angle_image
   assert all(is_angle_image(fw) for fw in cam.STOCK_ARM_IMAGES)
-  assert {fw for _, fw in SH2A_ARM_CASES} | {b'39990+TEA+H020\x00\x00'} == set(cam.STOCK_ARM_IMAGES)
+  assert {fw for _, fw in SH2A_ARM_CASES + OTHER_ARM_CASES} | {b'39990+TEA+H020\x00\x00'} == set(cam.STOCK_ARM_IMAGES)
   for fw in (b'39990+TRW+A020\x00\x00', b'39990-TRW,A020\x00\x00'):      # the Clarity, by fingerprint as before
     assert cam.stock_arm_bits_supported(_fw_cp(CAR.HONDA_CLARITY, fw, False))
 
 
-@pytest.mark.parametrize("candidate", [CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC])
+@pytest.mark.parametrize("candidate", [CAR.HONDA_CIVIC_BOSCH, CAR.HONDA_CRV_5G, CAR.HONDA_INSIGHT, CAR.HONDA_CIVIC, CAR.ACURA_RDX_3G,
+                                       CAR.HONDA_ODYSSEY, CAR.HONDA_FIT, CAR.HONDA_PILOT, CAR.HONDA_RIDGELINE])
 def test_arm_bits_pack_on_bosch_and_nidec(candidate):
   # Bosch STEERING_CONTROL has no SET_ME_X00: the arm field goes out as STEER_CONTROL_ARM (bits 3:2) + STEER_CONTROL_ARM_B6;
   # the byte on the wire is the same as the Clarity's (Nidec SET_ME_X00)

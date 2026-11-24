@@ -169,23 +169,27 @@ def apply_angle_mode(CP, requested: bool):
   return CP
 
 
-# SH-2A family angle images (build 0x0D) whose 0xE4 byte 2 arm/abort path is the Clarity A020's instruction for instruction
-# (rwd-xray lab/ptm-family/SH2A_0x0D_PORTS_20261123/abort, 11-24): the byte 2 bit extraction, the latch -> record copy,
-# engage arm select, abort to state 4, release type, bit 6 edges, hold flag, and the ramp counts (1024/1024/32/100/500/1024)
-# all match with only addresses relocated. Emulator, release images: arm 2 tracks hands-off (0.10 s ramp-in), a press with
-# the abort bits drops LKAS (3 -> 4 -> 1) and disarms the stock steering-overspeed monitor (DTC 0x20) 4-5 ms after the EPS
-# takes the first abort frame (today the monitor stays armed through the press), re-arms 0.10 s after the release, no fault
-# or lockout. Keyed by image, not fingerprint: the torque images on these fingerprints and every other family (TJB/THR/T5R,
-# V850) keep arm bits 0.
+# Angle images whose 0xE4 byte 2 arm/abort field is the Clarity A020's (rwd-xray, 11-24). SH-2A family (build 0x0D,
+# lab/ptm-family/SH2A_0x0D_PORTS_20261123/abort): instruction for instruction with only addresses relocated -- byte 2 bit
+# extraction, latch -> record copy, arm select, abort to state 4, release type, bit 6 edges, hold flag, ramp counts
+# (1024/1024/32/100/500/1024); a press with the abort bits drops LKAS (3 -> 4 -> 1) and disarms the stock steering-overspeed
+# monitor (DTC 0x20) 4-5 ms after the first abort frame, re-arms 0.10 s after the release. TJB/THR/T5R
+# (lab/ptm-family/THR_0x0C_PORTS_20261122/smoke/E4_ARM_ABORT_TJB_THR_T5R_20261124.md) and V850 TG7/T6Z
+# (lab/pilot-tg7/ANGLE_V850_0x0C_20261123/armabort): same field and arm table; the abort cuts output in one step (1-2 ms,
+# the stock release step on V850) instead of the Clarity's 32 ms ramp, re-engage ~0.10 s. All emulator-proven on the
+# release images, no fault or lockout. Keyed by image, not fingerprint: torque images keep arm bits 0. Not the Accord
+# (TVA): it aborts only with the request bit off, so request + 0x44 holds there instead.
 STOCK_ARM_IMAGES = (b'39990+TBA+C020\x00\x00', b'39990+TBA+C120\x00\x00', b'39990+TBA+A030\x00\x00', b'39990+TEG+A010\x00\x00',
                     b'39990+TGG+A120\x00\x00', b'39990+TEA+H020\x00\x00', b'39990+TLA+A040\x00\x00', b'39990+TXM+A040\x00\x00',
-                    b'39990+TLA+A220\x00\x00')
+                    b'39990+TLA+A220\x00\x00',
+                    b'39990+TJB+A220\x00\x00', b'39990+THR+A020\x00\x00', b'39990+T5R+C030\x00\x00',
+                    b'39990+TG7+A070\x00\x00', b'39990+TG7+A060\x00\x00', b'39990+T6Z+A110\x00\x00')
 
 
 def stock_arm_bits_supported(CP) -> bool:
   """The stock 0xE4 byte 2 engage-arm field (stock_arm_bits): traced on the Clarity's A020 (E4 field map 11-15) and shown
-  identical on the SH-2A family angle images in STOCK_ARM_IMAGES. Other EPS images read byte 2 differently (TJB/THR merge
-  bit 5 with byte 4 bit 6) or are not checked, so they get no arm bits."""
+  identical on every angle image in STOCK_ARM_IMAGES (SH-2A, TJB/THR/T5R, V850 TG7/T6Z). Torque images and unchecked EPS
+  images get no arm bits."""
   if CP.carFingerprint == CAR.HONDA_CLARITY:
     return True
   return any(fw.ecu == "eps" and fw.fwVersion in STOCK_ARM_IMAGES for fw in CP.carFw)

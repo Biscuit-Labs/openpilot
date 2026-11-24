@@ -49,8 +49,7 @@ def _hex(s: str) -> str:
   return s.encode().hex()
 
 
-pytestmark = pytest.mark.skipif(shutil.which('javac') is None or shutil.which('java') is None or not SRC.exists(),
-                                reason='no JDK, or no aaroad source in this tree')
+pytestmark = pytest.mark.skipif(shutil.which('javac') is None or shutil.which('java') is None, reason='no JDK')
 
 
 @pytest.fixture(scope='module')

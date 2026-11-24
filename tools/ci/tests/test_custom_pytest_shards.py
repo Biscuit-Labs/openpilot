@@ -464,10 +464,10 @@ def test_audited20_counts_are_skipped_not_passed_in_exact_aggregate(tmp_path, mo
     junit_hash = shards.checksum((path / 'diagnostics/pytest.xml').read_bytes())
     rewrite(path, 'receipt.json', lambda d, caps=state, digest=junit_hash: d.update(capabilities=caps, junit_sha256=digest))
   result = shards.aggregate(tmp_path, 2)
-  assert result['cases_collected'] == 21
+  assert result['cases_collected'] == 22
   assert result['cases_passed'] == 1
-  assert result['cases_audited_skipped'] == 20
-  assert len(result['audited_skips']) == 20
+  assert result['cases_audited_skipped'] == 21
+  assert len(result['audited_skips']) == 21
   assert all(row['status'] == 'skipped' for row in result['audited_skips'])
 
 
@@ -573,7 +573,7 @@ def test_real_pytest_all20_audited_guards_have_skipped_junit_not_passes(tmp_path
   outcome = json.loads((output / 'outcomes.json').read_text())
   assert child.returncode == 0, child.stdout.decode() + child.stderr.decode()
   assert outcome['status'] == 'completed'
-  assert len(outcome['catalog']) == len(outcome['audited_skips']) == 20
+  assert len(outcome['catalog']) == len(outcome['audited_skips']) == 21
   assert all(row['status'] == 'skipped' for row in outcome['audited_skips'])
   shards.validate_junit(output / 'diagnostics/pytest.xml', outcome['selected'], outcome['audited_skips'])
   progress = json.loads((output / 'diagnostics/pytest-collection.json').read_text())

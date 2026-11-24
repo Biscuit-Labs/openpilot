@@ -11,7 +11,7 @@ from opendbc.car.honda.clarity_angle_mode import HOLD_LIMITS_FADE_S, AngleModeSe
 from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.bcan_blinker import BcanBlinker
-from opendbc.car.honda.modified_eps import ModifiedEpsSteering, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
+from opendbc.car.honda.modified_eps import ModifiedEpsSteering, below_min_steer_speed, current_settings, get_eps_modified_steering_pressed, modified_eps  # noqa: F401
 from opendbc.car.honda.nidec_interceptor import NidecInterceptor, create_command, qualified as interceptor_qualified
 from opendbc.car.honda.bosch_longitudinal import BoschLongitudinal, qualified as bosch_long_qualified
 from opendbc.car.honda import pcm_acc
@@ -255,7 +255,7 @@ class CarController(CarControllerBase):
         # full in 0.34 s). Route 000000ed: the 17-frame fade pulled the wheel toward center under the driver's hands.
         mset = current_settings(self.modified_eps_settings)
         yielding = bool(meps_pressed or CS.out.steeringPressed)
-        lkas_active = bool(CC.latActive and CS.out.vEgo >= mset.min_steer_speed_mph * CV.MPH_TO_MS)
+        lkas_active = bool(CC.latActive and not below_min_steer_speed(CS.out.vEgo, mset.min_steer_speed_mph))
         cut = self.authority.update(lkas_active and angle_ready, yielding, mset.fade_up_s)
         self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0xF1 (the loop resets G on activation)
         self.angle_hold = True

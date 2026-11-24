@@ -614,6 +614,19 @@ def test_hold_below_min_steer_speed_drops_the_request(angle_file):
   assert d[0:3] == bytes(3) and d[3] == 0xF1                                          # no request: AUTH stays 15
 
 
+
+def test_hold_min_steer_speed_zero_keeps_the_request_at_standstill(angle_file):
+  # 0 = no speed gate. At a stop vEgo dithers between 0 and about -1e-5; `v >= 0` dropped the request on every negative
+  # sample (Clarity joystick 11-24: request on 0.3 s, off 0.3 s)
+  import dataclasses
+  from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
+  ci = clarity()
+  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, min_steer_speed_mph=0)})()
+  ready(ci)
+  frames = [e4(ci, True, 10.0, 0.0, v=v)[1] for v in [0.0, -1e-5, 0.0, -3e-6] * 10]
+  assert all(d[2] & 0x80 for d in frames)                                             # request held through the dither
+
+
 # --- angle mode: the press threshold follows the wheel angle (lower toward center, the full setting from 45 deg) ---
 
 def test_angle_mode_threshold_curve():

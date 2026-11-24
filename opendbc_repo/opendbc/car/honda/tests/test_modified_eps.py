@@ -258,3 +258,12 @@ def test_torque_ptm_images_untouched_by_the_angle_setting():
       continue
     cp = apply_angle_mode(fingerprinted(candidate, version), False)
     assert cp.flags & HondaFlags.EPS_MODIFIED, (candidate, version)
+
+
+def test_min_steer_speed_zero_is_no_gate():
+  from opendbc.car.common.conversions import Conversions as CV
+  from opendbc.car.honda.modified_eps import below_min_steer_speed
+  assert not any(below_min_steer_speed(v, 0) for v in (0.0, -1e-5, -0.0, -0.3, 5.0))  # 0: never below, even on a negative vEgo
+  assert below_min_steer_speed(-1e-5, 1) and below_min_steer_speed(0.0, 1)
+  assert below_min_steer_speed(1 * CV.MPH_TO_MS - 1e-6, 1) and not below_min_steer_speed(1 * CV.MPH_TO_MS, 1)
+

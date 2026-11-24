@@ -29,6 +29,7 @@ HEAVY_MODULES = {
 }
 
 CAPABILITY_NODES = {
+  'openpilot/starpilot/ui/tests/test_onroad_map.py::test_google_tiles_line_up_with_the_car_and_heading',
   'openpilot/starpilot/galaxy_bluetooth/vendor/ifaddr/test_ifaddr.py::test_netifaces_compatibility',
   'openpilot/starpilot/system/starport/tests/test_apk_identity.py::test_real_starport_17_6_xapk',
   'openpilot/starpilot/system/starport/tests/test_gpu_nv12.py::test_composed_car_frame_converts_to_the_same_picture[False-32-18-0-0]',
@@ -51,6 +52,7 @@ CAPABILITY_NODES = {
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_route_stays_bright_at_minimum_map_opacity',
 }
 MAP_CAPABILITY_NODES = {
+  'openpilot/starpilot/ui/tests/test_onroad_map.py::test_google_tiles_line_up_with_the_car_and_heading',
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_draws_heading_up_roads_route_and_soft_edges',
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_opacity_fades_map_background',
   'openpilot/starpilot/ui/tests/test_onroad_map.py::test_overlay_without_gps_waits_without_drawing_roads',

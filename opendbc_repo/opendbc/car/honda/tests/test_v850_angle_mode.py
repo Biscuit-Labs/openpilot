@@ -66,6 +66,19 @@ def test_angle_image_selects_angle_mode_with_its_profile(candidate):
   assert ci.CC.eps_mode == 0xF1
 
 
+@pytest.mark.parametrize("fw,stock", [(b'39990+TG7+A060\x00\x00', b'39990-TG7-A060\x00\x00')], ids=["A060"])
+def test_pilot_a060_image_is_the_same_angle_build(fw, stock):
+  """The A060-base angle image (same V850 build, A060's own variant table and calibration) selects profile 6 exactly like
+  +TG7+A070; stock A060 stays in torque mode."""
+  ref, ci = interface(CAR.HONDA_PILOT), interface(CAR.HONDA_PILOT, fw)
+  assert ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.angle
+  assert ci.CP.safetyConfigs[-1].safetyParam == ref.CP.safetyConfigs[-1].safetyParam
+  assert (ci.CP.safetyConfigs[-1].safetyParam & 0xE000) == ROWS[CAR.HONDA_PILOT] << 13
+  assert ci.CP.steerRatio == ref.CP.steerRatio and ci.CC.angle_sender.profile is ref.CC.angle_sender.profile
+  st = interface(CAR.HONDA_PILOT, stock)
+  assert not st.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and st.CP.steerControlType == structs.CarParams.SteerControlType.torque
+
+
 @pytest.mark.parametrize("candidate", CARS)
 @pytest.mark.parametrize("which,angle", [("stock", True), ("angle", False)], ids=["stock", "setting_off"])
 def test_stock_image_and_setting_off_keep_torque_mode(candidate, which, angle):

@@ -571,7 +571,8 @@ int main() {
   }
 
   // Clarity angle mode adds the panda angle-rule bit (4096) to the Nidec word: 544 | 4096 = 4640 (the owner's pedal
-  // Clarity). Nidec accepts word | 4096 exactly when it accepts word; Bosch words are unchanged (none has the bit).
+  // Clarity). Nidec accepts word | 4096 exactly when it accepts word. A Bosch angle car adds 4096 and its profile in bits
+  // 15:13 (11-24: the CR-V A220/A040 testers' 0x3001 / 0x3823); Bosch accepts those exactly when it accepts the word.
   for (uint16_t word = 0U; word < 4096U; ++word) {
     auto angle_honda = status();
     angle_honda.safety_mode = 1U;
@@ -579,9 +580,21 @@ int main() {
     const bool nidec = word == 0U || word == 4U || word == 260U || word == 544U || word == 548U || word == 804U;
     assert(aol_capable(angle_honda, 1U, VEHICLE_REGISTRY) == nidec);
     assert(aol_runtime_enabled(false, angle_honda, VEHICLE_REGISTRY) == nidec);
-    angle_honda.safety_mode = 20U;
-    assert(!aol_capable(angle_honda, 20U, VEHICLE_REGISTRY));
-    assert(!aol_runtime_enabled(false, angle_honda, VEHICLE_REGISTRY));
+    const bool bosch = word == 0U || word == 1U || word == 8U || word == 9U || word == 10U || word == 11U || word == 16U ||
+                       word == 17U || word == 80U || word == 81U || word == 512U || word == 513U || word == 1058U ||
+                       word == 1059U || word == 1570U || word == 1571U || word == 2082U || word == 2083U || word == 2211U;
+    for (uint16_t profile = 0U; profile < 8U; ++profile) {
+      angle_honda.safety_mode = 20U;
+      angle_honda.safety_param = static_cast<uint16_t>(word | 4096U | (profile << 13));
+      assert(aol_capable(angle_honda, 20U, VEHICLE_REGISTRY) == bosch);
+      assert(aol_runtime_enabled(false, angle_honda, VEHICLE_REGISTRY) == bosch);
+    }
+  }
+  for (const uint16_t tester : {0x3001U, 0x3823U}) {   // the CR-V testers' words, stock ACC and alpha long
+    auto bosch_angle = status();
+    bosch_angle.safety_mode = 20U;
+    bosch_angle.safety_param = tester;
+    assert(aol_capable(bosch_angle, 20U, VEHICLE_REGISTRY) && aol_runtime_enabled(false, bosch_angle, VEHICLE_REGISTRY));
   }
   {
     auto owner = status();

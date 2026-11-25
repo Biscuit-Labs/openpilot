@@ -1,5 +1,5 @@
 from opendbc.car.structs import car
-from opendbc.car.honda.stock_aol import qualified as qualified_stock, BOSCH_WORDS, NIDEC_WORDS, NIDEC_ANGLE_BIT, temporary_restriction, \
+from opendbc.car.honda.stock_aol import qualified as qualified_stock, BOSCH_WORDS, NIDEC_WORDS, NIDEC_ANGLE_BIT, BOSCH_ANGLE_MASK, temporary_restriction, \
   ALT_RADAR_STOCK, CLASSIC_BOSCH
 from openpilot.starpilot.car.honda.stock_intent import HondaStockCardIntent
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
@@ -61,7 +61,10 @@ def policy_for(CP) -> AolVehiclePolicy:
 
 
 def native_profile_supported(model: int, param: int) -> bool:
-  return ((model == int(car.CarParams.SafetyModel.hondaBosch) and param in BOSCH_WORDS | {34, 35, 163}) or
+  # a Bosch angle car adds the angle bit and its profile (bits 15:13) to the word, as Nidec adds the angle bit; panda
+  # (honda.h) masks both, and opendbc's stock_aol qualifies the masked word, so the native receipt must too (11-24: every
+  # Bosch angle car was refused here, pandad never published aolSafetyWire, and Set raised commIssue)
+  return ((model == int(car.CarParams.SafetyModel.hondaBosch) and (param & ~BOSCH_ANGLE_MASK) in BOSCH_WORDS | {34, 35, 163}) or
           (model == int(car.CarParams.SafetyModel.hondaNidec) and (param & ~NIDEC_ANGLE_BIT) in NIDEC_WORDS))
 
 

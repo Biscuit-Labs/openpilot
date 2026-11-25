@@ -34,12 +34,12 @@ BOOL_ROWS = {
   "HondaDriverAssistDuringOverride": ("Assist During Override",
                                       "Keep steering assist active while you override the wheel."),
   ANGLE_MODE_KEY: ("Angle Mode",
-                   ("Steer by wheel angle through the EPS's own angle loop. Needs the angle-mode EPS firmware (build 0x0B on; " +
-                    "the RDX needs the 0x0C angle PTM image, its torque PTM image keeps torque mode). On a Clarity with any " +
-                    "other EPS firmware steering stays unavailable, so turn this off. Takes effect at the next start.")),
+                   ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +
+                    "(39990+XXX+YYY, '+' in the part number); a torque PTM image keeps torque mode. On a Clarity with any " +
+                    'other EPS firmware steering stays unavailable, so turn this off. Applies at the next start.')),
   ANGLE_HOLD_KEY: ("Angle Hold Through Override",
-                   ("Angle mode only: keep steering engaged while you override the wheel. Assist drops to zero while you steer " +
-                    "and comes back after you let go, instead of dropping out and re-engaging.")),
+                   ('Angle mode: keeps steering engaged through an override, with assist faded to zero while you steer ' +
+                    'and ramped back after you let go.')),
   SEATBELT_KEY: ("Disable Seatbelt Check", "Allow engaging and staying engaged with the driver's seatbelt unlatched."),
 }
 # key -> (label, reason, minimum, maximum, step, unit, integer)
@@ -49,7 +49,7 @@ NUMBER_ROWS = {
   "HondaDriverOverrideThreshold": ("Override Torque Threshold",
                                    "Driver torque that counts as an override. A modified EPS needs more than stock (1200).",
                                    1200.0, 3000.0, 20.0, "", True),
-  "HondaMinSteerSpeed": ("Minimum Steer Speed", "No steering torque below this speed.", 0.0, 25.0, 1.0, "mph", True),
+  "HondaMinSteerSpeed": ("Minimum Steer Speed", "Sends no steering torque below this speed. 0 steers down to a stop.", 0.0, 25.0, 1.0, "mph", True),
   LOOKAHEAD_KEY: ("Steering Prediction Time",
                   ("Angle mode only: how far ahead the driving model's steering action is taken, in place of the learned delay. " +
                    "0 keeps the previous timing. Only models with a timed action output use it. Change it while parked; " +

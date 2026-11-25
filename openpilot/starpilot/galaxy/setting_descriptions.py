@@ -116,20 +116,20 @@ DESCRIPTIONS = {
   'TeslaAOLDisengageOnBrake': 'Disarms Tesla Always On Lateral when you press the brake, with either harness.',
   'HondaEpsAngleRateLimit': 'Caps how fast the desired steering-wheel angle may move. 0 turns the cap off.',
   'HondaDriverOverrideThreshold': 'Sets the driver torque that counts as a steering override on a modified EPS.',
-  'HondaMinSteerSpeed': 'Sends no steering torque below this speed.',
+  'HondaMinSteerSpeed': 'Sends no steering torque below this speed. 0 steers down to a stop.',
   'HondaOverrideTorqueScale': 'Keeps this share of the steering command while you override the wheel.',
   'HondaOverrideFadeDownSecs': 'Eases the steering command out over this time when you override the wheel. 0 cuts it at once.',
   'HondaOverrideFadeUpSecs': 'Brings the steering command back over this time after you let go of the wheel.',
   'HondaDriverAssistDuringOverride': 'Keeps steering assist active while you override the wheel.',
   'HondaBcanTurnSignals': 'Lets openpilot hold the turn signal for a whole lane change and cancel it after. ' +
                           'Needs a body harness with B-CAN gateway; 10th-gen Accord tested.',
-  'HondaClarityAngleHoldOverride': ('Clarity angle mode: keeps steering engaged through an override, with assist faded to zero while you steer ' +
+  'HondaClarityAngleHoldOverride': ('Angle mode: keeps steering engaged through an override, with assist faded to zero while you steer ' +
                                     'and ramped back after you let go.'),
   'NrdrClarityAngleLookaheadMs': ('Clarity angle mode only: how far ahead (ms) the driving model\'s steering action is taken, in place of the ' +
                                   'learned delay. 0 keeps the previous timing. Only models with a timed action output use it. Applies at the next start.'),
-  'HondaClarityAngleMode': ('Clarity and RDX 3G: steers by wheel angle through the angle-mode EPS firmware (Clarity build 0x0B on, ' +
-                            'RDX the 0x0C angle PTM image). On a Clarity with any other EPS firmware steering stays unavailable, ' +
-                            'so turn it off. Applies at the next start.'),
+  'HondaClarityAngleMode': ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +
+                            "(39990+XXX+YYY, '+' in the part number); a torque PTM image keeps torque mode. On a Clarity with any " +
+                            'other EPS firmware steering stays unavailable, so turn this off. Applies at the next start.'),
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',

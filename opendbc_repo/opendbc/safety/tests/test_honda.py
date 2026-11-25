@@ -737,6 +737,14 @@ class TestHondaNidecClarityLinearAngleSafety(TestHondaNidecClarityAngleSafety):
     self.assertEqual(self._lim(6.), 3889)
     self.assertEqual(self._lim(2.), 5783)                # 578.3 deg at 1 m/s, just under the 578.4 cap
 
+  def test_limit_above_the_table(self):
+    # past the linear table's last knot (80 m/s at panda speed) the limit continues as 1/v^2 from it
+    for v in (85., 101.):
+      lim = self._lim(v)
+      self._start(lim, v)
+      self.assertTrue(self._tx(self._angle_msg(lim)), (v, lim))
+      self.assertFalse(self._tx(self._angle_msg(lim + 1)), (v, lim))
+
   def test_latched_linear_ignores_the_published_angle(self):
     self._start(0, 10.)
     self._set_true(900)                                 # 0x14A no longer moves the measured window

@@ -130,6 +130,7 @@ class FeatureSettingsState:
   save_hint: str = "Changes save automatically"
   subtitle_accent: str = ""
   subtitle_tone: str = ""
+  choice_offset: int = 0  # paged choice-strip window; only meaningful for editor rows with more than 3 choices
 
 
 def feature_row_top(state: FeatureSettingsState) -> int:
@@ -147,6 +148,37 @@ def value_done_rect(state: FeatureSettingsState) -> tuple[float, float, float, f
   return x, y + height - 140, width, 140
 
 
+def choice_strip_values(row: FeatureRow) -> tuple[str, ...]:
+  return tuple(value for value, _ in row.presets) if row.presets else row.choices
+
+
+def choice_strip_paged(row: FeatureRow) -> bool:
+  """Only a strip that lists the row's whole choice list is paged; explicit preset sets keep one button each."""
+  values = choice_strip_values(row)
+  return not row.step and len(values) > 3 and values == tuple(row.choices)
+
+
+def choice_strip_page(row: FeatureRow, offset: int) -> int:
+  """Clamped strip window for a paged choice row; 0 when the row is not paged."""
+  if not choice_strip_paged(row):
+    return 0
+  return max(0, min(len(choice_strip_values(row)) - 3, offset))
+
+
+def choice_strip_initial(row: FeatureRow) -> int:
+  """Window that shows the current value when the editor opens."""
+  values = choice_strip_values(row)
+  return choice_strip_page(row, values.index(row.value) - 1 if row.value in values else 0)
+
+
+def choice_strip_follow(row: FeatureRow, offset: int) -> int:
+  """Smallest window move that keeps the row's value visible; none when it is absent from the strip."""
+  values = choice_strip_values(row)
+  if row.value not in values:
+    return choice_strip_page(row, offset)
+  return choice_strip_page(row, min(max(offset, values.index(row.value) - 2), values.index(row.value)))
+
+
 def value_buttons(state: FeatureSettingsState, row: FeatureRow, y: float = 0) -> tuple[tuple[str, tuple[float, float, float, float], bool], ...]:
   """Shared value-editor geometry; limits and choices come from the saved row."""
   if not state.editor or len(state.rows) != 1 or not row.presets or row.repair_value:
@@ -154,7 +186,17 @@ def value_buttons(state: FeatureSettingsState, row: FeatureRow, y: float = 0) ->
   left, _, editor_width, _ = value_editor_rect(state)
   step_width, gap, height = 200, 24, 200
   presets = tuple(value for value, _ in row.presets)
-  width = (editor_width - (len(presets) - 1) * gap) / len(presets)
+  paged = choice_strip_paged(row)
+  offset = choice_strip_page(row, state.choice_offset) if paged else 0
+  if paged:
+    arrow_width = 120
+    width = (editor_width - 2 * arrow_width - 4 * gap) / 3
+    strip_left = left + arrow_width + gap
+    presets = presets[offset:offset + 3]
+  else:
+    arrow_width = 0
+    width = (editor_width - (len(presets) - 1) * gap) / len(presets)
+    strip_left = left
   if row.step:
     try:
       current = float(row.value)
@@ -167,9 +209,14 @@ def value_buttons(state: FeatureSettingsState, row: FeatureRow, y: float = 0) ->
     minus, plus = index > 0, 0 <= index < len(row.choices) - 1
   buttons = [("-", (left, y + 110, step_width, height),
               row.available and minus)]
-  buttons.extend((value, (left + slot * (width + gap), y + 356, width, height),
+  if paged:
+    buttons.append(("<", (left, y + 356, arrow_width, height), row.available and offset > 0))
+  buttons.extend((value, (strip_left + slot * (width + gap), y + 356, width, height),
                   row.available and row.value != value)
                  for slot, value in enumerate(presets))
+  if paged:
+    buttons.append((">", (left + editor_width - arrow_width, y + 356, arrow_width, height),
+                    row.available and offset < len(row.presets) - 3))
   buttons.append(("+", (left + editor_width - step_width, y + 110, step_width, height),
                   row.available and plus))
   return tuple(buttons)
@@ -227,16 +274,14 @@ def value_editor_state(state: FeatureSettingsState, key: str | None) -> FeatureS
         except ValueError:
           pass
       elif len(row.choices) > 1 and row.value in row.choices:
-        choices = row.choices if len(row.choices) <= 3 else tuple(dict.fromkeys((
-          row.choices[0], row.default_value if row.default_value in row.choices else row.choices[len(row.choices) // 2], row.choices[-1])))
-        presets = tuple((value, value) for value in choices)
+        presets = tuple((value, value) for value in row.choices)
       if presets:
         row = replace(row, presets=presets, page=row.key)
     rows.append(row)
   selected = next((row for row in rows if row.key == key and row.presets), None)
   if selected is not None:
     return replace(state, title=selected.label, subtitle=value_reason(selected), rows=(replace(selected, page=""),),
-                   parent_title=state.title, scroll=0, editor=True)
+                   parent_title=state.title, scroll=0, editor=True, choice_offset=choice_strip_initial(selected))
   return replace(state, rows=tuple(rows))
 
 
@@ -403,7 +448,11 @@ class FeatureInput:
         if bx <= x <= bx + width and by <= y <= by + height:
           if not enabled:
             return None
-          return FeatureUiAction("change", row, -1 if value == "-" else 1) if value in ("-", "+") else FeatureUiAction("action", row, button)
+          if value in ("-", "+"):
+            return FeatureUiAction("change", row, -1 if value == "-" else 1)
+          if value in ("<", ">"):
+            return FeatureUiAction("page", row, -1 if value == "<" else 1)
+          return FeatureUiAction("action", row, button)
       return FeatureUiAction("details", row) if controls[0][1][1] <= y <= controls[0][1][1] + controls[0][1][3] else None
     visible = int((y - row_top) // FEATURE_ROW_HEIGHT)
     index = state.scroll + visible

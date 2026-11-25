@@ -92,14 +92,14 @@ class ValueEditorTests(unittest.TestCase):
         disabled = replace(editor, rows=(replace(row, available=False),))
         self.assertIsNone(value_request(disabled, FeatureUiAction("action", disabled.rows[0], index)))
 
-  def test_every_choice_remains_reachable_and_quick_picks_are_bounded(self):
+  def test_every_choice_remains_reachable_and_the_strip_lists_all_choices(self):
     for count in (2, 3, 5, 15):
       choices = tuple(f"Choice {i}" for i in range(count))
       row = FeatureRow("choice", "Choice", choices[0], choices=choices, available=True, default_value=choices[1])
       editor = value_editor_state(FeatureSettingsState(rows=(row,)), row.key)
       current = editor.rows[0]
-      self.assertLessEqual(len(current.presets), 3)
-      self.assertIn((choices[1], choices[1]), current.presets)
+      # The paged strip shows at most three choices at a time, so presets now carry every choice.
+      self.assertEqual(tuple(value for value, _ in current.presets), choices)
       for choice in choices[1:]:
         request = value_request(replace(editor, rows=(current,)), FeatureUiAction("change", current, 1))
         self.assertEqual(request.value, choice)

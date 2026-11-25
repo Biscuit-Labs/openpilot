@@ -326,8 +326,11 @@ class FeatureSettingsView:
       button = rl.Rectangle(*bounds)
       selected = value == row.value
       step = value in ("-", "+")
-      text = value if step else dict(row.presets)[value]
-      target = FeatureUiAction("change", row, -1 if value == "-" else 1) if step else FeatureUiAction("action", row, index)
+      arrow = value in ("<", ">")
+      text = value if step or arrow else dict(row.presets)[value]
+      target = (FeatureUiAction("change", row, -1 if value == "-" else 1) if step
+                else FeatureUiAction("page", row, -1 if value == "<" else 1) if arrow
+                else FeatureUiAction("action", row, index))
       active = enabled and pressed == target
       background = ACTIVE_ROW_BG if selected and row.available else CONTROL_BG
       border = VALUE_SELECTED_BORDER if selected and row.available else CONTROL_BORDER

@@ -127,6 +127,13 @@ class NativeSettingsPageTests(unittest.TestCase):
 
   def choose(self, pane, value):
     state = pane.snapshot()
+    row = state.rows[0]
+    if value not in ("-", "+", "<", ">"):
+      index = next(i for i, (preset, _label) in enumerate(row.presets) if preset == value)
+      # Page the paged choice strip until the choice is in the visible window.
+      while not (pane.choice_offset <= index < pane.choice_offset + 3):
+        self.choose(pane, "<" if index < pane.choice_offset else ">")
+    state = pane.snapshot()
     _, (x, y, width, height), _ = next(button for button in value_buttons(state, state.rows[0], feature_row_top(state)) if button[0] == value)
     pos = MousePos(x + width / 2 + pane.origin[0], y + height / 2 + pane.origin[1])
     pane._handle_mouse_press(pos)

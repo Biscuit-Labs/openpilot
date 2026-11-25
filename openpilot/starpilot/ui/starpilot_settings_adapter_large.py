@@ -1,6 +1,7 @@
 """Adapt existing large Settings panels to StarPilot styling and pagination without changing their base files."""
 
 from collections.abc import Callable
+from dataclasses import replace
 
 from openpilot.system.ui.lib.display_translation import DisplayText
 
@@ -9,7 +10,10 @@ from openpilot.starpilot.ui.raylib import rl
 from openpilot.selfdrive.ui.layouts.settings.initial_cruise_speed import InitialCruiseSpeedControl
 from openpilot.starpilot.ui.clip import placed_at
 from openpilot.starpilot.ui.feature_settings import FeatureSettingsView
-from openpilot.starpilot.ui.feature_settings_state import FeatureInput, FeatureRow, FeatureSettingsState, feature_scroll, value_editor_state, value_request
+from openpilot.starpilot.ui.feature_settings_state import (
+  FeatureInput, FeatureRow, FeatureSettingsState, feature_scroll, value_editor_state, value_request,
+  choice_strip_initial, choice_strip_follow, choice_strip_page,
+)
 from openpilot.system.ui.lib.application import gui_app, MouseEvent, MousePos
 from openpilot.system.ui.lib.multilang import tr
 from openpilot.system.ui.lib.wifi_manager import SecurityType, normalize_ssid
@@ -28,6 +32,7 @@ class StarPilotSettingsAdapterLarge(Widget):
     self.view.pressed_action = lambda state: self.input.pressed_action(state) if self.active and self.enabled else None
     self.scroll = 0
     self.edit_key: str | None = None
+    self.choice_offset = 0
     self.active = False
     self.sidebar_expanded = True
     self.origin = (0, 0)
@@ -37,6 +42,7 @@ class StarPilotSettingsAdapterLarge(Widget):
   def show_event(self):
     self.scroll = 0
     self.edit_key = None
+    self.choice_offset = 0
     self.active = True
     self.input.cancel()
     self.view.reset()
@@ -45,6 +51,7 @@ class StarPilotSettingsAdapterLarge(Widget):
   def hide_event(self):
     self.active = False
     self.edit_key = None
+    self.choice_offset = 0
     self.input.cancel()
     self.view.reset()
     self.panel.hide_event()
@@ -146,7 +153,7 @@ class StarPilotSettingsAdapterLarge(Widget):
     self.scroll = feature_scroll(self.scroll, 0, len(rows))
     state = FeatureSettingsState(page=page, title=self.title, parent_title="Settings", rows=tuple(rows), scroll=self.scroll,
                                  sidebar_expanded=self.sidebar_expanded)
-    return value_editor_state(state, self.edit_key)
+    return replace(value_editor_state(state, self.edit_key), choice_offset=self.choice_offset)
 
   def _render(self, rect):
     with placed_at(rl.Rectangle(*self.origin, 2160, 1080)):
@@ -188,6 +195,7 @@ class StarPilotSettingsAdapterLarge(Widget):
     if request.kind == "back":
       if self.edit_key is not None:
         self.edit_key = None
+        self.choice_offset = 0
         self.input.cancel()
         self.view.reset()
       elif isinstance(self.panel, NetworkUI) and self.panel._current_panel == PanelType.ADVANCED:
@@ -198,8 +206,12 @@ class StarPilotSettingsAdapterLarge(Widget):
     row = request.row
     if row is None or row not in state.rows:
       return
+    if request.kind == "page" and state.editor:
+      self.choice_offset = choice_strip_page(row, self.choice_offset + 3 * request.direction)
+      return
     if request.kind == "open" and row.available and row.presets and not state.editor:
       self.edit_key = row.key
+      self.choice_offset = choice_strip_initial(row)
       self.input.cancel()
       self.view.reset()
       return
@@ -225,6 +237,7 @@ class StarPilotSettingsAdapterLarge(Widget):
         if change is not None:
           choices, index = action.display_options()
           if row.value == choices[index] and change.value in choices:
+            self.choice_offset = choice_strip_follow(replace(row, value=change.value), self.choice_offset)
             action.select_speed(choices.index(change.value))
         elif not row.presets and request.kind == "change":
           action.adjust_speed(request.direction)
@@ -233,6 +246,7 @@ class StarPilotSettingsAdapterLarge(Widget):
       change = value_request(state, request) if state.editor else None
       if change is not None:
         index = row.choices.index(change.value)
+        self.choice_offset = choice_strip_follow(replace(row, value=change.value), self.choice_offset)
         if self.title == "Toggles":
           self.panel.request_personality(index)
         else:
@@ -279,5 +293,6 @@ class StarPilotSettingsAdapterLarge(Widget):
     self.panel._cycle_panel()
     self.scroll = 0
     self.edit_key = None
+    self.choice_offset = 0
     self.input.cancel()
     self.view.reset()

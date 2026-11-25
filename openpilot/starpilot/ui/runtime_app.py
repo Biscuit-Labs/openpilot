@@ -54,6 +54,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
   FeatureInput, FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureUiAction, row_change,
   feature_scroll, feature_parent_page, feature_parent_title, value_request, value_editor_state,
   SOUND_PRESETS as SOUND_PRESETS, SYSTEM_PRESETS, sound_editor_state,
+  choice_strip_initial, choice_strip_follow, choice_strip_page,
 )
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.models.runtime import ModelStatusSource
@@ -234,13 +235,17 @@ class StarShellSession:
     self.feature_root_page: str = FeaturePage.HUB
     self.feature_scroll = 0
     self.feature_edit_key: str | None = None
+    self.feature_choice_offset = 0
     self.sounds_scroll = 0
     self.sounds_edit_key: str | None = None
+    self.sounds_choice_offset = 0
     self.appearance_scroll = 0
     self.appearance_edit_key: str | None = None
+    self.appearance_choice_offset = 0
     self.display_scroll = 0
     self.display_page = "system"
     self.display_edit_key: str | None = None
+    self.display_choice_offset = 0
     self.slc_actions: SlcActionDispatcher | None = None
     if slc_action_transport_enabled(os.environ, ui_state.params):
       try:
@@ -719,7 +724,8 @@ class StarShellSession:
       state = replace(state, rows=tuple(replace(row, available=False, reason="Saving AOL preference…")
                                         if row.key == "AlwaysOnLateral" else row for row in state.rows))
     if self.profile == Profile.LARGE and not favorite:
-      state = value_editor_state(state, getattr(self, "feature_edit_key", None) if page is None else None)
+      state = replace(value_editor_state(state, getattr(self, "feature_edit_key", None) if page is None else None),
+                      choice_offset=getattr(self, "feature_choice_offset", 0))
       if state.editor and state.rows[0].key in (*LANE_CHANGE_KEYS, "CustomCruise", "CustomCruiseLong"):
         state = replace(state, save_hint="Changes require confirmation")
     return state
@@ -793,7 +799,7 @@ class StarShellSession:
     state = self.sounds_owner.snapshot()
     if self.profile == Profile.LARGE:
       rows = tuple(row for row in state.rows if not row.key.startswith(SOUND_AUTO_PREFIX))
-      return sound_editor_state(replace(state, rows=rows), self.sounds_edit_key)
+      return replace(sound_editor_state(replace(state, rows=rows), self.sounds_edit_key), choice_offset=getattr(self, "sounds_choice_offset", 0))
     return state
 
   def sounds_request(self, request: FeatureSettingsRequest) -> bool:
@@ -805,7 +811,9 @@ class StarShellSession:
 
   def appearance_snapshot(self):
     state = self.pip_snapshot() if getattr(self, "appearance_page", "appearance") == "pip" else self.appearance_owner.snapshot(self.profile)
-    return value_editor_state(state, getattr(self, "appearance_edit_key", None)) if self.profile == Profile.LARGE else state
+    if self.profile != Profile.LARGE:
+      return state
+    return replace(value_editor_state(state, getattr(self, "appearance_edit_key", None)), choice_offset=getattr(self, "appearance_choice_offset", 0))
 
   def pip_snapshot(self):
     return self.pip_owner.snapshot()
@@ -891,7 +899,8 @@ class StarShellSession:
         row = next(row for row in display_rows + power_rows if row.key == self.display_edit_key)
         return replace(state, page=getattr(self, "display_page", "system"), title=row.label, subtitle=row.reason, rows=(replace(row, page=""),),
                        parent_title="System" if row.key in POWER_KEYS else "Custom Display Settings", editor=True,
-                       save_hint="Changes require confirmation" if row.key in POWER_KEYS else state.save_hint)
+                       save_hint="Changes require confirmation" if row.key in POWER_KEYS else state.save_hint,
+                       choice_offset=getattr(self, "display_choice_offset", 0))
       if getattr(self, "display_page", "system") == "display":
         return replace(display, title="Custom Display Settings", subtitle="Brightness and screen timing.",
                        rows=display_rows, parent_title="System")
@@ -971,6 +980,7 @@ class StarShellSession:
     if action.kind == "back":
       if state.editor:
         self.display_edit_key = None
+        self.display_choice_offset = 0
       elif state.page == "display":
         self.display_page = "system"
         self.display_scroll = 0
@@ -984,11 +994,14 @@ class StarShellSession:
         self.display_scroll = 0
       elif action.row.available and action.row.presets:
         self.display_edit_key = action.row.key
+        self.display_choice_offset = choice_strip_initial(action.row)
       else:
         return
       self.input.cancel()
     elif action.kind == "scroll" and not state.editor:
       self.display_scroll = feature_scroll(self.display_scroll, action.direction, len(state.rows))
+    elif action.kind == "page" and state.editor and action.row is not None and action.row in state.rows:
+      self.display_choice_offset = choice_strip_page(action.row, getattr(self, "display_choice_offset", 0) + 3 * action.direction)
     elif action.kind in ("change", "action") and action.row is not None and action.row in state.rows:
       request = None
       if action.kind == "action" and action.row.key in ("drive_state", "device_power"):
@@ -1013,9 +1026,11 @@ class StarShellSession:
             if (result == DialogResult.CONFIRM and self._mode == ShellMode.SETTINGS and
                 self.selected == Destination.SYSTEM and getattr(self, "display_page", "system") == "system" and
                 epoch == getattr(self, "_power_request_epoch", 0)):
+              self.display_choice_offset = choice_strip_follow(replace(action.row, value=request.value), getattr(self, "display_choice_offset", 0))
               self.power_request(replace(request, confirmation=True))
           gui_app.push_widget(ConfirmDialog(confirm_question(request), "Save", callback=confirmed))
         else:
+          self.display_choice_offset = choice_strip_follow(replace(action.row, value=request.value), getattr(self, "display_choice_offset", 0))
           if self.display_request(request) and request.key == DISPLAY_MASTER and request.value == "On" and state.page == "system":
             self.display_page = "display"
             self.display_scroll = 0
@@ -1059,6 +1074,7 @@ class StarShellSession:
     if action.kind == "back":
       if getattr(self, "appearance_edit_key", None) is not None:
         self.appearance_edit_key = None
+        self.appearance_choice_offset = 0
         self._pip_request_epoch = getattr(self, "_pip_request_epoch", 0) + 1
       elif getattr(self, "appearance_page", "appearance") == "pip":
         self.appearance_page = "appearance"
@@ -1071,6 +1087,7 @@ class StarShellSession:
     elif action.kind == "open" and not state.editor and action.row is not None and action.row in state.rows:
       if action.row.presets and action.row.available:
         self.appearance_edit_key = action.row.key
+        self.appearance_choice_offset = choice_strip_initial(action.row)
       elif action.row.page == "pip":
         self.appearance_page = "pip"
         self.appearance_scroll = 0
@@ -1079,9 +1096,12 @@ class StarShellSession:
       self.input.cancel()
     elif action.kind == "scroll" and not state.editor:
       self.appearance_scroll = feature_scroll(self.appearance_scroll, action.direction, len(state.rows))
+    elif action.kind == "page" and state.editor and action.row is not None and action.row in state.rows:
+      self.appearance_choice_offset = choice_strip_page(action.row, getattr(self, "appearance_choice_offset", 0) + 3 * action.direction)
     elif action.kind in ("change", "action") and action.row is not None and action.row in state.rows:
       request = value_request(state, action)
       if request is not None:
+        self.appearance_choice_offset = choice_strip_follow(replace(action.row, value=request.value), getattr(self, "appearance_choice_offset", 0))
         self.appearance_request(request)
     elif action.kind == "reset" and action.row is not None and action.row in state.rows and \
          (action.row.key == PIP_RESET or action.row.key.startswith(PIP_FORMAT_PREFIX)):
@@ -1113,18 +1133,23 @@ class StarShellSession:
     if action.kind == "back":
       if self.sounds_edit_key is not None:
         self.sounds_edit_key = None
+        self.sounds_choice_offset = 0
       else:
         self.selected = Destination.STAR
         self.sounds_scroll = 0
       self.input.cancel()
     elif action.kind == "open" and state.page == "sounds:overview" and action.row in state.rows and action.row.available:
       self.sounds_edit_key = action.row.key
+      self.sounds_choice_offset = choice_strip_initial(action.row)
       self.input.cancel()
     elif action.kind == "scroll" and self.sounds_edit_key is None:
       self.sounds_scroll = feature_scroll(self.sounds_scroll, action.direction, len(state.rows))
+    elif action.kind == "page" and state.editor and action.row is not None and action.row in state.rows:
+      self.sounds_choice_offset = choice_strip_page(action.row, getattr(self, "sounds_choice_offset", 0) + 3 * action.direction)
     elif action.kind in ("change", "action") and state.page == "sounds" and action.row is not None and action.row in state.rows:
       request = value_request(state, action)
       if request is not None:
+        self.sounds_choice_offset = choice_strip_follow(replace(action.row, value=request.value), getattr(self, "sounds_choice_offset", 0))
         self.sounds_request(request)
     self._snapshot_cache = None
 
@@ -1136,6 +1161,7 @@ class StarShellSession:
       self._lane_change_request_epoch = getattr(self, "_lane_change_request_epoch", 0) + 1
       if getattr(self, "feature_edit_key", None) is not None:
         self.feature_edit_key = None
+        self.feature_choice_offset = 0
       else:
         parent = feature_parent_page(self.feature_page)
         if parent is None or self.feature_page == self.feature_root_page:
@@ -1146,12 +1172,15 @@ class StarShellSession:
       self.input.cancel()
     elif action.kind == "scroll" and not state.editor:
       self.feature_scroll = feature_scroll(self.feature_scroll, action.direction, len(state.rows))
+    elif action.kind == "page" and state.editor and action.row is not None and action.row in state.rows:
+      self.feature_choice_offset = choice_strip_page(action.row, getattr(self, "feature_choice_offset", 0) + 3 * action.direction)
     elif action.kind == "open" and not state.editor and action.row in state.rows and action.row.page:
       self._lane_change_request_epoch = getattr(self, "_lane_change_request_epoch", 0) + 1
       if action.row.presets:
         if not action.row.available:
           return
         self.feature_edit_key = action.row.key
+        self.feature_choice_offset = choice_strip_initial(action.row)
       elif action.row.page == SELECTION_PAGE:
         self._vehicle_selector().open(action.row.source)
       else:
@@ -1161,6 +1190,7 @@ class StarShellSession:
     elif action.kind in ("change", "action") and action.row is not None and action.row in state.rows:
       request = value_request(state, action)
       if request is not None:
+        self.feature_choice_offset = choice_strip_follow(replace(action.row, value=request.value), getattr(self, "feature_choice_offset", 0))
         if request.key in VEHICLE_BOOL_KEYS:
           self._confirm_vehicle_bool(request)
         elif request.key in ("CustomCruise", "CustomCruiseLong"):

@@ -122,7 +122,10 @@ def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_count
   return commands
 
 
-def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, eps_mode=0, angle_payload=0, arm_bits=0):
+def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, eps_mode=0, angle_payload=0, arm_bits=0,
+                            v3_byte2=None):
+  if v3_byte2 is not None:
+    return _create_steering_control_v3(packer, CAN, apply_torque, v3_byte2)
   values = {
     "STEER_TORQUE": apply_torque if lkas_active else 0,
     "STEER_TORQUE_REQUEST": lkas_active,
@@ -144,6 +147,22 @@ def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control,
   if tja_control:
     values["STEER_DOWN_TO_ZERO"] = lkas_active
 
+  return packer.make_can_msg("STEERING_CONTROL", CAN.lkas, values)
+
+
+def _create_steering_control_v3(packer, CAN, target, b2):
+  """Modified-EPS protocol v3 (meps/protocol.py): byte 2 carries the angle marker (bits 3:2 = 3, request 0) with DRIVE /
+  YIELD in bit 6, or STANDBY (0x0D); bytes 0-1 the angle target (0 for STANDBY); byte 3 and the request bit stay 0. On
+  any EPS firmware without the v3 front end the request bit 0 means no steering."""
+  values = {"STEER_TORQUE": target, "STEER_TORQUE_REQUEST": 0}
+  sigs = packer.dbc.name_to_msg["STEERING_CONTROL"].sigs
+  if "SET_ME_X00" in sigs:                     # Nidec: byte 2 bits 6:0 in one signal
+    values["SET_ME_X00"] = b2 & 0x7F
+  else:                                        # Bosch: bits 3:2, 6, 1 and 0 have their own signals
+    values["STEER_CONTROL_ARM"] = (b2 >> 2) & 0x3
+    values["STEER_CONTROL_ARM_B6"] = (b2 >> 6) & 0x1
+    values["DRIVER_OVERRIDE"] = (b2 >> 1) & 0x1
+    values["ANGLE_STANDBY"] = b2 & 0x1
   return packer.make_can_msg("STEERING_CONTROL", CAN.lkas, values)
 
 

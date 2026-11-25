@@ -238,6 +238,22 @@ class AngleModeSender:
     return angle_to_raw(self.out_angle), True, ANGLE_PAYLOAD
 
 
+def _follow_step(sender, v_ego: float) -> float:
+  return min(float(np.interp(v_ego, _V, ANGLE_STEP_DEG)), std_angle_step(v_ego, sender.linear))
+
+
+def sender_follow(sender: "AngleModeSender", measured_deg: float, measured_rate_deg_s: float, v_ego: float) -> int:
+  """Protocol v3 YIELD (meps/protocol.py): while the driver overrides, the loop has no authority and the sent target
+  follows the wheel, step-limited (the EPS jump limit and panda's step). The trajectory restarts from the wheel with the
+  engage fade, so on the release the target walks from the wheel to the plan over Override Fade Up (smoothstep effort
+  fade) instead of the v2 authority ramp: rwd-xray clarity/CLARITY_ANGLE_MODE_20261117/hand/V3_ANGLE_RAMP_20261124.md."""
+  sender.apply_angle, sender.apply_rate, sender.active_frames = float(measured_deg), float(measured_rate_deg_s), 0
+  step = _follow_step(sender, v_ego)
+  sender.out_angle += float(np.clip(float(measured_deg) - sender.out_angle, -step, step))
+  sender.sent_active = True
+  return angle_to_raw(sender.out_angle)
+
+
 class AuthorityRamp:
   """The angle loop's authority g (0..1) -> CUT = round(15 (1 - g)); byte 3 carries AUTH = 15 - CUT (byte3_v2). The EPS
   slews its own gain toward AUTH (up 3 and down 127 per tick on 0x0B) and zeroes it whenever the loop (re)activates."""

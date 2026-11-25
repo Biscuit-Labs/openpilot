@@ -6,7 +6,7 @@ On a Clarity with modified EPS firmware the interlock is enabled:
   - no 0x6A4 ever seen: torque mode (CleanPTM, P1) nothing changes; angle mode faults "no_status"
   - 0x6A4 seen, then silent for more than STATUS_TIMEOUT_FRAMES: fault "lost" (as for missing EPS frames)
   - a frame that is not layout 4 (byte 0 bit 7 clear, a v1 build): "unsupported_build"
-  - a layout-4 build that is not in V2_BUILDS: "unknown_build"
+  - a layout-4 build that is not in KNOWN_BUILDS (v2 or v3): "unknown_build"
   - torque mode on a v2 EPS (v2 has no torque PTM mode, the EPS runs stock tables): "mode_not_built"
   - active MODE != 1 (angle): "inactive_mode" (the EPS switches at the next LKAS idle, which the fault brings about)
   - FAULT (byte 0 bit 6): "angle_fault (<reason>)"; it drops the request and so clears it
@@ -19,7 +19,7 @@ angle_ready is True only when nothing faults; CarController sends angle payloads
 """
 from opendbc.car.carlog import carlog
 from opendbc.car.honda.clarity_angle_mode import angle_mode
-from opendbc.car.honda.meps.protocol import V2_BUILDS, V2_MODE_ANGLE, decode_layout4, is_layout4
+from opendbc.car.honda.meps.protocol import KNOWN_BUILDS, V2_MODE_ANGLE, decode_layout4, is_layout4, protocol_of
 from opendbc.car.honda.modified_eps import modified_eps
 from opendbc.car.honda.values import CAR
 
@@ -82,7 +82,7 @@ class EpsCalStatus:
     s = decode_layout4(vl)
     self.build_id, self.active_mode = s["build"], s["mode"]
     self.reason, self.clamp = s["reason_name"], s["clamp"]
-    if self.build_id not in V2_BUILDS:
+    if self.build_id not in KNOWN_BUILDS:
       return "unknown_build"
     if not self.angle:
       return "mode_not_built"
@@ -102,6 +102,11 @@ class EpsCalStatus:
     self.request_sent = bool(sent)
     if not self.request_sent:
       self.not_running_frames = 0
+
+  @property
+  def protocol(self) -> int | None:
+    """2 (byte-3 MODE/AUTH, builds 0x0B-0x0D) or 3 (byte-2 angle marker, 0x0E on); None before a known build reports."""
+    return protocol_of(self.build_id) if self.announced else None
 
   @property
   def authority_ready(self) -> bool:

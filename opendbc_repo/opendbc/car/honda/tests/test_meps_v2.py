@@ -79,7 +79,7 @@ def test_build_0c_is_accepted_like_0b(build):
 
 
 def test_unknown_v2_build_never_steers():
-  ci, _ = start([v4(build=0x0E, counter=k % 4) for k in range(8)])
+  ci, _ = start([v4(build=0x0F, counter=k % 4) for k in range(8)])
   assert ci.CS.eps_cal_status.fault == "unknown_build"
   _, f = T.e4(ci, True, 5.0, 0.0)
   assert f[0:3] == bytes(3)

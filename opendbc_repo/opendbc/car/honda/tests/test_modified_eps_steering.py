@@ -42,19 +42,19 @@ def test_a_press_starts_over_the_threshold_in_either_direction():
 
 def test_a_press_holds_through_a_dip_under_the_threshold():
   # the cut takes away the torque the driver leans on: their reading drops, but not under the release level
-  assert all(_press([2100.0] + [1300.0] * 200))
+  assert all(_press([2100.0] + [1000.0] * 200))
 
 
 def test_a_press_ends_after_the_hold_under_the_release_level():
-  pressed = _press([2100.0] + [1100.0] * 40)
+  pressed = _press([2100.0] + [600.0] * 40)
   hold = round(RELEASE_HOLD_S / DT_CTRL)
-  assert 1100.0 < RELEASE_FRACTION * 2000.0
+  assert 600.0 < RELEASE_FRACTION * 2000.0
   assert all(pressed[:hold]) and not any(pressed[hold + 1:])
 
 
 def test_the_hold_restarts_when_the_torque_comes_back():
   hold = round(RELEASE_HOLD_S / DT_CTRL)
-  torques = [2100.0] + [1000.0] * (hold - 5) + [1500.0] + [1000.0] * (hold - 5)
+  torques = [2100.0] + [600.0] * (hold - 5) + [1000.0] + [600.0] * (hold - 5)
   assert all(_press(torques))
 
 

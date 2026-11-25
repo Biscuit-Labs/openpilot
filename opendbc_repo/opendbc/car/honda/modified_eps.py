@@ -77,7 +77,9 @@ def lane_change_nudge_torque(CP) -> float | None:
 # line, the fade brings it back and they cross again (2026-11 logs, 7 cars: 58-79% of presses within 1.5 s of the last).
 # The hold is 0.1 s: 0.3 s kept openpilot off ~0.3 s after the driver let go (Clarity 11-15: 0.29 s, then the 0.5 s
 # fade), and on the CR-V A220's recorded torque 0.1 s cut the re-presses within 1.5 s as far as 0.15 s did.
-RELEASE_FRACTION = 0.6
+# 11-24 (owner): release level lowered 0.6 -> 0.4 of the threshold. Drivers still steering through a turn let their
+# torque sag below 60 % and op took back over mid-manoeuvre (stutter); the press now has to fall further before op resumes.
+RELEASE_FRACTION = 0.4
 RELEASE_HOLD_S = 0.1
 
 

@@ -298,11 +298,18 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
   const int target = to_signed((msg->data[0] << 8) | msg->data[1], 16);
   const bool request = GET_BIT(msg, 23U);
   const bool payload = GET_BIT(msg, 21U);
-  const bool steering = request && payload;
+  // protocol v3 (car/honda/meps/protocol.py, build 0x0E on): byte 2 bits 3:2 = 3 with the request 0 marks an angle
+  // frame (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero, byte 3 zero); 0x0D / 0x4D with a zero target is STANDBY
+  const uint8_t b2 = msg->data[2];
+  const bool v3_marker = (b2 & 0x0CU) == 0x0CU;
+  const bool v3_angle = ((b2 & 0xBFU) == 0x0CU) && (msg->data[3] == 0U);
+  const bool v3_standby = (((b2 & 0xBFU) == 0x0DU) && (target == 0)) && (msg->data[3] == 0U);
+  const bool steering = (request && payload) || v3_angle;
   bool violation = false;
 
   if (!lateral_controls_allowed() || !steering) {
     violation = (target != 0) || request || payload;
+    violation |= v3_marker && !v3_standby;   // the v3 marker only as STANDBY when not steering
   } else {
     // fudge the speed down 1 m/s: both limits only widen as speed falls
     const float speed = SAFETY_MAX(((float)vehicle_speed.min / VEHICLE_SPEED_FACTOR) - 1.0f, 1.0f);
@@ -564,6 +571,10 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
       if (steer_applied) {
         tx = false;
       }
+    }
+    // torque config: never the modified-EPS protocol v3 angle marker (0xE4 byte 2 bits 3:2 = 3)
+    if ((msg->addr == 0xE4U) && ((msg->data[2] & 0x0CU) == 0x0CU)) {
+      tx = false;
     }
   } else {
   }

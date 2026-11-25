@@ -10,6 +10,7 @@ BO_ 228 STEERING_CONTROL: 5 EON
  SG_ HAPTIC_WARNING : 39|1@0+ (1,0) [0|1] "" XXX
  SG_ ANGLE_PAYLOAD : 21|1@0+ (1,0) [0|1] "" EPS
  SG_ STEER_CONTROL_ARM_B6 : 22|1@0+ (1,0) [0|1] "" EPS
+ SG_ ANGLE_STANDBY : 16|1@0+ (1,0) [0|1] "" EPS
  SG_ SET_ME_X00_2 : 31|8@0+ (1,0) [0|255] "" EPS
 
 BO_ 229 BOSCH_SUPPLEMENTAL_1: 8 XXX
@@ -224,5 +225,6 @@ VAL_ 662 CRUISE_SETTING 3 "distance_adj" 2 "tbd" 1 "lkas_button" 0 "none" ;
 VAL_ 806 CMBS_STATES 3 "pressed" 0 "released" ;
 VAL_ 862 SPEED_LIMIT_SIGN 97 "SPEED_LIMIT_5" 98 "SPEED_LIMIT_10" 99 "SPEED_LIMIT_15" 100 "SPEED_LIMIT_20" 101 "SPEED_LIMIT_25" 102 "SPEED_LIMIT_30" 103 "SPEED_LIMIT_35" 104 "SPEED_LIMIT_40" 105 "SPEED_LIMIT_45" 106 "SPEED_LIMIT_50" 107 "SPEED_LIMIT_55" 108 "SPEED_LIMIT_60" 109 "SPEED_LIMIT_65" 110 "SPEED_LIMIT_70" 111 "SPEED_LIMIT_75" 112 "SPEED_LIMIT_80" 113 "SPEED_LIMIT_85" 125 "SPEED_LIMIT_NA" 0 "STOP_SIGN";
 VAL_ 862 ROAD_SIGN 0 "NO_SIGN" 89 "STOP_SIGN";
+CM_ SG_ 228 ANGLE_STANDBY "modified-EPS protocol v3 (opendbc car/honda/meps/protocol.py): byte 2 bit 0, with STEER_CONTROL_ARM = 3 and the request 0: STANDBY (target 0), the EPS selects its angle table set at LKAS idle; 0 on every other EPS firmware";
 CM_ SG_ 228 ANGLE_PAYLOAD "modified-EPS protocol v2 (opendbc car/honda/meps/protocol.py): bytes 0-1 carry an angle target, not a torque (with STEER_TORQUE_REQUEST); 0 on every other EPS firmware";
 CM_ SG_ 228 SET_ME_X00_2 "byte 3, which stock Bosch EPS firmware does not read; modified-EPS protocol v2: AUTH (7:4) | MODE (1:0). Overlaps CONTROL_STATE, which openpilot never sends";

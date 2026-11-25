@@ -194,6 +194,20 @@ class HondaBase(common.CarSafetyTest):
     values = {"XMISSION_SPEED": speed}
     return self.packer.make_can_msg_safety("ENGINE_DATA", self.PT_BUS, values)
 
+  def test_v3_angle_marker_never_in_torque_mode(self):
+    # modified-EPS protocol v3 marks angle frames with 0xE4 byte 2 bits 3:2 = 3 (car/honda/meps/protocol.py); a panda in
+    # torque config never sends that marker, whatever the request bit or target (an angle-config panda has its own rule)
+    for allowed in (False, True):
+      self.safety.set_controls_allowed(allowed)
+      for sigs in ({"SET_ME_X00": 0x0C}, {"SET_ME_X00": 0x4C}, {"STEER_CONTROL_ARM": 3}, {"STEER_CONTROL_ARM": 3, "STEER_CONTROL_ARM_B6": 1}):
+        try:
+          msg = self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, {"STEER_TORQUE": 0, **sigs})
+        except (KeyError, AssertionError):
+          continue
+        if msg.addr != 0xE4 or (msg.data[2] & 0x0C) != 0x0C:
+          continue
+        self.assertFalse(self._tx(msg), (allowed, sigs))
+
   def _acc_state_msg(self, main_on):
     values = {"MAIN_ON": main_on}
     return self.packer.make_can_msg_safety("SCM_FEEDBACK", self.PT_BUS, values)
@@ -407,6 +421,41 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
   def _std(self, v_ms):
     from opendbc.car.honda import clarity_angle_mode as cam
     return cam.std_angle_limit(v_ms, self.LINEAR)
+
+  def _v3_msg(self, target, b2):
+    # protocol v3: byte 2 = the angle marker (0x4C DRIVE / 0x0C YIELD) or STANDBY 0x0D, request 0, byte 3 0
+    values = {"STEER_TORQUE": target, "STEER_TORQUE_REQUEST": (b2 >> 7) & 1, "SET_ME_X00": b2 & 0x7F, "SET_ME_X00_2": 0}
+    return self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)
+
+  def test_v3_standby_always_allowed_and_angle_frames_need_lateral(self):
+    for allowed in (False, True):
+      self.safety.set_controls_allowed(allowed)
+      self.assertTrue(self._tx(self._v3_msg(0, 0x0D)))
+      self.assertTrue(self._tx(self._v3_msg(0, 0x4D)))
+      self.assertFalse(self._tx(self._v3_msg(10, 0x0D)))         # STANDBY carries no target
+    self.safety.set_controls_allowed(False)
+    for b2 in (0x4C, 0x0C):
+      self.assertFalse(self._tx(self._v3_msg(0, b2)), b2)          # no angle frame without lateral, even target 0
+
+  def test_v3_malformed_marker_blocked(self):
+    self._start(0, 20.)
+    for b2 in (0x0E, 0x0F, 0x1C, 0x2C, 0x3C, 0x5C, 0x8C, 0xCC, 0x8D):
+      self.assertFalse(self._tx(self._v3_msg(0, b2)), hex(b2))
+
+  def test_v3_byte3_must_be_zero(self):
+    self._start(0, 20.)
+    values = {"STEER_TORQUE": 0, "STEER_TORQUE_REQUEST": 0, "SET_ME_X00": 0x4C, "SET_ME_X00_2": 0xF1}
+    self.assertFalse(self._tx(self.packer.make_can_msg_safety("STEERING_CONTROL", self.STEER_BUS, values)))
+
+  def test_v3_angle_frames_get_the_angle_rule(self):
+    for b2 in (0x4C, 0x0C):
+      self._start(0, 20.)
+      step = self._step(20.)
+      self.assertTrue(self._tx(self._v3_msg(0, 0x0D)))             # not steering: the next target starts from the wheel
+      self.assertTrue(self._tx(self._v3_msg(0, b2)))
+      self.assertTrue(self._tx(self._v3_msg(step, b2)))
+      self.assertFalse(self._tx(self._v3_msg(step + 2 * step + 1, b2)), b2)   # over one jerk step
+      self.assertFalse(self._tx(self._v3_msg(self._lim(20.) + 10, b2)))       # over the 3.6 m/s^2 angle
 
   def _alim(self, v_ms):
     from opendbc.car.honda import clarity_angle_mode as cam

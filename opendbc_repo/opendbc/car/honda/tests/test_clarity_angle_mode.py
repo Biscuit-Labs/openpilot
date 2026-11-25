@@ -399,7 +399,7 @@ NOT_ANGLE_CAPABLE = {
   "MM 0x02 in torque mode (v1)": [v1(1, 1, 0x02, counter=k % 4) for k in range(10)],
   "MM 0x02 stock mode (v1)": [v1(0, 0, 0x02, counter=k % 4) for k in range(10)],
   "0x0A in mode 3 (v1)": [v1(3, 3, 0x0A, counter=k % 4, b0_extra=8) for k in range(10)],
-  "unknown v2 build claiming MODE 1": [v4(build=0x0E, counter=k % 4) for k in range(10)],
+  "unknown v2 build claiming MODE 1": [v4(build=0x0F, counter=k % 4) for k in range(10)],
   "0x0B still in stock mode (switch pending)": [v4(mode=0, steering=False, reason=2, counter=k % 4) for k in range(10)],
   "0x0B in MODE 1 with the FAULT bit": [v4(fault=True, steering=False, reason=5, counter=k % 4) for k in range(10)],
 }

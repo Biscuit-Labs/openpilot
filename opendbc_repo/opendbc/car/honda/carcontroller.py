@@ -7,7 +7,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
 from opendbc.car.honda.angle_profiles import angle_profile
 from opendbc.car.honda.clarity_angle_mode import HOLD_LIMITS_FADE_S, AngleModeSender, AuthorityRamp, angle_mode, stock_arm_bits, \
-  stock_arm_bits_supported
+  stock_arm_bits_supported, sender_follow
 from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.bcan_blinker import BcanBlinker
@@ -157,6 +157,7 @@ class CarController(CarControllerBase):
     self.angle_cut = 0
     self.angle_hold = False   # authority hold active this frame (target limits at HOLD_LIMITS_FADE_S)
     self.angle_arm_bits = 0   # 0xE4 byte 2 stock arm bits with the hold (clarity_angle_mode.stock_arm_bits)
+    self.angle_yield = False  # protocol v3: the driver overrides this frame (YIELD, target follows the wheel)
     self.modified_eps_settings = None
     # Clarity with an interceptor: the PCM stays in ACC while openpilot is engaged (honda/pcm_acc.py)
     self.keep_pcm_acc = pcm_acc.qualified(CP)
@@ -256,6 +257,7 @@ class CarController(CarControllerBase):
         mset = current_settings(self.modified_eps_settings)
         yielding = bool(meps_pressed or CS.out.steeringPressed)
         lkas_active = bool(CC.latActive and not below_min_steer_speed(CS.out.vEgo, mset.min_steer_speed_mph))
+        self.angle_yield = yielding
         cut = self.authority.update(lkas_active and angle_ready, yielding, mset.fade_up_s)
         self.angle_cut = cut if lkas_active else 0   # no request: byte 3 stays 0xF1 (the loop resets G on activation)
         self.angle_hold = True
@@ -263,6 +265,7 @@ class CarController(CarControllerBase):
         self.angle_arm_bits = stock_arm_bits(self.stock_arm, yielding)
       else:
         self.authority.update(False, False, 0.0)
+        self.angle_yield = False
         self.angle_cut = 0
         self.angle_hold = False
         self.angle_arm_bits = 0
@@ -309,7 +312,26 @@ class CarController(CarControllerBase):
 
     # Send steering command.
     angle_payload = 0
-    if self.angle_sender is not None:
+    v3_byte2 = None
+    if self.angle_sender is not None and CS.eps_cal_status.protocol == 3:
+      # protocol v3 (meps/protocol.py, build 0x0E on): angle frames carry the marker in byte 2 (bits 3:2 = 3, request 0)
+      # with DRIVE / YIELD in bit 6; byte 3 stays 0; STANDBY (0x0D, target 0) while not steering. Authority is binary:
+      # YIELD = 0 at once in the EPS, DRIVE = the EPS's own slew; the resume is shaped by the target (effort fade)
+      settings = current_settings(self.modified_eps_settings)
+      self.eps_mode = 0
+      self.angle_sender.linear = CS.linear_angle.latched or self.angle_sender.profile is not None
+      if lkas_active and angle_ready and self.angle_yield and self.angle_sender.sent_active:
+        self.apply_angle_raw, sent = sender_follow(self.angle_sender, CS.out.steeringAngleDeg, CS.out.steeringRateDeg,
+                                                   CS.out.vEgo), True
+      else:
+        self.apply_angle_raw, sent, _ = self.angle_sender.update(
+          lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, angle_ready,
+          CS.out.steeringRateDeg, settings.fade_up_s, rate_limit_deg_s=settings.angle_rate_limit_deg_s)
+      v3_byte2 = meps_protocol.v3_byte2(not self.angle_yield) if sent else meps_protocol.V3_STANDBY
+      apply_torque = self.apply_angle_raw if sent else 0
+      lkas_active = sent
+      CS.eps_cal_status.note_angle_request(sent)
+    elif self.angle_sender is not None:
       # angle mode replaces the torque: bytes 0-1 carry the target only while the EPS reports MODE 1 (angle_ready).
       # The request follows ModifiedEpsSteering's lkas_active exactly as in torque mode: it drops while the driver
       # overrides (and below the min steer speed), so the stiff angle loop never fights the driver; the next request
@@ -330,7 +352,8 @@ class CarController(CarControllerBase):
     can_sends.append(hondacan.create_steering_control(self.packer, self.CAN, apply_torque, lkas_active, self.tja_control,
                                                       eps_mode=self.eps_mode, angle_payload=angle_payload,
                                                       arm_bits=self.angle_arm_bits if self.angle_sender is not None else 0,
-                                                      angle_arm=self.params.ANGLE_ARM if self.angle_mode else None))
+                                                      angle_arm=self.params.ANGLE_ARM if self.angle_mode else None,
+                                                      v3_byte2=v3_byte2))
     if _projection is not None:
       _projection.emit('honda.STEERING_CONTROL', apply_torque, lkas_active, can_sends[-1])
 

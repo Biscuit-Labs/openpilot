@@ -20,7 +20,6 @@ from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.drive_helpers import MAX_LATERAL_ACCEL_NO_ROLL, clip_curvature, lateral_accel_limit
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
-from openpilot.selfdrive.controls.lib.latcontrol_honda_angle import LatControlHondaAngle
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
 from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import LatControlHondaEps, ModelActionRamp, get_rack_map, \
   lateral_delay_schedule, lateral_smooth_seconds, \
@@ -547,8 +546,6 @@ class Controls:
       self.LaC.update_lateral_source(self.params.get("ModelLateralSource") or "unknown")
     if cycle_timing is not None:
       cycle_timing.mark()
-    if isinstance(self.LaC, LatControlHondaAngle):   # Honda linear-angle EPS: carState's angle is rack-linear (card's starpilotCarState)
-      self.LaC.linear = bool(self.sm['starpilotCarState'].steeringAngleLinear)
     steer, lateral_output, lac_log = self.LaC.update(CC.latActive, CS, self.VM, lp,
                                                      self.steer_limited_by_safety, self.desired_curvature,
                                                      curvature_limited, lat_delay)

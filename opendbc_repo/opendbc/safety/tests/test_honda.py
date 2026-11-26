@@ -386,7 +386,133 @@ class TestHondaNidecHybridSafety(TestHondaNidecPcmSafety):
     self.assertTrue(self._tx(self._send_brake_msg(0)))
 
 
-class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
+class _HondaAngleStandardTests:
+  """
+    The standard angle harness (common.AngleSteeringSafetyTest: test_rt_limits, test_angle_cmd_when_enabled's boundary
+    sweep, test_angle_violation) for the Honda rule's own frame format: steering = v3 DRIVE 0x4C / YIELD 0x0C with byte 3 = 0,
+    STANDBY = 0x0D with target 0. Mixed into every Honda angle class; needs _start, _lim, _step, _v3_msg, _meas_msg.
+  """
+  SWEEP_SPEEDS = (1.5, 3., 5., 8., 10., 12., 15., 20., 25., 30., 40.)   # the EPS jump table knots and the limit table's ends
+  RT_MAX_MSGS = int(100 * common.RT_INTERVAL / 1e6 * 1.2 + 1)           # the standard's 1.2x buffer at 100 Hz: 31
+
+  def _refresh(self, meas):
+    self._rx(self._meas_msg(meas))
+
+  def test_rt_limits(self):
+    # the standard test_rt_limits at 100 Hz: steering frames per 250 ms window, all else valid (target = the wheel)
+    for b2 in (0x4C, 0x0C):
+      self._start(0, 10.)
+      for i in range(self.RT_MAX_MSGS * 2):
+        self.assertEqual(i <= self.RT_MAX_MSGS, self._tx(self._v3_msg(0, b2)), (b2, i))
+      # one under the interval does nothing (the wheel stays fresh: only the real-time window can block)
+      self.safety.set_timer(1_000_000 + common.RT_INTERVAL - 1)
+      self._refresh(0)
+      for _ in range(5):
+        self.assertFalse(self._tx(self._v3_msg(0, b2)))
+      # at the interval one frame is still over the count, then the window starts over
+      self.safety.set_timer(1_000_000 + common.RT_INTERVAL)
+      self._refresh(0)
+      self.assertFalse(self._tx(self._v3_msg(0, b2)))
+      for _ in range(5):
+        self.assertTrue(self._tx(self._v3_msg(0, b2)))
+
+  def test_rt_sustained_stream_faster_than_100hz_blocked(self):
+    # a 200 Hz stream moving by one step per frame (every frame inside the per-frame limits) is blocked in its window,
+    # a 100 Hz stream of the same frames is never blocked
+    for v in (3., 10., 20.):
+      step = self._step(v) - 1
+      for period_us, blocked in ((10_000, False), (5_000, True)):
+        self._start(0, v)
+        now, passed = 1_000_000, []
+        for i in range(120):
+          now += period_us
+          self.safety.set_timer(now)
+          self._refresh(0)
+          passed.append(self._tx(self._v3_msg(step * (i % 2), 0x4C)))
+        self.assertEqual(not all(passed), blocked, (v, period_us))
+        if blocked:
+          self.assertTrue(all(passed[:self.RT_MAX_MSGS]), v)         # up to the count it is a legal stream
+          self.assertFalse(passed[self.RT_MAX_MSGS + 1], v)          # then the window blocks it
+
+  def test_rt_window_counts_only_steering_and_resets_when_not_steering(self):
+    self._start(0, 10.)
+    for _ in range(100):                                              # STANDBY frames are not counted
+      self.assertTrue(self._tx(self._v3_msg(0, 0x0D)))
+    for _ in range(20):
+      self.assertTrue(self._tx(self._v3_msg(0, 0x4C)))
+    self.assertTrue(self._tx(self._v3_msg(0, 0x0D)))                  # not steering: the window starts over
+    for _ in range(20):
+      self.assertTrue(self._tx(self._v3_msg(0, 0x0C)))              # 40 frames in one timestamp, passes only with the reset
+    for _ in range(self.RT_MAX_MSGS):
+      self._tx(self._v3_msg(0, 0x4C))
+    self.assertFalse(self._tx(self._v3_msg(0, 0x4C)))                 # DRIVE and YIELD share one count
+    self.safety.set_controls_allowed(False)                           # no lateral: blocked and the window is reset too
+    self.assertFalse(self._tx(self._v3_msg(0, 0x4C)))
+    self._start(0, 10.)
+    for i in range(self.RT_MAX_MSGS + 1):
+      self.assertTrue(self._tx(self._v3_msg(0, 0x4C)), i)
+
+  def test_angle_cmd_boundary_sweep(self):
+    # test_angle_cmd_when_enabled: at each speed, both signs: the step from the wheel and the 3.6 m/s^2 limit pass exactly
+    # at their value and fail one count over (the limit's frame measured one step inside it)
+    for v in self.SWEEP_SPEEDS:
+      lim, step = self._lim(v), self._step(v)
+      for sign in (1, -1):
+        for meas in (0, sign * (lim // 3), sign * (lim - step)):
+          # the step boundary (inside the limit)
+          for delta, ok in ((step, True), (step + 1, False), (-step, True), (-step - 1, False)):
+            target = meas + delta
+            if abs(target) > lim:
+              continue
+            self._start(meas, v)
+            self.assertEqual(ok, self._tx(self._v3_msg(target, 0x4C)), (v, meas, target))
+        # the limit boundary: the wheel one step inside it
+        self._start(sign * (lim - step), v)
+        self.assertTrue(self._tx(self._v3_msg(sign * lim, 0x4C)), (v, sign))
+        self._start(sign * (lim - step), v)
+        self.assertFalse(self._tx(self._v3_msg(sign * (lim + 1), 0x4C)), (v, sign))
+
+  def test_angle_cmd_boundary_from_last_target(self):
+    # the same step boundary from the last target (a second DRIVE frame), both frame types
+    for v in self.SWEEP_SPEEDS:
+      step = self._step(v)
+      for b2 in (0x4C, 0x0C):
+        for last in (0, step, -step):
+          self._start(0, v)
+          self.assertTrue(self._tx(self._v3_msg(last, b2)), (v, last))
+          self.assertTrue(self._tx(self._v3_msg(last + step, b2)), (v, last))
+          self._start(0, v)
+          self.assertTrue(self._tx(self._v3_msg(last, b2)), (v, last))
+          self.assertFalse(self._tx(self._v3_msg(last + step + 1, b2)), (v, last))
+
+  def test_angle_violation_blocked_until_reset(self):
+    # test_angle_violation: after a violation the target is measured from the wheel again; the same target stays blocked
+    # (it would have passed from the last target) until a non-steering frame resets, then it passes only near the wheel
+    for v in (3., 10., 20.):
+      step = self._step(v)
+      for b2 in (0x4C, 0x0C):
+        self._start(0, v)
+        self.assertTrue(self._tx(self._v3_msg(step, b2)))
+        bad = 3 * step
+        self.assertFalse(self._tx(self._v3_msg(bad, b2)), v)
+        for _ in range(3):
+          self.assertFalse(self._tx(self._v3_msg(bad, b2)), v)       # repeated: still blocked
+        self.assertFalse(self._tx(self._v3_msg(2 * step + 1, b2)), v)
+        self.assertTrue(self._tx(self._v3_msg(0x00, 0x0D)))           # reset
+        self.assertFalse(self._tx(self._v3_msg(bad, b2)), v)
+        self.assertTrue(self._tx(self._v3_msg(0, 0x0D)))
+        self.assertTrue(self._tx(self._v3_msg(step, b2)), v)          # back within a step of the wheel
+        self.assertTrue(self._tx(self._v3_msg(2 * step, b2)), v)
+
+
+def _advance(test, dt_us=10_000):
+  # one 100 Hz control frame later (the angle rule's real-time window counts steering frames per 250 ms); _start resets
+  # the clock to 1 s
+  test._now = getattr(test, "_now", 1_000_000) + dt_us
+  test.safety.set_timer(test._now)
+
+
+class TestHondaNidecClarityAngleSafety(_HondaAngleStandardTests, TestHondaNidecHybridSafety):
   """
     Clarity on the angle-mode EPS build (safety bit CLARITY_ANGLE), protocol v3: 0xE4 bytes 0-1 are an angle target
     (0x14A raw, 0.1 deg) in an angle frame (byte 2 bits 3:2 = 3 with the request bit 0; 0x4C DRIVE / 0x0C YIELD); STANDBY
@@ -490,6 +616,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
     return int(min(self._std(s) * 10 / 100., float(np.interp(s, *self.JUMP))) + 1)
 
   def _start(self, meas=0, v_ms=10., allowed=True):
+    self._now = 1_000_000
     self.safety.set_timer(1_000_000)
     self.safety.set_controls_allowed(allowed)
     self._set_speed(v_ms)
@@ -564,6 +691,8 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
     lim10 = self._lim(10.)
     self._start(lim10 - 5, 10.)
     for _ in range(200):
+      _advance(self)
+      self._rx(self._meas_msg(lim10 - 5))
       self.assertTrue(self._tx(self._angle_msg(lim10 - 5)))
     self._set_speed(30.)
     self._set_meas(lim10 - 5)
@@ -578,6 +707,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
     target = wheel = 0
     for _ in range(300):
       target += step - 1
+      _advance(self)
       if self._tx(self._angle_msg(target)):
         wheel = target
       else:
@@ -612,6 +742,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
         desired = sign * 1.2 * self._std(v)   # op degrees; raw = -10 x deg
         for i in range(600):
           raw, req = sender.update(True, desired, -meas / 10., v, True, 0.0, cam.ENGAGE_S)
+          _advance(self)
           self.assertTrue(self._tx(self._sender_msg(raw, req)), (v, i, raw))
           meas = raw
           self._set_meas(meas)
@@ -639,6 +770,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
           raw, req = cam.sender_follow(sender, wheel, 0., v), True
         else:
           raw, req = sender.update(True, plan, wheel, v, True, 0., 1.25)
+        _advance(self)
         self.assertTrue(self._tx(self._sender_msg(raw, req, drive=not yielding)), (v, i, raw, wheel))
       self.assertAlmostEqual(raw / -10., plan, delta=0.06)   # back on the plan after the release
 
@@ -668,6 +800,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
             # one 0x14A per 10 ms frame, as on the car
             self._rx(self._meas_msg(round(10 * wheel)))
             raw, req = sender.update(True, 0., hist[lag], v, True, rate if i < 30 else 0., 0.)
+            _advance(self)
             self.assertTrue(self._tx(self._sender_msg(raw, req)), (v, rate, lag, i))
             if i >= 30:
               wheel = raw / -10.
@@ -685,6 +818,7 @@ class TestHondaNidecClarityAngleSafety(TestHondaNidecHybridSafety):
         wheel = max(wheel - 0.5, 0.5 * lim)     # the driver unwinds at 50 deg/s
         self._set_meas(int(-10 * wheel))
         raw, req = sender.update(True, 0.5 * lim, wheel, v, True, -50., 0.)
+        _advance(self)
         self.assertTrue(self._tx(self._sender_msg(raw, req)), (v, i, wheel, raw))
         if req:
           self.assertLessEqual(abs(raw) / 10., lim + 0.06)
@@ -943,7 +1077,7 @@ class TestHondaBoschAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSaf
   """
 
 
-class TestHondaBoschRdxLinearAngleSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase):
+class TestHondaBoschRdxLinearAngleSafety(_HondaAngleStandardTests, HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase):
   """
     RDX 3G (TJB) on the linear-angle EPS build 0x0C: the Clarity 0xE4 angle frame and rules on Bosch. The EPS has no
     0x14A, so 0x6A2 EPS_LINEAR_ANGLE on the powertrain bus is an RX check and the only measured angle, linear from the
@@ -1055,7 +1189,7 @@ class TestHondaBoschRdxLinearAngleSafety(HondaPcmEnableBase, TestHondaBoschAltBr
     self.assertFalse(self._rx(self._lin_msg(0, corrupt=True)))
 
 
-class TestHondaNidecProfileAngleSafety(TestHondaNidecPcmSafety):
+class TestHondaNidecProfileAngleSafety(_HondaAngleStandardTests, TestHondaNidecPcmSafety):
   """
     A Nidec platform on a linear-angle profile: the same rule as the Bosch RDX row (0x6A2 the RX check, the vehicle
     model), on the Nidec hooks. Uses the RDX row as the example profile. Every Nidec PCM test still runs.
@@ -1106,7 +1240,7 @@ class TestHondaNidecCivicLinearAngleSafety(TestHondaNidecProfileAngleSafety):
     self.assertEqual(self._lim(2.), 5785)
 
 
-class _HondaBoschSh2aLinearAngleBase(HondaPcmEnableBase, TestHondaBoschSafetyBase):
+class _HondaBoschSh2aLinearAngleBase(_HondaAngleStandardTests, HondaPcmEnableBase, TestHondaBoschSafetyBase):
   """The RDX row's rules (TestHondaBoschRdxLinearAngleSafety) on the standard Bosch hooks (no alt brake)."""
   ANGLE_MAX_CAN = 5785
   JUMP = TestHondaNidecClarityAngleSafety.JUMP
@@ -1156,7 +1290,7 @@ class TestHondaBoschInsightLinearAngleSafety(_HondaBoschSh2aLinearAngleBase):
   LIMITS = ((21., 293), (31., 169), (11., 961))
 
 
-class TestHondaNidecFitAngleSafety(TestHondaNidecPcmAltSafety):
+class TestHondaNidecFitAngleSafety(_HondaAngleStandardTests, TestHondaNidecPcmAltSafety):
   """
     Fit (T5R-C030) on angle-profile row 7 (PROVISIONAL: its CarSpecs model, no Fit routes): the profile rule (0x6A2 the RX
     check, the vehicle model) on the Nidec hooks with alt SCM messages. Every Nidec alt PCM test still runs.

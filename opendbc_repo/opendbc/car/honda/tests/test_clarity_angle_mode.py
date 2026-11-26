@@ -1,6 +1,7 @@
-"""Clarity angle mode (clarity_angle_mode.py, eps_cal_status.py angle checks), protocol v2 only, with the 0x6A4 layout-4
-frames the emulated 0x0B EPS firmware transmitted (clarity_v2_emulator_frames.json: rwd-xray
-CLARITY_ANGLE_MODE_0x0B_20261121/proof0B, closed loop with openpilot's angle frames; make_op_fixture.py)."""
+"""Clarity angle mode (clarity_angle_mode.py, eps_cal_status.py angle checks), protocol v3 only, with 0x6A4 layout-4 frames
+an emulated EPS transmitted (clarity_v3_status_frames.json: the 0x0B emulator's frames from rwd-xray
+CLARITY_ANGLE_MODE_0x0B_20261121/proof0B, relabelled build 0x0E (byte 1 + checksum) on 2026-11-26; the layout-4 format is
+unchanged in v3). The v3 wire format itself is in test_meps_v3.py."""
 import json
 import os
 import struct
@@ -19,12 +20,22 @@ from opendbc.car.honda.tests.test_modified_eps import eps, params
 from opendbc.car.honda.values import CAR, HondaFlags
 
 ADDR = 0x6A4
-FRAMES = json.load(open(os.path.join(os.path.dirname(__file__), "clarity_v2_emulator_frames.json")))
+FRAMES = json.load(open(os.path.join(os.path.dirname(__file__), "clarity_v3_status_frames.json")))
 MODIFIED = b'39990-TRW,A020\x00\x00'
 
 
 def datas(name):
   return [bytes.fromhex(h) for _, h in FRAMES[name]["frames"]]
+
+
+def run_status(ci, f, d, k):
+  """One 0x6A4 status frame plus the two 0x6A2 linear-angle frames the EPS sends meanwhile (0x0E is a linear-angle build)."""
+  from opendbc.car.honda.tests.test_linear_angle import lin_frame
+  f.t += 10_000_000
+  s = ci.update([(f.t, [(ADDR, d, 0), (0x6A2, lin_frame(0.0, 0.0, 2 * k), 0)])])
+  f.t += 10_000_000
+  ci.update([(f.t, [(0x6A2, lin_frame(0.0, 0.0, 2 * k + 1), 0)])])
+  return s
 
 
 ANGLE = [False]   # the HondaClarityAngleMode setting as card's startup hook would read it
@@ -44,11 +55,25 @@ def clarity(fw=MODIFIED, candidate=CAR.HONDA_CLARITY):
 
 
 def ready(ci, n=8):
-  """Feed 0x0B MODE 1 status frames until the interlock reports angle_ready."""
+  """Feed 0x0E MODE 1 status frames and 0x6A2 linear-angle frames until the interlock reports angle_ready and the linear
+  angle is fresh (CarController sends targets only then)."""
+  from opendbc.car.honda.tests.test_linear_angle import lin_frame
   f = Feed(ci)
   f.run([v4(counter=k % 4) for k in range(n)])
+  for k in range(4):
+    f.t += 10_000_000
+    ci.update([(f.t, [(0x6A2, lin_frame(0.0, 0.0, k), 0)])])
   assert ci.CS.eps_cal_status.angle_ready, ci.CS.eps_cal_status.fault
+  assert ci.CS.linear_angle.steer_ok
   return f
+
+
+def standby(f):
+  """STANDBY (meps/protocol.py): angle marker with bits 1:0 = 01, no request, target 0, byte 3 0."""
+  return f[0:2] == bytes(2) and f[2] == meps_protocol.V3_STANDBY and f[3] == 0
+
+
+DRIVE, YIELD = meps_protocol.v3_byte2(True), meps_protocol.v3_byte2(False)
 
 
 def e4(ci, lat, angle_des, measured, v=10.0, pressed=False, t=[2_000_000_000]):
@@ -62,9 +87,9 @@ def e4(ci, lat, angle_des, measured, v=10.0, pressed=False, t=[2_000_000_000]):
   return act, f[0]
 
 
-# --- 0x6A4 layout 4, on the 0x0B emulator's frames ---
+# --- 0x6A4 layout 4, on the emulator's frames ---
 
-def test_dbc_and_protocol_decode_every_v2_emulator_frame():
+def test_dbc_and_protocol_decode_every_emulator_frame():
   for name in FRAMES:
     cp = CANParser("honda_clarity_hybrid_2018_can_generated", [("EPS_CAL_STATUS", float("nan"))], 0)
     t = 1_000_000_000
@@ -73,7 +98,7 @@ def test_dbc_and_protocol_decode_every_v2_emulator_frame():
       assert ADDR in cp.update([(t, [(ADDR, d, 0)])]), (name, d.hex())   # checksum and counter valid
       vl = cp.vl["EPS_CAL_STATUS"]
       got = meps_protocol.decode_layout4(vl)
-      assert meps_protocol.is_layout4(vl) and got["build"] == 0x0B
+      assert meps_protocol.is_layout4(vl) and got["build"] == 0x0E
       assert (got["fault"], got["steering"], got["clamp"], got["lkas"], got["mode"], got["reason"]) == \
              (bool(d[0] & 0x40), bool(d[0] & 0x20), bool(d[0] & 0x10), (d[0] >> 2) & 3, d[0] & 3, d[2] & 0xF), (name, d.hex())
       assert vl["ANGLE_REF"] == pytest.approx(-0.1 * struct.unpack(">h", d[3:5])[0])
@@ -86,7 +111,7 @@ def test_emulator_runs_show_the_expected_reasons():
   assert {R.STEERING, R.NO_REQUEST, R.MODE_SWITCH_PENDING, R.PROTOCOL, R.AUTHORITY_ZERO} <= reasons("step")
   assert R.STALE in reasons("stale200") and R.ANGLE_INVALID in reasons("invalid") and R.JUMP in reasons("step40_jump")
   assert R.STOCK_LKAS_NOT_ENGAGED in reasons("inhibit") and R.PROTOCOL in reasons("protocol")
-  assert not any(d[0] & 0x20 for d in datas("bit5off"))                # request without the payload bit: never steers
+  assert not any(d[0] & 0x20 for d in datas("bit5off"))                # a frame the loop does not take: never steers
   assert any(d[0] & 0x10 for d in datas("clamp"))                       # the EPS clamp acted
   assert {d[0] & 3 for d in datas("step")} == {0, 1}                    # boots in stock, switches to MODE 1 at idle
 
@@ -96,16 +121,16 @@ def test_emulator_runs_show_the_expected_reasons():
 def test_angle_setting_selects_angle_mode_on_modified_clarity_only(angle_file):
   ci = clarity()
   assert ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.angle
-  assert ci.CC.eps_mode == 0xF1 and ci.CS.eps_cal_status.angle             # MODE 1, AUTH 15
+  assert ci.CC.angle_sender is not None and ci.CS.eps_cal_status.angle
   stock = clarity(b'39990-TRW-A020\x00\x00')
   assert not stock.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and stock.CP.steerControlType == structs.CarParams.SteerControlType.torque
-  assert stock.CC.angle_sender is None and stock.CC.eps_mode == 0
+  assert stock.CC.angle_sender is None
 
 
 def test_angle_setting_off_keeps_torque_mode():
   ci = clarity()
   assert not ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.torque
-  assert ci.CC.angle_sender is None and ci.CC.eps_mode == 0 and not ci.CS.eps_cal_status.angle
+  assert ci.CC.angle_sender is None and not ci.CS.eps_cal_status.angle
 
 
 # --- interlock in angle mode ---
@@ -121,7 +146,7 @@ def test_emulator_run_ready_only_once_the_eps_runs_mode_1(angle_file):
   ds = datas("step")
   running = []
   for i, d in enumerate(ds):
-    s = f.step(d); f.step()
+    s = run_status(ci, f, d, i)
     assert s.steerFaultTemporary == ((d[0] & 3) != 1 or bool(d[0] & 0x40)), (i, d.hex())
     running.append(ci.CS.eps_cal_status.loop_running)
   assert ci.CS.eps_cal_status.angle_ready
@@ -134,7 +159,7 @@ def test_eps_angle_fault_faults_openpilot(angle_file, name, reason):
   ds = datas(name)
   seen = set()
   for i, d in enumerate(ds):
-    s = f.step(d); f.step()
+    s = run_status(ci, f, d, i)
     assert s.steerFaultTemporary == ((d[0] & 3) != 1 or bool(d[0] & 0x40)), (i, d.hex())
     seen.add(ci.CS.eps_cal_status.fault)
   assert f"angle_fault ({reason})" in seen
@@ -147,35 +172,33 @@ def test_v1_angle_builds_never_steer(angle_file, build, mode):
   assert ci.CS.eps_cal_status.fault == "unsupported_build" and not ci.CS.eps_cal_status.angle_ready
   for _ in range(10):
     _, d = e4(ci, True, 10.0, 0.0)
-    assert d[0:3] == bytes(3) and d[3] == 0xF1
+    assert standby(d)
 
 
-# --- 0xE4 angle payload ---
+# --- 0xE4 angle target ---
 
 def test_no_payload_until_the_eps_is_ready(angle_file):
   ci = clarity()
   Feed(ci).run([v4(mode=0, steering=False, reason=2, counter=k % 4) for k in range(6)])   # EPS still in stock mode
   for _ in range(20):
     _, f = e4(ci, True, 30.0, 5.0)
-    assert f[0:3] == bytes(3) and f[3] == 0xF1                          # nothing an EPS could read as torque
+    assert standby(f)                                                    # nothing an EPS could read as torque or a target
 
 
-def test_idle_frames_carry_only_the_mode_request(angle_file):
+def test_idle_frames_are_standby(angle_file):
   ci = clarity(); ready(ci)
   for _ in range(10):
     _, f = e4(ci, False, 30.0, 5.0)
-    assert f[0:3] == bytes(3) and f[3] == 0xF1
+    assert standby(f)
 
 
 def test_engage_starts_at_the_measured_angle_and_fades_in(angle_file):
-  # hold off: the target limits fade in over the engage time (with the hold they are full at once and the authority
-  # ramp gives the soft take-over, test_hold_holds_the_request_through_a_press_and_ramps_authority)
-  ci = clarity(); hold(ci, False); ready(ci)
+  ci = clarity(); ready(ci)
   e4(ci, False, 0.0, 12.3)
   raws = []
   for _ in range(300):
     _, f = e4(ci, True, 20.0, 12.3, v=10.0)
-    assert f[2] == 0xA0 and f[3] & 0x0F == 0x01                          # request + angle payload, MODE 1
+    assert f[2] == DRIVE and f[3] == 0                                    # angle marker + DRIVE, no request, byte 3 0
     raws.append(struct.unpack(">h", f[0:2])[0])
   ang = [r / cam.RAW_PER_DEG for r in raws]
   assert ang[0] == pytest.approx(12.3, abs=0.051)                        # first target = the measured angle
@@ -247,7 +270,7 @@ def test_target_is_clamped_inside_the_eps_lateral_accel_clamp(angle_file, v):
   for _ in range(3000):
     _, f = e4(ci, True, 600.0, 0.0, v=v)
   a = struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG
-  assert a == pytest.approx(cam.angle_limit(v), abs=0.06) and a < float(np.interp(v, cam.AMAX_V, cam.EPS_AMAX_DEG))
+  assert a == pytest.approx(cam.angle_limit(v, linear=True), abs=0.06)
 
 
 def test_no_engage_while_the_wheel_is_beyond_the_limit(angle_file):
@@ -257,47 +280,48 @@ def test_no_engage_while_the_wheel_is_beyond_the_limit(angle_file):
   ci = clarity(); ready(ci)
   e4(ci, False, 0.0, 40.0, v=30.0)
   for _ in range(50):
-    _, f = e4(ci, True, 40.0, 40.0, v=30.0)                             # 30 m/s, wheel at 40 deg (limit 18.4)
-    assert f[0:3] == bytes(3)
+    _, f = e4(ci, True, 40.0, 40.0, v=30.0)                             # 30 m/s, wheel at 40 deg (linear limit 18.2)
+    assert standby(f)
   _, f = e4(ci, True, 40.0, 10.0, v=30.0)                               # wheel back inside: engage at the wheel
-  assert f[2] == 0xA0 | cam.E4_ARM2                                      # hold (default): stock arm 2 with the request
-  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(10.0, abs=cam.std_angle_step(30.0) + 0.06)
+  assert f[2] == DRIVE
+  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(10.0, abs=cam.std_angle_step(30.0, True) + 0.06)
   for _ in range(400):
     _, f = e4(ci, True, 40.0, 10.0, v=30.0)
-    assert abs(struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG) <= cam.std_angle_limit(30.0) + 0.06
-  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(cam.angle_limit(30.0), abs=0.06)
+    assert abs(struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG) <= cam.std_angle_limit(30.0, True) + 0.06
+  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(cam.angle_limit(30.0, True), abs=0.06)
 
 
-def test_driver_press_drops_the_request_and_reengage_starts_at_the_wheel(angle_file):
-  # Angle Hold Through Override off: the same yield as torque mode (ModifiedEpsSteering lkas_active), no request while
-  # the driver overrides
-  ci = clarity(); hold(ci, False); ready(ci)
+def test_driver_press_yields_and_release_resumes_from_the_wheel(angle_file):
+  # a press: YIELD (the EPS drops the loop's authority to 0 at once) with the target following the wheel; the release:
+  # DRIVE at once, the target walks from the wheel to the plan
+  ci = clarity(); ready(ci)
   e4(ci, False, 0.0, 0.0)
   for _ in range(100):
     _, f = e4(ci, True, 10.0, 0.0)
-  assert f[2] == 0xA0
+  assert f[2] == DRIVE
   for _ in range(50):
     _, f = e4(ci, True, 10.0, -5.0, pressed=True)
-    assert f[0:3] == bytes(3) and f[3] == 0xF1
-  outs = [e4(ci, True, 10.0, -5.0)[1] for _ in range(300)]               # released: re-engage from the wheel, faded in
+    assert f[2] == YIELD and f[3] == 0
+  assert struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG == pytest.approx(-5.0, abs=0.051)   # the target reached the wheel
+  outs = [e4(ci, True, 10.0, -5.0)[1] for _ in range(300)]               # released: from the wheel, faded in
   a = [struct.unpack(">h", f[0:2])[0] / cam.RAW_PER_DEG for f in outs]
-  assert outs[0][2] == 0xA0 and a[0] == pytest.approx(-5.0, abs=0.051)
+  assert all(f[2] == DRIVE for f in outs) and a[0] == pytest.approx(-5.0, abs=0.051)
   steps = np.abs(np.diff(a))
   assert steps[:10].max() <= 0.11                                        # no snap: the target starts at rest (0.1 deg raw)
   assert steps.max() <= float(np.interp(10.0, cam._VT, cam.TARGET_RATE_DEG_S)) * 0.01 + 0.051
   assert a[-1] == pytest.approx(10.0, abs=0.051)
 
 
-def test_fault_mid_drive_stops_the_payload_at_once(angle_file):
+def test_fault_mid_drive_stops_the_target_at_once(angle_file):
   ci = clarity(); f6 = ready(ci)
   e4(ci, False, 0.0, 0.0)
   for _ in range(60):
     _, f = e4(ci, True, 5.0, 0.0)
-  assert f[2] == 0xA0 | cam.E4_ARM2
+  assert f[2] == DRIVE
   f6.run([v4(fault=True, steering=False, reason=4, counter=k % 4) for k in range(8, 10)])   # EPS reports FAULT (JUMP)
   assert ci.CS.eps_cal_status.fault == "angle_fault (JUMP)"
   _, f = e4(ci, True, 5.0, 0.0)
-  assert f[0:3] == bytes(3) and f[3] == 0xF1
+  assert standby(f)
 
 
 def test_loop_not_running_faults_after_100ms(angle_file):
@@ -306,13 +330,13 @@ def test_loop_not_running_faults_after_100ms(angle_file):
   f6 = ready(ci)
   e4(ci, False, 0.0, 0.0)
   _, f = e4(ci, True, 0.0, 0.0)
-  assert f[2] == 0xA0 | cam.E4_ARM2 and ci.CS.eps_cal_status.request_sent
+  assert f[2] == DRIVE and ci.CS.eps_cal_status.request_sent
   f6.run([v4(steering=False, reason=1, counter=k % 4) for k in range(8, 13)])   # 5 status frames = 10 carState updates
   assert ci.CS.eps_cal_status.fault == ""
   f6.run([v4(steering=False, reason=1, counter=1)])
   assert ci.CS.eps_cal_status.fault == "loop_not_running (NO_REQUEST)" and not ci.CS.eps_cal_status.angle_ready
   _, f = e4(ci, True, 0.0, 0.0)
-  assert f[0:3] == bytes(3)                                              # the request drops, which clears the fault
+  assert standby(f)                                                      # the target stops, which clears the fault
   f6.run([v4(steering=False, reason=1, counter=k % 4) for k in range(2, 4)])
   assert ci.CS.eps_cal_status.fault == "" and ci.CS.eps_cal_status.angle_ready
 
@@ -383,7 +407,7 @@ def test_torque_mode_frames_unchanged():
   cc.actuators.torque = 0.3
   _, frames = ci.apply(cc.as_reader(), 1_000_000_000)
   f = next(bytes(x[1]) for x in frames if x[0] == 0xE4)
-  assert f[3] == 0x00 and f[2] & 0x20 == 0
+  assert f[3] == 0x00 and f[2] & 0x0C != 0x0C                            # no angle marker in torque mode
 
 
 def test_angle_setting_leaves_other_hondas_alone():
@@ -399,9 +423,11 @@ NOT_ANGLE_CAPABLE = {
   "MM 0x02 in torque mode (v1)": [v1(1, 1, 0x02, counter=k % 4) for k in range(10)],
   "MM 0x02 stock mode (v1)": [v1(0, 0, 0x02, counter=k % 4) for k in range(10)],
   "0x0A in mode 3 (v1)": [v1(3, 3, 0x0A, counter=k % 4, b0_extra=8) for k in range(10)],
-  "unknown v2 build claiming MODE 1": [v4(build=0x0F, counter=k % 4) for k in range(10)],
-  "0x0B still in stock mode (switch pending)": [v4(mode=0, steering=False, reason=2, counter=k % 4) for k in range(10)],
-  "0x0B in MODE 1 with the FAULT bit": [v4(fault=True, steering=False, reason=5, counter=k % 4) for k in range(10)],
+  "unknown layout-4 build claiming MODE 1": [v4(build=0x0F, counter=k % 4) for k in range(10)],
+  "v2 build 0x0B in MODE 1": [v4(build=0x0B, counter=k % 4) for k in range(10)],
+  "v2 build 0x0D in MODE 1": [v4(build=0x0D, counter=k % 4) for k in range(10)],
+  "0x0E still in stock mode (switch pending)": [v4(mode=0, steering=False, reason=2, counter=k % 4) for k in range(10)],
+  "0x0E in MODE 1 with the FAULT bit": [v4(fault=True, steering=False, reason=5, counter=k % 4) for k in range(10)],
 }
 
 
@@ -412,25 +438,24 @@ def test_no_angle_request_unless_the_build_reports_angle_support(angle_file, sta
   assert not ci.CS.eps_cal_status.angle_ready and ci.CS.eps_cal_status.fault, state
   for k in range(30):                                  # lateral active, a real target, the wheel elsewhere
     _, d = e4(ci, True, 20.0 + k, 0.0)
-    assert d[0:2] == b"\0\0" and not d[2] & 0x80 and not d[2] & 0x20, (state, d.hex())   # no angle, no request, no bit 5
-    assert d[3] == 0xF1                                # only the MODE 1 request (AUTH 15), which a non-v2 build ignores
+    assert standby(d), (state, d.hex())                # no target, no request: STANDBY, which any other build ignores
 
 
-@pytest.mark.parametrize("setting", [dict(fade_down_s=1.0), dict(assist_during_override=True)])
-def test_press_drops_the_angle_request_whatever_the_override_settings(angle_file, setting):
-  # Override Fade Down / Assist During Override keep the request up through a press in torque mode; never in angle mode
-  # (with Angle Hold Through Override off; the hold keeps it up at AUTH 0, below)
+@pytest.mark.parametrize("setting", [dict(fade_down_s=1.0), dict(assist_during_override=True), dict(torque_scale=0.5)])
+def test_press_yields_whatever_the_torque_mode_settings(angle_file, setting):
+  # Override Fade Down / Assist During Override / Torque During Override shape a press in torque mode; angle mode always
+  # yields (and the Night Star page hides those rows in angle mode)
   import dataclasses
   from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
   ci = clarity(); ready(ci)
-  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, angle_hold_override=False, **setting)})()
+  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, **setting)})()
   e4(ci, False, 0.0, 0.0)
   for _ in range(100):
     _, f = e4(ci, True, 10.0, 0.0)
-  assert f[2] == 0xA0
+  assert f[2] == DRIVE
   for _ in range(50):
     _, f = e4(ci, True, 10.0, -5.0, pressed=True)
-    assert f[0:3] == bytes(3) and f[3] == 0xF1                           # no angle, no request while pressed
+    assert f[2] == YIELD and f[3] == 0
 
 
 @pytest.mark.parametrize("fade_up", [0.0, 0.5, 3.0])
@@ -438,9 +463,8 @@ def test_engage_fade_follows_override_fade_up(angle_file, fade_up):
   import dataclasses
   from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
   ci = clarity(); ready(ci)
-  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, fade_up_s=fade_up,
-                                                                                          angle_hold_override=False)})()
-  e4(ci, False, 0.0, 0.0, v=5.0)   # hold off: the engage fade is the setting (with the hold it is the authority ramp)
+  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, fade_up_s=fade_up)})()
+  e4(ci, False, 0.0, 0.0, v=5.0)
   ex = ci.CC.angle_sender; w = []; prev = 0.0
   for _ in range(600):
     e4(ci, True, 350.0, 0.0, v=5.0); w.append(abs(ex.apply_angle - prev) / 0.01); prev = ex.apply_angle
@@ -488,7 +512,7 @@ def test_ptm2_id_is_the_same_modified_clarity():
 
 def test_ptm2_id_gets_angle_mode(angle_file):
   ci = clarity(PTM2)
-  assert ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CC.eps_mode == 0xF1
+  assert ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CC.angle_sender is not None
 
 
 # --- effort fade: sent = wheel + w * (trajectory - wheel), w smoothstep 0 -> 1 over engage_s ---
@@ -501,7 +525,7 @@ def _release(engage_s, effort_fade=True, frames=120, v=8.0):
   for _ in range(frames):
     wheel += rate * cam.DT_CTRL
     rate *= 0.97
-    _, req, _ = s.update(True, 2.0, wheel, v, True, measured_rate_deg_s=rate, engage_s=engage_s, effort_fade=effort_fade)
+    _, req = s.update(True, 2.0, wheel, v, True, measured_rate_deg_s=rate, engage_s=engage_s, effort_fade=effort_fade)
     log.append((wheel, s.apply_angle, s.out_angle, float(req)))
   return np.array(log)
 
@@ -530,92 +554,17 @@ def test_effort_fade_respects_the_eps_step_limit(v):
   assert np.abs(np.diff(L[:, 2]))[sent].max() <= step + 1e-9
 
 
-# --- authority ramp (HKG style): byte 3 bits 7:4 = AUTH = 15 - CUT (15 = full) ---
-
-def auth(d):
-  return d[3] >> 4
-
-
-def fade_up(ci, s):
-  import dataclasses
-  from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
-  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, fade_up_s=s)})()
-
-
-def test_authority_ramp_follows_hkg():
-  r = cam.AuthorityRamp()
-  assert r.update(False, False, 1.0) == 15
-  cuts = [r.update(True, False, 1.0) for _ in range(120)]
-  assert cuts[0] == 15 and cuts[-1] == 0 and all(b <= a for a, b in zip(cuts, cuts[1:]))
-  assert next(i for i, c in enumerate(cuts) if c == 0) == pytest.approx(97, abs=2)       # Override Fade Up 1.0 s
-  down = [r.update(True, True, 1.0) for _ in range(60)]
-  assert r.g < 1 / 30 and down[-1] == 15                                                 # floor 0: CUT 15 (stock lockout)
-  assert next(i for i, c in enumerate(down) if c >= 13) < 45                             # (g - min)/17 per frame: tau 17 frames
-  g0 = r.g
-  assert not hasattr(cam, "AUTH_UP_DEFAULT")
-  up = [r.update(True, False, 1.25) for _ in range(160)]                                 # Fade Up 1.25 s means 1.25 s
-  assert next(i for i, c in enumerate(up) if c == 0) == pytest.approx((1 - 0.5 / 15 - g0) * 125, abs=2)   # CUT 0 from g > 29/30
-  r.update(True, True, 1.0)
-  assert r.update(True, False, 0.0) == 0                                               # Fade Up 0 means at once, no hidden default
-  assert r.update(False, True, 1.0) == 15 and r.g == 0.0                                 # lateral off: zero authority
-
-
-def hold(ci, on):
-  import dataclasses
-  from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
-  ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, angle_hold_override=on)})()
-
-
-def test_hold_through_override_is_on_by_default():
-  from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
-  assert DEFAULT_SETTINGS.angle_hold_override and cam.AUTH_MIN == 0.0
-
-
-def test_hold_off_drops_the_request_on_press_and_keeps_full_authority(angle_file):
-  ci = clarity(); hold(ci, False); ready(ci)
-  assert ci.CS.eps_cal_status.authority_ready
-  e4(ci, False, 0.0, 0.0)
-  assert all(e4(ci, True, 10.0, 0.0)[1][3] == 0xF1 for _ in range(50))   # AUTH 15: the firmware ramps in by itself
-  _, d = e4(ci, True, 10.0, -5.0, pressed=True)
-  assert d[0:3] == bytes(3) and d[3] == 0xF1
-
-
-def test_hold_holds_the_request_through_a_press_and_ramps_authority(angle_file):
-  ci = clarity(); fade_up(ci, 1.0); ready(ci)                            # default settings: hold on
-  assert ci.CS.eps_cal_status.authority_ready
-  assert e4(ci, False, 0.0, 0.0)[1][3] == 0xF1                                         # lateral off: MODE 1, AUTH 15
-  eng = [e4(ci, True, 10.0, 0.0)[1] for _ in range(150)]
-  assert eng[0][3] == 0x01 and eng[-1][3] == 0xF1 and all(d[3] & 0x0F == 0x01 for d in eng)   # AUTH 0 -> 15
-  press = [e4(ci, True, 10.0, -5.0, pressed=True)[1] for _ in range(60)]
-  assert all(d[2] == 0xA0 | cam.E4_ARM2_ABORT for d in press)                          # request held, stock abort bits (inner loop lets go)
-  assert all(d[2] == 0xA0 | cam.E4_ARM2 for d in eng)                                  # stock arm 2 while steering
-  a = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in press]
-  plan = struct.unpack(">h", eng[-1][0:2])[0] / cam.RAW_PER_DEG
-  assert all(x == pytest.approx(plan, abs=0.051) for x in a)                          # the target stays on the plan (Hyundai/Kia style)
-  auths = [auth(d) for d in press]
-  assert auths[-1] == 0 and all(b <= a for a, b in zip(auths, auths[1:]))            # zero authority: under the lockout
-  relf = [e4(ci, True, 10.0, -5.0)[1] for _ in range(150)]
-  rel = [auth(d) for d in relf]
-  assert rel[-1] == 15 and all(b >= a for a, b in zip(rel, rel[1:]))
-  assert all(d[2] == 0xA0 | cam.E4_ARM2 for d in relf)                                 # released: back to arm 2 (re-arms in 0.10 s)
-  ra = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in relf]
-  assert all(x == pytest.approx(plan, abs=0.051) for x in ra)                         # release: the target does not move; authority ramps
-  e4(ci, False, 0.0, 0.0)
-  assert e4(ci, True, 10.0, 0.0)[1][3] == 0x01                                         # every engage starts at zero authority
-
-
-def test_hold_below_min_steer_speed_drops_the_request(angle_file):
+def test_below_min_steer_speed_is_standby(angle_file):
   import dataclasses
   from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
   ci = clarity()
   ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, min_steer_speed_mph=10.0)})()
   ready(ci)
   _, d = e4(ci, True, 10.0, 0.0, v=2.0)
-  assert d[0:3] == bytes(3) and d[3] == 0xF1                                          # no request: AUTH stays 15
+  assert standby(d)
 
 
-
-def test_hold_min_steer_speed_zero_keeps_the_request_at_standstill(angle_file):
+def test_min_steer_speed_zero_keeps_steering_at_standstill(angle_file):
   # 0 = no speed gate. At a stop vEgo dithers between 0 and about -1e-5; `v >= 0` dropped the request on every negative
   # sample (Clarity joystick 11-24: request on 0.3 s, off 0.3 s)
   import dataclasses
@@ -624,14 +573,22 @@ def test_hold_min_steer_speed_zero_keeps_the_request_at_standstill(angle_file):
   ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, min_steer_speed_mph=0)})()
   ready(ci)
   frames = [e4(ci, True, 10.0, 0.0, v=v)[1] for v in [0.0, -1e-5, 0.0, -3e-6] * 10]
-  assert all(d[2] & 0x80 for d in frames)                                             # request held through the dither
+  assert all(d[2] == DRIVE for d in frames)                                           # steering held through the dither
 
 
-# --- angle mode: the press threshold follows the wheel angle (lower toward center, the full setting from 45 deg) ---
+# --- angle mode: the override levels are the settings up to 5 deg and rise to 1.28 x in sharp turns (from 45 deg) ---
 
 def test_angle_mode_threshold_curve():
   from opendbc.car.honda.modified_eps import angle_mode_threshold
-  assert [round(angle_mode_threshold(1660, a)) for a in (0, 5, -15, 30, 45, 200)] == [1295, 1295, 1394, 1527, 1660, 1660]
+  assert [round(angle_mode_threshold(1300, a)) for a in (0, 5, -15, 30, 45, 200)] == [1300, 1300, 1404, 1534, 1664, 1664]
+
+
+def test_default_levels_match_the_old_single_setting():
+  # the old 2000 setting scaled 0.78 / 0.84 / 1.0 at 5 / 15 / 45 deg, and a press ended under 0.6 of that (personal branch)
+  from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS, angle_mode_threshold
+  for a, old in ((0, 0.78), (15, 0.84), (45, 1.0)):
+    assert angle_mode_threshold(DEFAULT_SETTINGS.override_start_torque, a) == pytest.approx(2000 * old, rel=0.005)
+    assert angle_mode_threshold(DEFAULT_SETTINGS.override_end_torque, a) == pytest.approx(0.6 * 2000 * old, rel=0.005)
 
 
 def _press_at(ci, angle, torque, n=6):
@@ -652,55 +609,33 @@ def test_angle_mode_press_threshold_follows_the_angle(angle_file):
   import dataclasses
   from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
   ci = clarity()
-  ci.CS.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, override_threshold=1660)})()
-  assert _press_at(ci, 2.0, 1400)              # near center 1400 > 1295: a press
-  assert not _press_at(ci, 60.0, 0, n=150)     # release (hold time), then a large angle
-  assert not _press_at(ci, 60.0, 1400)         # 60 deg: 1400 < 1660, not a press
+  ci.CS.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, override_start_torque=1300,
+                                                                                          override_end_torque=500)})()
+  assert _press_at(ci, 2.0, 1400)              # near center 1400 > 1300: a press
+  assert _press_at(ci, 2.0, 550, n=50)         # still above the end level: still pressed
+  assert not _press_at(ci, 2.0, 450, n=12)     # under the end level for 0.1 s: released
+  assert not _press_at(ci, 60.0, 1400)         # 60 deg: 1400 < 1664, not a press
   assert _press_at(ci, 60.0, 1700)
+  assert _press_at(ci, 60.0, 700, n=50)        # 60 deg: the end level rises too (500 -> 640)
+  assert not _press_at(ci, 60.0, 600, n=12)
 
 
 def test_torque_mode_press_threshold_ignores_the_angle():
   import dataclasses
   from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
   ci = clarity()                                # Angle Mode off: torque mode
-  ci.CS.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, override_threshold=1660)})()
+  ci.CS.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, override_start_torque=1660)})()
   assert not _press_at(ci, 2.0, 1400)
+  assert _press_at(ci, 60.0, 1700)             # torque mode: the setting at every angle
+  assert not _press_at(ci, 60.0, 0, n=150)
+  assert not _press_at(ci, 60.0, 1650)
 
 
-def test_hold_release_target_at_full_limits_authority_over_fade_up(angle_file):
-  # personal branch, 11-20: Override Fade Up is the authority climb time (1.25 s here); the target goes back to the plan at
-  # full rate/accel limits (HOLD_LIMITS_FADE_S), not over the setting
-  ci = clarity(); fade_up(ci, 1.25); ready(ci)
-  e4(ci, False, 0.0, 0.0)
-  [e4(ci, True, 10.0, 0.0) for _ in range(200)]
-  [e4(ci, True, 10.0, -5.0, pressed=True) for _ in range(60)]
-  relf = [e4(ci, True, 10.0, -5.0)[1] for _ in range(140)]
-  ra = [struct.unpack(">h", d[0:2])[0] / cam.RAW_PER_DEG for d in relf]
-  assert ra[40] == pytest.approx(10.0, abs=0.051)                                      # target back on the plan in 0.4 s
-  auths = [auth(d) for d in relf]
-  assert auths == sorted(auths) and next(i for i, c in enumerate(auths) if c == 15) == pytest.approx(121, abs=2)
-  assert cam.HOLD_LIMITS_FADE_S == 0.0
-
-
-def test_stock_arm_bits():
-  # 0xE4 byte 2 (SET_ME_X00 units): arm 2 = bit 6 | bits 3:2 = 2; abort = bit 6 | bits 3:2 = 1; nothing without the hold
-  assert cam.stock_arm_bits(False, False) == 0 and cam.stock_arm_bits(False, True) == 0
-  assert cam.stock_arm_bits(True, False) == 0x48 and cam.stock_arm_bits(True, True) == 0x44
-  for bits in (cam.E4_ARM2, cam.E4_ARM2_ABORT):
-    assert bits & 0x40 and not bits & 0xA3                               # never touches request (7), payload (5) or bits 1:0
-  assert (cam.E4_ARM2 >> 2) & 3 == 2 and (cam.E4_ARM2_ABORT >> 2) & 3 == 1
-
-
-def test_arm_bits_only_with_the_request():
-  from opendbc.can import CANPacker
+def test_only_v3_and_torque_frames_are_packed():
+  # the v2 byte-3 mode / authority, payload bit and stock arm bits are gone from the packer
+  import inspect
   from opendbc.car.honda import hondacan
-  from opendbc.car.honda.values import DBC, CAR
-  from opendbc.car import Bus
-  packer = CANPacker(DBC[CAR.HONDA_CLARITY][Bus.pt])
-  can = type("C", (), {"lkas": 0})()
-  _, d, _ = hondacan.create_steering_control(packer, can, 100, True, False, eps_mode=0x01, angle_payload=0x20, arm_bits=cam.E4_ARM2)
-  assert d[2] == 0xE8
-  _, d, _ = hondacan.create_steering_control(packer, can, 100, True, False, eps_mode=0x01, angle_payload=0x20, arm_bits=cam.E4_ARM2_ABORT)
-  assert d[2] == 0xE4
-  _, d, _ = hondacan.create_steering_control(packer, can, 100, False, False, eps_mode=0xF1, angle_payload=0x20, arm_bits=cam.E4_ARM2)
-  assert d[0:3] == bytes(3)                                              # no request: byte 2 stays 0
+  args = inspect.signature(hondacan.create_steering_control).parameters
+  assert not {"eps_mode", "angle_payload", "arm_bits"} & set(args)
+  for name in ("AuthorityRamp", "stock_arm_bits", "STOCK_ARM_IMAGES", "ANGLE_PAYLOAD", "HOLD_LIMITS_FADE_S"):
+    assert not hasattr(cam, name), name

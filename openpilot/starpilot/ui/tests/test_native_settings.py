@@ -204,7 +204,7 @@ class NativeSettingsTests(unittest.TestCase):
     self.assertEqual(sum(call.args == ("pkill -SIGUSR1 -f openpilot.system.updated.updated",) for call in signal.call_args_list), 1)
     self.pushed.assert_called_once_with('camera')
 
-  def test_layout_reuses_native_panels_and_preserves_galaxy_entry(self):
+  def _large_layout(self):
     toggles = NS(_scroller=NS(_items=[NS(title=str(index)) for index in range(9)]))
     panels = {PanelType.DEVICE: NS(instance=self.device), PanelType.SOFTWARE: NS(instance=self.software),
               PanelType.DEVELOPER: NS(instance=Mock()), PanelType.NETWORK: NS(instance=Mock()), PanelType.TOGGLES: NS(instance=toggles)}
@@ -217,19 +217,44 @@ class NativeSettingsTests(unittest.TestCase):
     with patch.object(runtime_app.MainLayout, '__init__', parent_init), \
          patch.object(runtime_app, 'validate_runtime_fonts'), patch.object(runtime_app, 'validate_runtime_assets'), \
          patch.object(runtime_app, 'StarShellSession', return_value=session):
-      layout = runtime_app.StarMainLayout()
+      return runtime_app.StarMainLayout(), session, toggles
+
+  def test_layout_reuses_native_panels_and_preserves_galaxy_entry(self):
+    layout, session, toggles = self._large_layout()
     self.assertIs(layout._large_panels[Destination.DEVICE].panel, self.device)
     self.assertIs(layout._large_panels[Destination.SOFTWARE].panel, self.software)
     self.assertIs(layout._large_panels[Destination.TOGGLES].panel, toggles)
     self.assertEqual(toggles._scroller._items[2].title, 'Safe Mode')
     self.assertFalse(any(item.title == 'Right Hand Driving' for item in toggles._scroller._items),
                      'RHD belongs to the native toggle owner, not an inserted N/A placeholder')
-    self.assertEqual(self.device._scroller._items[0].title, 'Galaxy')
-    self.assertNotIn(self.device._power_off_btn, self.device._scroller._items)
+    items = self.device._scroller._items
+    self.assertIs(items[0], self.device._power_off_btn)
+    self.assertEqual([item.title for item in items],
+                     ['', 'Galaxy', 'Replay', 'Dongle ID', 'Serial', 'Pair Device', 'Reset Driver Monitoring',
+                      'Reset Calibration', 'Review Training Guide', 'Change Language', 'Cabin Camera', 'Regulatory'])
     self.assertEqual(session.system_power_action, layout._system_power_action)
-    galaxy = next(item for item in self.device._scroller._items if item.title == 'Galaxy')
+    galaxy = next(item for item in items if item.title == 'Galaxy')
     galaxy.callback()
     session.galaxy_flow.open_large.assert_called_once_with()
+
+  def test_large_device_page_shows_reboot_and_power_off(self):
+    from openpilot.starpilot.ui.starpilot_settings_adapter_large import StarPilotSettingsAdapterLarge
+    from openpilot.starpilot.ui.tests.test_feature_settings_visuals import fake_fonts
+    self._large_layout()
+    for paired in (True, False):
+      with self.subTest(paired=paired):
+        self.ui.prime_state = NS(is_paired=lambda paired=paired: paired)
+        pane = StarPilotSettingsAdapterLarge(self.device, fake_fonts(), "Device", Mock())
+        pane.show_event()
+        state = pane.snapshot()
+        self.assertEqual(pane.scroll, 0)
+        self.assertEqual([row.label for row in state.rows],
+                         ['Device power', 'Galaxy', 'Replay', 'Dongle ID', 'Serial', *([] if paired else ['Pair Device']),
+                          'Reset Driver Monitoring', 'Reset Calibration', 'Review Training Guide', 'Change Language',
+                          'Cabin Camera', 'Regulatory'])
+        power = state.rows[0]
+        self.assertEqual(power.actions, (("Reboot", True), ("Power Off", True)))
+        self.assertEqual(state.rows.index(power), 0)
 
   def test_system_power_uses_native_confirmation_and_rechecks_before_effects(self):
     put_bool = self.params.put_bool

@@ -11,7 +11,7 @@ from opendbc.car.honda.carcontroller import CarController
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car import DT_CTRL
-from opendbc.car.honda.modified_eps import (DEFAULT_SETTINGS, RELEASE_FRACTION, RELEASE_HOLD_S, ModifiedEpsSteering,
+from opendbc.car.honda.modified_eps import (DEFAULT_SETTINGS, RELEASE_HOLD_S, ModifiedEpsSteering,
                                             SteeringPressedHysteresis, get_eps_modified_steering_pressed,
                                             lane_change_nudge_torque, modified_eps, steering_pressed_threshold)
 from opendbc.car.honda.values import CAR, DBC, HondaFlags
@@ -30,9 +30,9 @@ def test_the_controllers_follow_carstates_press_in_either_direction():
   assert not get_eps_modified_steering_pressed(False, 1500.0, 0.8, 1.0, True)[1]
 
 
-def _press(torques, threshold=2000.0):
+def _press(torques, start=2000.0, end=800.0):
   h = SteeringPressedHysteresis()
-  return [h.update(t, threshold) for t in torques]
+  return [h.update(t, start, end) for t in torques]
 
 
 def test_a_press_starts_over_the_threshold_in_either_direction():
@@ -42,19 +42,29 @@ def test_a_press_starts_over_the_threshold_in_either_direction():
 
 def test_a_press_holds_through_a_dip_under_the_threshold():
   # the cut takes away the torque the driver leans on: their reading drops, but not under the release level
-  assert all(_press([2100.0] + [1300.0] * 200))
+  assert all(_press([2100.0] + [1000.0] * 200))
 
 
 def test_a_press_ends_after_the_hold_under_the_release_level():
-  pressed = _press([2100.0] + [1100.0] * 40)
+  pressed = _press([2100.0] + [600.0] * 40)
   hold = round(RELEASE_HOLD_S / DT_CTRL)
-  assert 1100.0 < RELEASE_FRACTION * 2000.0
   assert all(pressed[:hold]) and not any(pressed[hold + 1:])
+
+
+def test_the_end_level_is_the_setting_and_never_above_the_start():
+  assert all(_press([2100.0] + [850.0] * 40, end=900.0)[:10]) and not _press([2100.0] + [850.0] * 40, end=900.0)[-1]
+  assert all(_press([2100.0] + [850.0] * 40, end=800.0))              # 850 is above the end level: still pressed
+  assert not _press([2100.0] + [1900.0] * 40, end=2500.0)[-1]         # an end level above the start acts as the start
+
+
+def test_defaults_are_the_old_levels_near_centre():
+  # the old single 2000 setting: 0.78 x near centre in angle mode, ended under 0.6 of that (personal branch)
+  assert DEFAULT_SETTINGS.override_start_torque == 1560 and DEFAULT_SETTINGS.override_end_torque == 936
 
 
 def test_the_hold_restarts_when_the_torque_comes_back():
   hold = round(RELEASE_HOLD_S / DT_CTRL)
-  torques = [2100.0] + [1000.0] * (hold - 5) + [1500.0] + [1000.0] * (hold - 5)
+  torques = [2100.0] + [600.0] * (hold - 5) + [1000.0] + [600.0] * (hold - 5)
   assert all(_press(torques))
 
 
@@ -72,7 +82,7 @@ def test_only_a_modified_eps_gets_the_steering_stage_and_threshold():
 
   CP = _modified_cp()
   assert CarController(DBC[CP.carFingerprint], CP).modified_eps_steering is not None
-  assert steering_pressed_threshold(CP, DEFAULT_SETTINGS.override_threshold) == 2000
+  assert steering_pressed_threshold(CP, DEFAULT_SETTINGS.override_start_torque) == 1560
   assert steering_pressed_threshold(CP, 1840) == 1840
   assert steering_pressed_threshold(CP, 0) == 1200          # 0 keeps the stock threshold
   assert lane_change_nudge_torque(CP) == 1200
@@ -154,10 +164,6 @@ class TestHondaSteeringCommandFidelity:
     out = [steering.update(self._cc(0.5), self._cs(steering_pressed=True), settings) for _ in range(60)]
     assert all(lkas for _, lkas, _ in out)
     assert out[-1][0] == pytest.approx(0.15)
-
-  def test_steer_delta_limiter_is_reported_as_limited(self):
-    delivered = self._drive(self._ready(), [1.0], settings=replace(self.SETTINGS, delta_limiter=True))
-    assert abs(1.0 - delivered[0]) > 1e-2
 
   def test_the_car_controller_sends_the_command_through_the_stage(self):
     CP = _modified_cp()

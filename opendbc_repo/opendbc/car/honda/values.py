@@ -6,6 +6,7 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.docs_definitions import CarFootnote, CarHarness, CarDocs, CarParts, Column
 from opendbc.car.fw_query_definitions import FwQueryConfig, Request, StdQueries, p16
 from opendbc.car.honda.firmware_validation import validate_fw_match
+from opendbc.car.lateral import AngleSteeringLimitsVM
 
 Ecu = structs.CarParams.Ecu
 VisualAlert = structs.CarControl.HUDControl.VisualAlert
@@ -40,6 +41,23 @@ class CarControllerParams:
   STEER_DELTA_UP = 3  # min/max in 0.33s for all Honda
   STEER_DELTA_DOWN = 3
   STEER_GLOBAL_MIN_SPEED = 3 * CV.MPH_TO_MS
+
+  # Accord on the angle-loop EPS firmware (HondaFlags.EPS_ANGLE_LOOP_FW): 0xE4 STEER_TORQUE carries an angle setpoint,
+  # raw = round(-10 * deg) in carState.steeringAngleDeg's frame, and the EPS closes a 1 kHz angle loop on it. The panda
+  # bounds nothing on 0xE4 beyond "bytes 0-1 zero while not allowed", so every limit below is ours.
+  ANGLE_LIMITS = AngleSteeringLimitsVM(
+    400,  # deg; the EPS clamps its setpoint at raw +-4096
+    MAX_ANGLE_RATE=2.5,  # deg/frame = 250 deg/s, as the V299 drives ran
+  )
+  # Error clip |setpoint - measured angle| <= ANGLE_ERROR_MAX(v): bounds the P torque the setpoint can demand. Each
+  # knot is the error at which the firmware's P term alone fills the room left under the PID sum clamp when the
+  # integral sits at its cap, P = Kmax - Imax, read from the V300 image:
+  # P = ((16*10*deg * G(v)) >> 8) * 112 >> 8, Kmax = 15360 after the 254/256 taper (15481 before it),
+  # Imax = 4096 (<= 6 m/s), 6144 (6-12.5 m/s), 8192 (above), G(v) = 1178/1465/760/560/1068/2188 at the knots.
+  ANGLE_ERROR_MAX_BP = [3.1, 8.0, 10.0, 11.75, 17.5, 26.9]  # m/s, the firmware gain-table knots
+  ANGLE_ERROR_MAX_V = [35.4, 23.4, 45.0, 61.0, 25.0, 12.2]  # deg
+  ANGLE_ARM = 2  # 0xE4 STEER_CONTROL_ARM: the EPS lane runs only while it reads 2; sent on every frame
+  ANGLE_STEER_ACTUATOR_DELAY = 0.15  # s, the inner angle loop's lag (model value; lagd learns the rest)
 
   def __init__(self, CP):
     self.BOSCH_GAS_LOOKUP_BP = list(type(self).BOSCH_GAS_LOOKUP_BP)
@@ -159,6 +177,19 @@ class HondaFlags(IntFlag):
   # Clarity angle-mode EPS build (rwd-xray lab/clarity/CLARITY_ANGLE_MODE_20261117): openpilot sends an angle target in
   # 0xE4 instead of a torque, only once 0x6A4 reports mode 3 on an angle build (clarity_angle_mode.py). Chosen at startup.
   CLARITY_ANGLE_MODE = 16777216
+  # the Accord EPS reports the angle-loop firmware (is_accord_eps_angle_loop_fw); also selects its rack map (steer_ratio.py)
+  EPS_ANGLE_LOOP_FW = 33554432  # 16777216 is CLARITY_ANGLE_MODE
+
+
+# Accord EPS angle-loop firmware families: 39990-TVA,A16 (the A160 compile: A16A, A16B, A16C ...) or 39990-TVA,A34
+# (the A340 compile, a different build of the same EPS: A34C ...) + exactly one capital letter. Torque images read
+# 39990-TVA,A160 / 39990-TVA,A340 (a digit) and stock 39990-TVA-A1x0 / -A340, so none of those matches.
+ACCORD_EPS_ANGLE_LOOP_FW_FAMILIES = (b"39990-TVA,A16", b"39990-TVA,A34")
+
+
+def is_accord_eps_angle_loop_fw(fw_version: bytes) -> bool:
+  v = fw_version.rstrip(b"\x00")  # the EPS pads fwVersion with NULs
+  return v[:-1] in ACCORD_EPS_ANGLE_LOOP_FW_FAMILIES and v[-1:].isupper()
 
 
 # Car button codes
@@ -251,7 +282,7 @@ class CAR(Platforms):
     ],
     # steerRatio: 11.82 is spec end-to-end
     CarSpecs(mass=3279 * CV.LB_TO_KG, wheelbase=2.83, steerRatio=16.33, centerToFrontRatio=0.39, tireStiffnessFactor=0.8467),
-    {Bus.pt: 'honda_civic_hatchback_ex_2017_can_generated', Bus.radar: 'honda_bosch_a_radar'},
+    {Bus.pt: 'honda_civic_hatchback_ex_2017_can_generated', Bus.radar: 'honda_bosch_a_radar', Bus.body: 'honda_crv_ex_2017_body_generated'},
   )
   HONDA_ACCORD_11G = HondaBoschCANFDPlatformConfig(
     [
@@ -534,24 +565,41 @@ class CAR(Platforms):
   )
 
 
+def is_angle_image(fw_version: bytes) -> bool:
+  """An angle image: '+' in both separator slots (39990+TJB+A220; EPS build 0x0C on). Its torque mode is the STOCK
+  firmware (protocol v2 MODE 0), so it gets the stock tune and calibration whenever angle mode is off."""
+  return fw_version[5:6] == b"+" and fw_version[9:10] == b"+"
+
+
 MODIFIED_EPS_FW = {
   # '+' in both separator slots marks PTM 2.0 / angle PTM images (EPS build 0x05 on; rwd-xray lab CLARITY_ANGLE_MODE_0x05_20261118)
   CAR.HONDA_CLARITY: (b'39990-TRW,A020\x00\x00', b'39990+TRW+A020\x00\x00'),
   # TEG-A010 shares the Civic fingerprint (its own measured calibration lives in honda_eps_firmware_ff)
-  CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00'),
-  CAR.HONDA_ACCORD: (b'39990-TVA,A150\x00\x00',),
+  # '+': the SH-2A family linear-angle builds 0x0C (rwd-xray lab/ptm-family/SH2A_0x0C_PORTS_20261122), angle_profiles.py rows
+  CAR.HONDA_CIVIC: (b'39990-TBA,A030\x00\x00', b'39990-TEG,A010\x00\x00', b'39990+TBA+A030\x00\x00', b'39990+TEG+A010\x00\x00'),
+  # 2x torque images. ,A160 / ,A340 end in a digit: the angle-loop family (is_accord_eps_angle_loop_fw) ends in a letter
+  CAR.HONDA_ACCORD: (b'39990-TVA,A150\x00\x00', b'39990-TVA,A160\x00\x00', b'39990-TVA,A340\x00\x00'),
   # C020 and C120 are modified Civic Bosch images with their own calibrations
-  CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00', b'39990-TBA,C020\x00\x00', b'39990-TBA,C120\x00\x00'),
-  CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00'),
+  CAR.HONDA_CIVIC_BOSCH: (b'39990-TGG,A020\x00\x00', b'39990-TGG,A120\x00\x00', b'39990-TBA,C020\x00\x00', b'39990-TBA,C120\x00\x00',
+                          b'39990+TGG+A120\x00\x00', b'39990+TBA+C020\x00\x00', b'39990+TBA+C120\x00\x00'),
+  CAR.HONDA_CRV_5G: (b'39990-TLA,A040\x00\x00', b'39990-TLA,A220\x00\x00', b'39990+TLA+A040\x00\x00', b'39990+TLA+A220\x00\x00'),
   # modified-EPS fleet beyond 7.0's list
-  CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00',),
-  CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00',),  # PTM; stock A220 accepts every RDX 3G image as a source
-  CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00',),
+  CAR.HONDA_INSIGHT: (b'39990-TXM,A040\x00\x00', b'39990+TXM+A040\x00\x00'),
+  # PTM; stock A220 accepts every RDX 3G image as a source. '+': the angle PTM image (build 0x0C on, angle_profiles.py)
+  CAR.ACURA_RDX_3G: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
+  CAR.ACURA_RDX_3G_MMR: (b'39990-TJB,A220\x00\x00', b'39990+TJB+A220\x00\x00'),
   # PTM rev b5 only: it reports the hybrid part number (dash, comma). The earlier builds, including the PTM2045 one,
-  # report 39990,T6Z,A110 and are not calibrated, so they stay dashcam.
-  CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00',),
+  # report 39990,T6Z,A110 and are not calibrated, so they stay dashcam. '+': the angle PTM image (V850 build 0x0C, profile 5)
+  CAR.HONDA_RIDGELINE: (b'39990-T6Z,A110\x00\x00', b'39990+T6Z+A110\x00\x00'),
+  # '+' only: the angle PTM image (V850 build 0x0C, profile 6, PROVISIONAL geometry: no Pilot routes yet). +TG7+A060 is the
+  # same build on the stock A060 app (code byte-identical to A070; A060's own variant table and calibration kept)
+  CAR.HONDA_PILOT: (b'39990+TG7+A070\x00\x00', b'39990+TG7+A060\x00\x00'),
   # PTM 2026-11-10 (the RDX car build ported to THR, its code parent): every variant record reports the comma
-  CAR.HONDA_ODYSSEY: (b'39990-THR,A020\x00\x00',),
+  # '+': the angle PTM image (build 0x0C, rwd-xray THR_0x0C_PORTS); it gets angle mode only once the Odyssey has a panda row
+  # (angle_profiles.py). Until then it runs its stock torque mode (apply_angle_mode clears EPS_MODIFIED for an angle image)
+  CAR.HONDA_ODYSSEY: (b'39990-THR,A020\x00\x00', b'39990+THR+A020\x00\x00'),
+  # angle PTM image only (build 0x0C, rwd-xray THR_0x0C_PORTS/t5r): no Fit torque-PTM image exists; mode 0 is stock
+  CAR.HONDA_FIT: (b'39990+T5R+C030\x00\x00',),
 }
 
 MANUAL_TRANS_CARS = frozenset((CAR.HONDA_ACCORD, CAR.HONDA_CIVIC_2022))

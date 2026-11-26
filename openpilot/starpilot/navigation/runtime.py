@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import copy
 import hashlib
 import math
 import time
@@ -9,15 +10,17 @@ import uuid
 from openpilot.starpilot.navigation.owner import ConflictError, NavigationOwner, ValidationError, ROUTE_AVOIDANCES
 from openpilot.starpilot.navigation.route_engine import MapboxRouteEngine
 
+from openpilot.starpilot.gps.head_unit import read_head_unit_gps
 from openpilot.starpilot.gps.phone import read_phone_gps
 from openpilot.starpilot.gps.source import GPS_MAX_AGE_NS, GPS_SERVICES, bearing, select_location
 
 ARRIVED_NS = 5_000_000_000      # stopped at the destination this long shows "You have arrived"
 END_ROUTE_NS = 15_000_000_000   # ...and this long ends navigation, like tapping End navigation
+REFRESH_NS = 300_000_000_000    # traffic on the guided route is refreshed this often (Directions Refresh)
 
 
-def location(sm, now_ns: int, phone_fix=None):
-  fix = select_location(sm, now_ns, phone_fix=phone_fix)
+def location(sm, now_ns: int, phone_fix=None, head_unit_fix=None):
+  fix = select_location(sm, now_ns, phone_fix=phone_fix, head_unit_fix=head_unit_fix)
   if fix is None:
     return None
   stamp, gps = fix
@@ -26,7 +29,7 @@ def location(sm, now_ns: int, phone_fix=None):
 
 
 class RouteRuntime:
-  def __init__(self, owner: NavigationOwner, engine=None, executor=None, road_limit=None):
+  def __init__(self, owner: NavigationOwner, engine=None, executor=None, road_limit=None, refresh_executor=None):
     self.owner = owner
     if engine is None:
       from openpilot.starpilot.navigation.mapbox_budget import MonthlyBudget
@@ -38,6 +41,8 @@ class RouteRuntime:
     self.road_limit = road_limit  # StarPilot add-on: road speed limit without a destination (road_limit.py)
     self.engine = engine
     self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix='route')
+    # Traffic refreshes get their own thread so a slow one can never delay a reroute queued on `executor`.
+    self.refresh_executor = refresh_executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix='refresh')
     self.key = None
     self.route = None
     self.routes = []
@@ -48,6 +53,10 @@ class RouteRuntime:
     self.off_route_since = 0
     self.arrived_since = 0
     self.ended_revision = None
+    self.refresh_route = None  # the route the refresh clock runs for
+    self.refresh_after = 0
+    self.refresh_future = None
+    self.refresh_job_route = None  # the route the in-flight refresh was started for
     self.session = uuid.uuid4().hex
 
   def update(self, now_ns: int, position, drive_id: int) -> dict:
@@ -78,7 +87,7 @@ class RouteRuntime:
     result = {'sessionId': self.session, 'frameMonoTime': now_ns, 'startedMonoTime': drive_id,
                   'revision': settings['revision'], 'enabled': settings['enabled'], 'status': base_status,
                   'destinationName': (settings['destination'] or {}).get('name', ''), 'instruction': {}, 'nextManeuver': {},
-                  'route': [], 'locationMonoTime': 0, 'controlValid': False, 'speedLimit': 0.}
+                  'route': [], 'routeCongestion': [], 'locationMonoTime': 0, 'controlValid': False, 'speedLimit': 0.}
     if self.future is not None and self.future.done():
       try:
         route = self.future.result()
@@ -107,6 +116,7 @@ class RouteRuntime:
     if position is None:
       if self.route is not None:
         result['route'] = self.route.preview()
+        result['routeCongestion'] = self.route.preview_congestion()
       else:
         saved = self.owner.position_store.read()
         if saved is not None:
@@ -137,11 +147,41 @@ class RouteRuntime:
     arrived = self.arrived_since and now_ns - self.arrived_since >= ARRIVED_NS
     if self.arrived_since and now_ns - self.arrived_since >= END_ROUTE_NS:
       self._end_route(settings['revision'])
+    if not arrived:
+      self._refresh_traffic(now_ns, settings['token'], progress.segment, bool(progress.off_route or self.off_route_since or self.future is not None))
     result.update(status='arrived' if arrived else 'guiding', instruction=progress.instruction,
                   nextManeuver=progress.next_maneuver, route=self.route.preview(),
+                  routeCongestion=self.route.preview_congestion(),
                   controlValid=bool(speed is not None and fresh and drive_id > 0 and not progress.off_route and not progress.arrived and stamp >= drive_id),
                   speedLimit=progress.speed_limit_mps or 0.)
     return result
+
+  def _refresh_traffic(self, now_ns: int, token: str, segment: int, rerouting: bool = False) -> None:
+    """Every REFRESH_NS while guiding, new traffic colors for the rest of the route, on the refresh thread. Only
+    the route's congestion changes, and a failed refresh keeps the old one. Nothing is requested while off the
+    route or while a reroute is pending: that traffic is about to be replaced and the reroute has the budget."""
+    self._apply_refresh()
+    refresh = getattr(self.engine, 'refresh', None)
+    if refresh is None or getattr(self.route, 'uuid', None) is None:
+      return
+    if rerouting:
+      return
+    if self.route is not self.refresh_route:
+      self.refresh_route, self.refresh_after = self.route, now_ns + REFRESH_NS
+    elif now_ns >= self.refresh_after and (self.refresh_future is None or self.refresh_future.done()):
+      self.refresh_after = now_ns + REFRESH_NS
+      self.refresh_job_route = self.route
+      self.refresh_future = self.refresh_executor.submit(_quiet_refresh, refresh, token, self.route, segment)
+
+  def _apply_refresh(self) -> None:
+    """Take a finished refresh's colors, but only for the route it was started for; after a reroute or a switch
+    to an alternative the result is dropped."""
+    if self.refresh_future is None or not self.refresh_future.done():
+      return
+    congestion, route = self.refresh_future.result(), self.refresh_job_route
+    self.refresh_future = self.refresh_job_route = None
+    if congestion is not None and route is not None and route is self.route and len(congestion) == len(route.congestion):
+      route.congestion = congestion
 
   def _end_route(self, revision: str) -> None:
     # Once per destination; a concurrent change (new destination, Galaxy edit) wins over arrival.
@@ -157,19 +197,30 @@ class RouteRuntime:
       self.ended_revision = revision
 
 
-def phone_gps_dict(phone_fix) -> dict | None:
-  if phone_fix is None:
+def _quiet_refresh(refresh, token: str, route, segment: int) -> list[int] | None:
+  """The refreshed congestion, computed on a copy so the live route is only changed by the runtime, and only if
+  it is still current. None when it failed: the old colors stay."""
+  try:
+    scratch = copy.copy(route)
+    return list(scratch.congestion) if refresh(token, scratch, segment) else None
+  except Exception:
     return None
-  gps = dict(vars(phone_fix[1]))
+
+
+def gps_dict(fix) -> dict | None:
+  if fix is None:
+    return None
+  gps = dict(vars(fix[1]))
   gps["vNED"] = list(gps.get("vNED", ()))
   return gps
 
 
-def publish_status(pm, value: dict, phone_fix=None) -> None:
+def publish_status(pm, value: dict, phone_fix=None, head_unit_fix=None) -> None:
   from openpilot.cereal import messaging
   message = messaging.new_message('starpilotNavigation', valid=True)
   from openpilot.starpilot.navigation.wire import navigation_envelope
-  message.starpilotNavigation = {**navigation_envelope(value), **({'phoneGps': gps} if (gps := phone_gps_dict(phone_fix)) else {})}
+  fixes = {name: gps for name, fix in (('phoneGps', phone_fix), ('headUnitGps', head_unit_fix)) if (gps := gps_dict(fix))}
+  message.starpilotNavigation = {**navigation_envelope(value), **fixes}
   pm.send('starpilotNavigation', message)
 
 
@@ -181,10 +232,10 @@ def main():
   runtime = RouteRuntime(owner)
   sm = messaging.SubMaster(['deviceState', *(service for service in GPS_SERVICES if service != 'starpilotNavigation')])
   pm = messaging.PubMaster(['starpilotNavigation'])
-  # Forward new phone measurements promptly; held fixes still need only a 1 Hz heartbeat.
+  # Forward new phone and head-unit measurements promptly; held fixes still need only a 1 Hz heartbeat.
   rate = Ratekeeper(5.)
   next_update_ns = 0
-  last_phone_stamp = 0
+  last_stamps = (0, 0)
   try:
     while True:
       sm.update(0)
@@ -194,13 +245,13 @@ def main():
       drive_id = (device.startedMonoTime if sm.valid['deviceState'] and device.started and
                   0 < device.startedMonoTime <= device_stamp <= now <= device_stamp + 2_000_000_000 else 0)
       try:
-        phone_fix = read_phone_gps(now)
-        phone_stamp = phone_fix[0] if phone_fix is not None else 0
-        if now >= next_update_ns or phone_stamp != last_phone_stamp:
+        phone_fix, head_unit_fix = read_phone_gps(now), read_head_unit_gps(now)
+        stamps = tuple(fix[0] if fix is not None else 0 for fix in (phone_fix, head_unit_fix))
+        if now >= next_update_ns or stamps != last_stamps:
           next_update_ns = now + 1_000_000_000
-          last_phone_stamp = phone_stamp
-          value = runtime.update(now, location(sm, now, phone_fix), drive_id)
-          publish_status(pm, value, phone_fix)
+          last_stamps = stamps
+          value = runtime.update(now, location(sm, now, phone_fix, head_unit_fix=head_unit_fix), drive_id)
+          publish_status(pm, value, phone_fix, head_unit_fix=head_unit_fix)
       except (ValidationError, OSError, ValueError):
         cloudlog.warning('navigation settings or route unavailable')
       rate.keep_time()

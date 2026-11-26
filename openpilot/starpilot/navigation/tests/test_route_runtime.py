@@ -58,8 +58,9 @@ def test_navigation_forwards_new_phone_fixes_without_waiting_for_heartbeat(monke
   monkeypatch.setattr(module, 'RouteRuntime', lambda _owner: runtime)
   monkeypatch.setattr(module.time, 'monotonic_ns', now)
   monkeypatch.setattr(module, 'read_phone_gps', read_phone)
-  monkeypatch.setattr(module, 'location', lambda _sm, _now, fix: fix)
-  monkeypatch.setattr(module, 'publish_status', lambda _pm, _value, fix: published.append((frame[0], fix)))
+  monkeypatch.setattr(module, 'read_head_unit_gps', lambda _now: None)
+  monkeypatch.setattr(module, 'location', lambda _sm, _now, fix, head_unit_fix: fix)
+  monkeypatch.setattr(module, 'publish_status', lambda _pm, _value, fix, head_unit_fix: published.append((frame[0], fix)))
   monkeypatch.setattr(messaging, 'SubMaster', lambda _services: Master())
   monkeypatch.setattr(messaging, 'PubMaster', lambda _services: None)
   with pytest.raises(Finished):
@@ -77,6 +78,49 @@ def route():
     {'distance': 1112., 'duration': 100., 'maneuver': {'type': 'depart', 'instruction': 'Head east'}, 'bannerInstructions': [
       {'primary': {'type': 'turn', 'modifier': 'right', 'text': 'Turn right on First Street'}}]},
     {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive', 'instruction': 'You have arrived'}}]}]})
+
+
+def test_roundabout_exit_angle_and_number_reach_the_instruction():
+  steps = [{'distance': 1112., 'duration': 100., 'maneuver': {'type': 'depart'}, 'bannerInstructions': [
+             {'primary': {'type': 'roundabout', 'modifier': 'right', 'degrees': 92.4, 'text': 'Main Street'}}]},
+           {'distance': 0., 'duration': 0., 'driving_side': 'left', 'maneuver': {'type': 'roundabout', 'exit': 1}}]
+  route = NavigationRoute({'distance': 1112., 'duration': 100., 'geometry': {'coordinates': [[0., 0.], [.01, 0.]]},
+                           'legs': [{'steps': steps}]})
+  instruction = route.progress((.005, 0.), 5., 90.).instruction
+  assert (instruction['exitDegrees'], instruction['exitNumber'], instruction['drivingLeft']) == (92, 1, True)
+  steps[0]['bannerInstructions'][0]['primary']['degrees'] = float('nan')
+  steps[1]['maneuver']['exit'] = True
+  instruction = NavigationRoute({'distance': 1112., 'duration': 100., 'geometry': {'coordinates': [[0., 0.], [.01, 0.]]},
+                                 'legs': [{'steps': steps}]}).progress((.005, 0.), 5., 90.).instruction
+  assert (instruction['exitDegrees'], instruction['exitNumber']) == (0, 0)
+
+
+def test_road_name_and_route_number_reach_the_instruction():
+  # the head unit's street tag shows the ref as a badge beside the name ("US 75" North Central Expressway)
+  steps = [{'distance': 1112., 'duration': 100., 'name': 'North Central Expressway', 'ref': 'US 75; TX 289',
+            'maneuver': {'type': 'depart'}},
+           {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive'}}]
+  data = {'distance': 1112., 'duration': 100., 'geometry': {'coordinates': [[0., 0.], [.01, 0.]]}, 'legs': [{'steps': steps}]}
+  instruction = NavigationRoute(data).progress((.005, 0.), 5., 90.).instruction
+  assert (instruction['roadName'], instruction['roadRef']) == ('North Central Expressway', 'US 75; TX 289')
+  del steps[0]['name']
+  instruction = NavigationRoute(data).progress((.005, 0.), 5., 90.).instruction
+  assert (instruction['roadName'], instruction['roadRef']) == ('US 75; TX 289', 'US 75; TX 289')
+  del steps[0]['ref']
+  instruction = NavigationRoute(data).progress((.005, 0.), 5., 90.).instruction
+  assert (instruction['roadName'], instruction['roadRef']) == ('', '')
+
+
+def test_the_instruction_fits_the_navigation_message():
+  from openpilot.cereal import messaging
+  from openpilot.starpilot.navigation.wire import navigation_envelope
+  steps = [{'distance': 1112., 'duration': 100., 'name': 'North Central Expressway', 'ref': 'US 75',
+            'maneuver': {'type': 'depart'}}, {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive'}}]
+  instruction = NavigationRoute({'distance': 1112., 'duration': 100., 'geometry': {'coordinates': [[0., 0.], [.01, 0.]]},
+                                 'legs': [{'steps': steps}]}).progress((.005, 0.), 5., 90.).instruction
+  message = messaging.new_message('starpilotNavigation', valid=True)
+  message.starpilotNavigation = navigation_envelope({'instruction': instruction})
+  assert message.starpilotNavigation.navigation.instruction.roadRef == 'US 75'
 
 
 def test_route_interpolation_preserves_distance_and_advice(route):
@@ -395,3 +439,27 @@ def test_held_phone_position_cannot_authorize_stale_navigation_control(tmp_path,
   runtime.route = route
   result = runtime.update(14_000_000_000, position, 1)
   assert result['status'] == 'guiding' and not result['controlValid']
+
+
+def lane_route(sub):
+  return NavigationRoute({'distance': 1112., 'duration': 100., 'geometry': {'coordinates': [[0., 0.], [.01, 0.]]}, 'legs': [{'steps': [
+    {'distance': 1112., 'duration': 100., 'maneuver': {'type': 'depart', 'instruction': 'Head east'}, 'bannerInstructions': [
+      {'primary': {'type': 'off ramp', 'modifier': 'right', 'text': 'Exit 40'}, 'sub': sub}]},
+    {'distance': 0., 'duration': 0., 'maneuver': {'type': 'arrive', 'instruction': 'You have arrived'}}]}]})
+
+
+def test_lane_guidance_comes_from_the_banner_and_reaches_the_instruction():
+  sub = {'text': '', 'components': [
+    {'type': 'lane', 'active': False, 'directions': ['straight']},
+    {'type': 'lane', 'active': True, 'directions': ['straight', 'right'], 'active_direction': 'right'},
+    {'type': 'text', 'text': 'ignored'}]}
+  lanes = lane_route(sub).progress((.005, 0.), 5., 90.).instruction['lanes']
+  assert lanes == [{'active': False, 'directions': ['straight'], 'activeDirection': ''},
+                   {'active': True, 'directions': ['straight', 'right'], 'activeDirection': 'right'}]
+
+
+@pytest.mark.parametrize('sub', [None, 'text', {'components': 'x'}, {'components': [None, {'type': 'lane'}]},
+                                 {'components': [{'type': 'lane', 'active': False, 'directions': ['left']}]},
+                                 {'components': [{'type': 'lane', 'active': True, 'directions': ['left']}] * 9}])
+def test_missing_unusable_or_malformed_lane_data_is_ignored(sub):
+  assert lane_route(sub).progress((.005, 0.), 5., 90.).instruction['lanes'] == []

@@ -27,7 +27,9 @@ class TestHondaNidecInterceptorAol(TestHondaInterceptor):
     self.safety.set_timer(0)
 
   def tearDown(self):
-    self.safety.set_alternative_experience(0)
+    # Dom's inherited native-callback probes run in a subprocess and never set up self.safety.
+    if hasattr(self, 'safety'):
+      self.safety.set_alternative_experience(0)
 
   def feed(self, tick, **kw):
     super().feed(tick, **kw)
@@ -166,11 +168,11 @@ class TestHondaNidecInterceptorAolClarityAngle(TestHondaNidecInterceptorAol):
       self.safety.safety_tick()
 
   def steer(self, torque=0x100):
-    # an angle frame at the measured wheel (0); with the angle bit a torque frame (request, no payload) is refused.
+    # a v3 angle frame (DRIVE, 0x4C) at the measured wheel (0); with the angle bit a torque frame (request) is refused.
     # Words without the angle bit keep the parent's torque frame (a target of 0 is "no torque" to the torque rule).
     if not self.safety_word & int(HondaSafetyFlags.CLARITY_ANGLE):
       return super().steer(torque)
-    values = {"STEER_TORQUE": 0, "STEER_TORQUE_REQUEST": 1, "SET_ME_X00": 0x20, "SET_ME_X00_2": 0x07}
+    values = {"STEER_TORQUE": 0, "STEER_TORQUE_REQUEST": 0, "SET_ME_X00": 0x4C, "SET_ME_X00_2": 0}
     return self.tx(self.packer.make_can_msg("STEERING_CONTROL", 0, values))
 
   def test_plain_interceptor_word_has_no_aol(self):
@@ -190,7 +192,7 @@ class TestHondaNidecInterceptorAolClarityAngle(TestHondaNidecInterceptorAol):
     self.assertEqual(self.safety.aol_get_permission_mask(), 1)   # stock AOL configured (it needs the EPS/gear pair)
     self.assertTrue(self.steer())
     # the angle rule still applies: a target away from the wheel, or a torque frame, is refused
-    far = {"STEER_TORQUE": 400, "STEER_TORQUE_REQUEST": 1, "SET_ME_X00": 0x20, "SET_ME_X00_2": 0x07}
+    far = {"STEER_TORQUE": 400, "STEER_TORQUE_REQUEST": 0, "SET_ME_X00": 0x4C, "SET_ME_X00_2": 0}
     self.assertFalse(self.tx(self.packer.make_can_msg("STEERING_CONTROL", 0, far)))
     torque = {"STEER_TORQUE": 0x100, "STEER_TORQUE_REQUEST": 1}
     self.assertFalse(self.tx(self.packer.make_can_msg("STEERING_CONTROL", 0, torque)))

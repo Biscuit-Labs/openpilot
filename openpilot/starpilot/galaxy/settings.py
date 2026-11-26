@@ -52,7 +52,7 @@ TTL = 60.0
 
 # Android Auto lists binary controls only.
 CAR_CONTROL_SECTIONS = (
-  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "torque", "lane")),
+  ("lateral", "Lateral (Steering)", ("aol", "lane_change", "torque", "lane", "vehicle")),
   ("longitudinal", "Longitudinal (Speed & Following)",
    ("profiles", "conditional", "curve", "slc", "aggressive", "standard", "relaxed", "traffic")),
   ("wheel", "Wheel Controls", ("wheel",)),
@@ -394,7 +394,8 @@ def _projection(row: FeatureRow) -> dict:
           "repairValue": row.repair_value, "defaultValue": row.default_value, "resetAvailable": row_default(row) is not None,
           "displayScale": "lane-strength" if row.key == "LaneCenteringStrength" else None,
           **({"coordinate": row.key.removeprefix("torque:surface:")} if row.key.startswith("torque:surface:") and row.key != "torque:surface:reset" else {}),
-          "heading": is_heading(row.key)}
+          "heading": is_heading(row.key), "collapsed": bool(row.collapsed),
+          **({"previewSound": row.key} if row.key in SOUND_SPECS else {})}
 
 
 def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:
@@ -408,8 +409,6 @@ def _question(row: FeatureRow, request: FeatureSettingsRequest) -> str:
     return f"Set lane centering strength to {level:.2f}? 5 is normal."
   if key == "UseStarPilotLongitudinalPlanner":
     return f"Select {request.value} for {row.label.lower()}? The selected planner starts with the next driving process."
-  if key in ("BoschAStockBrakeFeel", "BoschAHumanFollowing"):
-    return f"Turn {request.value} {row.label}? This applies on the next drive, with either planner."
   if key in ("CustomCruise", "CustomCruiseLong"):
     if row.capability and row.capability[0] == "toyota":
       return f"Save {row.label.lower()} as {request.value}? Toyota cruise preferences refresh while this compatible drive is active."

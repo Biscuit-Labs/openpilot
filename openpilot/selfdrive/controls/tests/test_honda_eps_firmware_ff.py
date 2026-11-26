@@ -424,22 +424,16 @@ def test_lateral_delay_dips_in_town_and_rises_from_there():
   assert all(b >= a for a, b in zip(delays, delays[1:], strict=False))
 
 
-def test_the_output_lpf_is_on_when_nothing_is_set(monkeypatch):
-  # vfn's manager seeded HondaTorqueOutputLowPassFilter on; 7.0 has no seeding, so an unset key must read as on
+def test_the_output_lpf_is_fixed_on(monkeypatch):
+  # the low-pass and its per-band time constants are no longer settings (retired 11-24): always on, 0.07/0.05/0.01 s
   lac, _, _ = _controller(monkeypatch, {})
   assert lac.core.output_lpf_enabled
-  lac, _, _ = _controller(monkeypatch, {"HondaTorqueOutputLowPassFilter": "0"})
-  assert not lac.core.output_lpf_enabled
+  assert lac.core.output_lpf_tau == (0.07, 0.05, 0.01)
 
 
 def test_controller_settings_are_read(monkeypatch):
-  lac, _, _ = _controller(monkeypatch, {
-    "HondaEpsAngleRateLimit": "219", "HondaTorqueOutputLowPassFilter": "1",
-    "HondaTorqueOutputLpfTauLowSpeed": "0.07", "HondaTorqueOutputLpfTauStandard": "0.05", "HondaTorqueOutputLpfTauHighway": "0.01",
-  })
+  lac, _, _ = _controller(monkeypatch, {"HondaEpsAngleRateLimit": "219"})
   assert lac.angle_rate_limit_deg_s == 219.0
-  assert lac.core.output_lpf_enabled
-  assert lac.core.output_lpf_tau == (0.07, 0.05, 0.01)
 
 
 def _drive(lac, VM, frames=400, v=9.0):
@@ -839,9 +833,8 @@ def test_cars_without_a_yaw_fit_steer_on_a_spec_rack_map(candidate, fw):
   assert eps_cal.provenance(cal)["rack"].startswith("spec") and honda_eps.get_rack_map(CP, cal) is not None
 
 
-@pytest.mark.parametrize("firmware_vgr", ["0", "1"])
-def test_a_rack_map_is_the_geometry_whatever_the_firmware_vgr_setting(monkeypatch, firmware_vgr):
-  lac, VM, _ = _controller(monkeypatch, {"HondaEpsFirmwareVgr": firmware_vgr})
+def test_a_rack_map_is_the_geometry(monkeypatch):
+  lac, VM, _ = _controller(monkeypatch, {})
   for k in (-0.05, -0.01, 0.002, 0.03):
     assert lac._desired_angle_no_offset(VM, 8.0, 0.0, k) == pytest.approx(lac.rack_map.angle_from_curvature(k, 8.0, 0.0))
 

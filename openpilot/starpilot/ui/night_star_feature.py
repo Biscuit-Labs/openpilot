@@ -1,7 +1,7 @@
 """The Night Star settings page: the fork's own settings, edited live (onroad too).
 
 Every row here is read again while driving (the EPS rows once a second, the controller rows each refresh), except Angle
-Mode (Clarity only), which picks the steering type and so applies at the next car start, and Steering Prediction Time
+Mode (Clarity and the angle-profile cars), which picks the steering type and so applies at the next car start, and Steering Prediction Time
 (Clarity only), which modeld reads when it starts and so is editable only while parked. Every calibrated EPS image
 steers with LatControlHondaEps, so the controller has no row. The output low-pass bands are fixed by design and have no
 row.
@@ -14,31 +14,43 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 SEATBELT_KEY = "DisableSeatbeltCheck"
 ANGLE_MODE_KEY = "HondaClarityAngleMode"
-ANGLE_HOLD_KEY = "HondaClarityAngleHoldOverride"
 LOOKAHEAD_KEY = "NrdrClarityAngleLookaheadMs"   # nrdr's name and semantics (selfdrive/modeld/clarity_lookahead.py)
 OFFROAD_ONLY = frozenset((LOOKAHEAD_KEY,))
 CLARITY = "HONDA_CLARITY"
+
+
+def _angle_image(cp) -> bool:
+  """The vehicle runs an angle image ('+' in both separator slots, EPS build 0x0C on) on a car that can steer by angle: the
+  Clarity, or a car with an angle profile (opendbc angle_profiles.py). Torque-PTM images (',') never get Angle Mode."""
+  from opendbc.car.honda.angle_profiles import ANGLE_PROFILES
+  from opendbc.car.honda.values import is_angle_image
+  if not (str(cp.carFingerprint) == CLARITY or str(cp.carFingerprint) in {str(c) for c in ANGLE_PROFILES}):
+    return False
+  return any(str(fw.ecu) == "eps" and is_angle_image(bytes(fw.fwVersion)) for fw in cp.carFw)
 
 # key -> (label, reason)
 BOOL_ROWS = {
   "HondaDriverAssistDuringOverride": ("Assist During Override",
                                       "Keep steering assist active while you override the wheel."),
   ANGLE_MODE_KEY: ("Angle Mode",
-                   ("Steer by wheel angle through the EPS's own angle loop. Needs the angle-mode EPS firmware (build 0x0B); " +
-                    "on any other EPS firmware steering stays unavailable, so turn this off. Takes effect at the next start.")),
-  ANGLE_HOLD_KEY: ("Angle Hold Through Override",
-                   ("Angle mode only: keep steering engaged while you override the wheel. Assist drops to zero while you steer " +
-                    "and comes back after you let go, instead of dropping out and re-engaging.")),
+                   ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +
+                    "(39990+XXX+YYY, '+' in the part number); a torque PTM image keeps torque mode. On a Clarity with any " +
+                    'other EPS firmware steering stays unavailable, so turn this off. Applies at the next start.')),
   SEATBELT_KEY: ("Disable Seatbelt Check", "Allow engaging and staying engaged with the driver's seatbelt unlatched."),
 }
 # key -> (label, reason, minimum, maximum, step, unit, integer)
 NUMBER_ROWS = {
   "HondaEpsAngleRateLimit": ("Steering Angle Rate Limit", "Ceiling on how fast the desired wheel angle may move. 0 turns it off.",
                              0.0, 1000.0, 10.0, "deg/s", True),
-  "HondaDriverOverrideThreshold": ("Override Torque Threshold",
-                                   "Driver torque that counts as an override. A modified EPS needs more than stock (1200).",
-                                   1200.0, 3000.0, 20.0, "", True),
-  "HondaMinSteerSpeed": ("Minimum Steer Speed", "No steering torque below this speed.", 0.0, 25.0, 1.0, "mph", True),
+  "HondaOverrideStartTorque": ("Override Start Torque",
+                               ("Driver torque that starts an override (1200 = stock; a modified EPS needs more). Angle mode: " +
+                                "the straight-road value, rising to 1.28 x in sharp turns (from 45 deg)."),
+                               1000.0, 3000.0, 20.0, "", True),
+  "HondaOverrideEndTorque": ("Override End Torque",
+                             ("The override ends once your torque stays under this for 0.1 s. Keep it well below the start " +
+                              "torque. Angle mode: rises in sharp turns like the start torque."),
+                             200.0, 2000.0, 20.0, "", True),
+  "HondaMinSteerSpeed": ("Minimum Steer Speed", "Sends no steering torque below this speed. 0 steers down to a stop.", 0.0, 25.0, 1.0, "mph", True),
   LOOKAHEAD_KEY: ("Steering Prediction Time",
                   ("Angle mode only: how far ahead the driving model's steering action is taken, in place of the learned delay. " +
                    "0 keeps the previous timing. Only models with a timed action output use it. Change it while parked; " +
@@ -54,8 +66,10 @@ NUMBER_ROWS = {
                               0.0, 10.0, 0.1, "s", False),
 }
 # in the order a press runs: what counts as one, the fade out, what is kept during it, the fade back in
-EPS_KEYS = ("HondaDriverOverrideThreshold", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale", "HondaOverrideFadeUpSecs",
-            "HondaDriverAssistDuringOverride", "HondaMinSteerSpeed")
+EPS_KEYS = ("HondaOverrideStartTorque", "HondaOverrideEndTorque", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
+            "HondaOverrideFadeUpSecs", "HondaDriverAssistDuringOverride", "HondaMinSteerSpeed")
+# torque mode only: angle mode always yields through a press (opendbc honda carcontroller), so these rows would do nothing
+TORQUE_ONLY_KEYS = frozenset(("HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale", "HondaDriverAssistDuringOverride"))
 KEYS = frozenset((*BOOL_ROWS, *NUMBER_ROWS))
 
 
@@ -71,14 +85,15 @@ class NightStarFeature:
     self.vehicle_fingerprint = owner.vehicle_fingerprint
 
   def capability(self):
-    """(fingerprint, flags, calibrated) for a Honda on a modified EPS, else None."""
+    """(fingerprint, flags, calibrated) for a Honda on a modified EPS; (fingerprint, flags, None) for an angle image with angle
+    mode off (its torque mode is stock, so EPS_MODIFIED is cleared and only the Angle Mode row applies); else None."""
     cp = self.vehicle_params()
     if cp is None:
       return None
     from opendbc.car.honda.modified_eps import modified_eps
     try:
       if not modified_eps(cp):
-        return None
+        return (str(cp.carFingerprint), int(cp.flags), None) if _angle_image(cp) else None
       from openpilot.selfdrive.controls.lib.latcontrol_honda_eps import eps_firmware_calibration
       calibration = eps_firmware_calibration(cp)
     except (AttributeError, TypeError, ValueError):
@@ -87,15 +102,21 @@ class NightStarFeature:
 
   def _keys(self, capability) -> tuple[str, ...]:
     keys = []
-    if capability is not None:
+    if capability is not None and capability[2] is None:   # angle image, angle mode off: stock torque mode, only the switch back
+      keys.append(ANGLE_MODE_KEY)
+    elif capability is not None:
       _, _, calibrated = capability
       if calibrated:  # read by LatControlHondaEps (torque) and the honda CarController (Clarity angle mode)
         keys.append("HondaEpsAngleRateLimit")
-      keys.extend(EPS_KEYS)
-      fingerprint, _, _ = capability
-      if fingerprint == CLARITY:   # read once at car start (starpilot/car/honda/clarity_angle_mode.py)
+      fingerprint, flags, _ = capability
+      from opendbc.car.honda.values import HondaFlags
+      angle = bool(flags & int(HondaFlags.CLARITY_ANGLE_MODE))
+      keys.extend(k for k in EPS_KEYS if not (angle and k in TORQUE_ONLY_KEYS))
+      # read once at car start (starpilot/car/honda/clarity_angle_mode.py): the Clarity on any modified image (its interlock
+      # finds the build), a profile car only while it runs its angle image (angle mode on; with it off the branch above)
+      if fingerprint == CLARITY or flags & int(HondaFlags.CLARITY_ANGLE_MODE):
         keys.append(ANGLE_MODE_KEY)
-        keys.append(ANGLE_HOLD_KEY)   # live, read with the EPS rows
+      if fingerprint == CLARITY:
         keys.append(LOOKAHEAD_KEY)    # read once when modeld starts; parked only
     keys.append(SEATBELT_KEY)
     return tuple(keys)

@@ -5858,6 +5858,16 @@ msgstr "停車からの発進を改善し、先行車が動き始めたときの
 msgid "In"
 msgstr "以内"
 
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+#: openpilot/starpilot/ui/feature_settings_owner.py
+msgid "In Experimental mode, pulls toward your set speed and following distance when the driving model holds back."
+msgstr "実験モードで運転モデルが控えめなとき、設定速度と車間距離に近づけます。"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+#: openpilot/starpilot/ui/feature_settings_owner.py
+msgid "In Experimental mode, pulls toward your set speed and following distance when the driving model holds back. The model still makes every slowdown. Turns off Accel Boost while on."
+msgstr "実験モードで運転モデルが控えめなとき、設定速度と車間距離に近づけます。 減速はすべてモデルが行います。オンの間は Accel Boost がオフになります。"
+
 #: openpilot/starpilot/galaxy/web/js/spotify.js
 #: openpilot/starpilot/galaxy/web/js/starport.js
 msgid "In Files, open Downloads."
@@ -11607,6 +11617,10 @@ msgstr "有効に設定"
 msgid "Set Resolution to 480p, 720p or 1080p and Video Codec to H.264 or Auto."
 msgstr "Resolution を 480p、720p、1080p のいずれかに、Video Codec を H.264 または Auto に設定してください。"
 
+#: openpilot/starpilot/ui/feature_settings_owner.py
+msgid "Set Speed Assist"
+msgstr "設定速度アシスト"
+
 #: openpilot/starpilot/ui/runtime_app.py
 msgid "Set Speed To"
 msgstr "速度の設定先"
@@ -13255,6 +13269,11 @@ msgstr "地図パッケージを利用できません"
 #: openpilot/starpilot/galaxy/web/js/model-laboratory.js
 msgid "The model catalog is unavailable. Refresh to retry."
 msgstr "モデルカタログを利用できません。更新して再試行してください。"
+
+#: openpilot/starpilot/galaxy/setting_descriptions.py
+#: openpilot/starpilot/ui/feature_settings_owner.py
+msgid "The model still makes every slowdown. Turns off Accel Boost while on."
+msgstr "減速はすべてモデルが行います。オンの間は Accel Boost がオフになります。"
 
 #: openpilot/starpilot/galaxy/setting_descriptions.py
 msgid "The native torque learner and controller eligibility are initialized when driving"
@@ -20893,6 +20912,10 @@ msgstr "AEB: 衝突の危険"
 msgid "Abnormal tire stiffness"
 msgstr "タイヤ剛性が異常です"
 
+#: openpilot/starpilot/ui/lane_change_feature.py
+msgid "Abort Lane Change for Blind Spot"
+msgstr "ブラインドスポットで車線変更を中止"
+
 #: openpilot/starpilot/galaxy/web/js/offline-road-maps.js
 msgid "Active route: {} of {} corridor tiles checked."
 msgstr "現在のルート: {} / {} 個の経路周辺タイルを確認済み。"
@@ -23479,3 +23502,10 @@ msgstr "横方向支援オフ時の死角警告"
 #: openpilot/starpilot/ui/sounds_owner.py
 msgid "Warns when signaling toward a detected blind-spot vehicle with steering assistance off or paused. Independent of Loud Blindspot Alert. Hazards do not trigger it."
 msgstr "ステアリング支援がオフまたは一時停止中に、検出された死角の車両の方向へウインカーを出すと警告します。大きな死角警告とは独立しています。ハザードランプでは作動しません。"
+
+msgid "Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."
+msgstr "信号での停止動作を改善し、検出した一時停止標識で自動停止します。発進するにはアクセルを踏んでください。"
+
+msgid "Enhanced Stops"
+msgstr "停止機能の強化"
+

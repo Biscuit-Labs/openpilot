@@ -110,16 +110,17 @@ static int honda_nidec_brake(const CANPacket_t *msg) {
   return SAFETY_MAX(brake, brake_hybrid);
 }
 
-// Clarity angle-mode EPS (safety param HONDA_PARAM_ANGLE, Nidec only). The modified EPS firmware reads 0xE4 bytes 0-1
-// as a steering-wheel angle target, in the units of its own STEERING_SENSORS (0x14A) STEER_ANGLE (0.1 deg, same sign),
-// when byte 2 bit 7 (request) and bit 5 (angle payload) are both set; byte 3 bits 7:4 cut the loop's authority
-// (15 = none; only reduces, not checked). A target of 0 steers to centre, so the torque rule "bytes 0-1 must be 0" does
-// not protect an angle car.
+// Angle-mode EPS (safety param HONDA_PARAM_ANGLE), protocol v3 (car/honda/meps/protocol.py, build 0x0E on). The
+// modified EPS firmware reads 0xE4 bytes 0-1 as a steering-wheel angle target, in the units of its own angle (0x14A
+// STEER_ANGLE, 0.1 deg, same sign; rack-linear on a linear-angle EPS), when byte 2 bits 3:2 = 3 with the request bit 0
+// (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero; byte 3 zero). A target of 0 steers to centre, so the torque rule "bytes
+// 0-1 must be 0" does not protect an angle car. Earlier protocols (request + payload bit) are not allowed.
 // Rules: the standard vehicle-model angle rule of the other angle brands (steer_angle_cmd_checks_vm: 3.6 m/s^2 lateral
 // accel, 3.6 m/s^3 lateral jerk, at speed - 1 m/s, last target reset to the measured angle after a violation or while
 // not steering), with the angle for a lateral acceleration taken from the EPS's own clamp table (angle_ref AMAX, which
 // matches the car: v x yaw rate / table accel = 1.02) instead of a bicycle model, plus Honda's frame format:
-//  - lateral not allowed, or request and payload not both set: bytes 0-1, request and payload must all be 0
+//  - lateral not allowed, or not an angle frame: bytes 0-1, the request and the payload bit must be 0 and the marker
+//    only as STANDBY (0x0D / 0x4D with a zero target); byte 3 always 0
 //  - steering needs a measured angle (0x14A, an RX check in this mode) no older than 50 ms
 //  - |target| <= the 3.6 m/s^2 angle: 0.9 x the EPS 4.0 m/s^2 table, extended as 1/v^2 below 5 and above 30 m/s,
 //    capped at 500 deg. No exemptions.
@@ -135,15 +136,19 @@ static int honda_nidec_brake(const CANPacket_t *msg) {
 // does, and the limits are the same physical limits in linear units (the 3.6 m/s^2 published angle converted through the
 // firmware map at the EPS clamp table's knots, rwd-xray gen_linear_limit.py; the EPS clamp is never tighter). A build
 // without 0x6A2 (0x0B) keeps the 0x14A rule above unchanged.
-// Bosch linear-angle EPS (safety param HONDA_PARAM_ANGLE on Bosch; RDX 3G TJB build 0x0C, rwd-xray
-// lab/ptm-family/THR_0x0C_PORTS_20261122): same 0xE4 frame, same rules, linear from the start. The EPS has no 0x14A (it
-// reads the column sensor 0x156 and publishes its own rack-linear angle), so 0x6A2 on the powertrain bus is the RX check
-// and the only measured angle. Its linear unit is steering-wheel degrees at the on-center ratio, so the 3.6 m/s^2 angle
-// is the standard vehicle model at that ratio (the EPS's own clamp is never tighter).
+// Angle profiles (param bits 15:13, the fleet's 0x0C linear-angle EPS builds): profile 0 is the Clarity rule above.
+// Profile 1..7 is one platform's row in HONDA_ANGLE_VM_PARAMS, on Nidec or Bosch: same 0xE4 frame and rules, linear from
+// the start, 0x6A2 on the powertrain bus is the RX check and the only measured angle (0x14A and 0x156 never feed it).
+// The linear unit is steering-wheel degrees at the on-center ratio, so the 3.6 m/s^2 angle is the standard vehicle model
+// at that ratio (each EPS's own clamp is never tighter). A profile without a row never steers.
 #define HONDA_PARAM_ANGLE 4096U
 #define HONDA_ANGLE_MEAS_TIMEOUT_US 50000U
 #define HONDA_ANGLE_MAX 5000  // 0.1 deg
 #define HONDA_ANGLE_MAX_LINEAR 5784  // 0.1 deg: the 500 deg published cap in linear units
+#define HONDA_PARAM_ANGLE_PROFILE_SHIFT 13U
+#define HONDA_PARAM_ANGLE_PROFILE_MASK 0xE000U  // bits 15:13
+static uint16_t honda_angle_profile = 0U;   // 0: Clarity rule; 1..7: a vehicle-model row (linear-angle EPS)
+#define HONDA_ANGLE_PROFILE_NONE 8U  // angle mode on Bosch without a profile: no row, never steers
 static bool honda_angle_mode = false;
 static int honda_angle_last = 0;
 static bool honda_angle_from_wheel = true;   // the next target's step is measured from the wheel, not the last target
@@ -198,25 +203,47 @@ static float honda_angle_accel_limit_linear(float speed) {
                                32.5f, 35.0f, 37.5f, 40.0f, 45.0f, 50.0f, 60.0f, 80.0f};
   static const float LLIM[21] = {5783.6f, 5783.0f, 5461.0f, 4863.4f, 4342.0f, 3901.1f, 1566.1f, 1026.5f, 736.3f,
                                  449.1f, 314.7f, 228.5f, 181.5f, 154.5f, 133.5f, 116.4f, 102.2f, 80.5f, 65.2f, 45.3f, 25.6f};
+  // car-to-car spread (owner 11-23): the table fits the owner's car (1295 segments); a second Clarity (one highway route)
+  // understeers less, so the table is scaled by the two cars' measured ratio at the cautious end:
+  // (1 + 0.00049 v^2) / (1 + 0.00062 v^2), i.e. -7.5 % at 30 m/s, -4 % at 20, -1 % at 10, ~0 at parking speeds
+  const float spread = (1.0f + (0.00049f * speed * speed)) / (1.0f + (0.00062f * speed * speed));
   float lim;
   if (speed > LV[20]) {
     lim = LLIM[20] * (LV[20] * LV[20]) / (speed * speed);
   } else {
     lim = honda_angle_interp(LV, LLIM, 21, speed);
   }
-  return SAFETY_MIN(lim, (float)HONDA_ANGLE_MAX_LINEAR);
+  return SAFETY_MIN(lim * spread, (float)HONDA_ANGLE_MAX_LINEAR);
 }
 
-// Bosch linear-angle EPS: the 3.6 m/s^2 angle from the standard vehicle model, 0.1 deg (speed m/s, >= 1)
+// the angle profiles' vehicle models (index = profile - 1), the same rows as opendbc car/honda/angle_profiles.py
+static const AngleSteeringParams HONDA_ANGLE_VM_PARAMS[] = {
+  // measured on-center SR and understeer per platform, cautious side (angle_profiles.py); a platform shares a row only
+  // when its limit stays within 0.90-1.00 of its own model (test_angle_profiles.py)
+  {.slip_factor = -0.000782, .steer_ratio = 16.28, .wheelbase = 2.66},  // 1: HONDA_CRV_5G; ACURA_RDX_3G, HONDA_INSIGHT
+  {.slip_factor = -0.000448, .steer_ratio = 14.99, .wheelbase = 2.70},  // 2: HONDA_CIVIC (Nidec)
+  {.slip_factor = -0.000638, .steer_ratio = 16.0, .wheelbase = 2.70},   // 3: HONDA_CIVIC_BOSCH
+  {.slip_factor = -0.00035, .steer_ratio = 17.81, .wheelbase = 3.00},   // 4: HONDA_ODYSSEY
+  {.slip_factor = -0.00075, .steer_ratio = 18.01, .wheelbase = 3.18},   // 5: HONDA_RIDGELINE
+  {.slip_factor = -0.001329, .steer_ratio = 17.47, .wheelbase = 2.82},  // 6: HONDA_PILOT
+  {.slip_factor = -0.000973, .steer_ratio = 17.0, .wheelbase = 2.53},   // 7: HONDA_FIT
+};
+#define HONDA_ANGLE_VM_PROFILES (sizeof(HONDA_ANGLE_VM_PARAMS) / sizeof(HONDA_ANGLE_VM_PARAMS[0]))
+
+// a vehicle-model profile with a row
+static bool honda_angle_vm_valid(void) {
+  return (honda_angle_profile >= 1U) && (honda_angle_profile <= HONDA_ANGLE_VM_PROFILES);
+}
+
+// a vehicle-model profile: the 3.6 m/s^2 angle, 0.1 deg (speed m/s, >= 1); 0 without a row
 static float honda_angle_accel_limit_vm(float speed) {
-  static const AngleSteeringParams HONDA_ANGLE_RDX_3G_PARAMS = {
-    .slip_factor = -0.0009009170382203245,  // calc_slip_factor(VM) for ACURA_RDX_3G
-    .steer_ratio = 16.2,                    // on-center ratio: paramsd learns 15.95-17.09 on 8 RDX 3G routes (ACURA_RDX_3G_MMR spec)
-    .wheelbase = 2.75,
-  };
-  const float max_accel = ISO_LATERAL_ACCEL + (EARTH_G * AVERAGE_ROAD_ROLL);  // ~3.6 m/s^2
-  const float curvature_factor = get_curvature_factor(speed, HONDA_ANGLE_RDX_3G_PARAMS);
-  const float lim = get_angle_from_curvature(max_accel / (speed * speed), curvature_factor, HONDA_ANGLE_RDX_3G_PARAMS) * 10.0f;
+  float lim = 0.0f;
+  if (honda_angle_vm_valid()) {
+    const AngleSteeringParams params = HONDA_ANGLE_VM_PARAMS[honda_angle_profile - 1U];
+    const float max_accel = ISO_LATERAL_ACCEL + (EARTH_G * AVERAGE_ROAD_ROLL);  // ~3.6 m/s^2
+    const float curvature_factor = get_curvature_factor(speed, params);
+    lim = get_angle_from_curvature(max_accel / (speed * speed), curvature_factor, params) * 10.0f;
+  }
   return SAFETY_MIN(lim, (float)HONDA_ANGLE_MAX_LINEAR);
 }
 
@@ -240,10 +267,10 @@ static void honda_angle_rx(const CANPacket_t *msg, unsigned int pt_bus) {
     if (msg->addr == 0x158U) {
       UPDATE_VEHICLE_SPEED(((msg->data[0] << 8) | msg->data[1]) * 0.01 / 3.6);  // XMISSION_SPEED, 0.01 kph
     }
-    if ((msg->addr == 0x6A2U) && (honda_hw == HONDA_BOSCH)) {  // the Bosch RX check: checksum and counter already verified
+    if ((msg->addr == 0x6A2U) && (honda_angle_profile != 0U)) {  // the RX check of a profile: checksum and counter already verified
       honda_angle_linear_sample(msg);
     }
-    if ((msg->addr == 0x14AU) && (honda_hw == HONDA_NIDEC) && !honda_angle_linear) {  // an RX check in angle mode: checksum, counter and rate already verified
+    if ((msg->addr == 0x14AU) && (honda_angle_profile == 0U) && !honda_angle_linear) {  // an RX check in angle mode: checksum, counter and rate already verified
       update_sample(&angle_meas, to_signed((msg->data[0] << 8) | msg->data[1], 16));
       honda_angle_meas_seen = true;
       honda_angle_meas_ts = microsecond_timer_get();
@@ -272,32 +299,31 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
   const int target = to_signed((msg->data[0] << 8) | msg->data[1], 16);
   const bool request = GET_BIT(msg, 23U);
   const bool payload = GET_BIT(msg, 21U);
-  // protocol v3 (car/honda/meps/protocol.py, build 0x0E on): byte 2 bits 3:2 = 3 with the request 0 marks an angle
-  // frame (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero, byte 3 zero); 0x0D / 0x4D with a zero target is STANDBY
+  // byte 2 bits 3:2 = 3 with the request 0 marks an angle frame (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero);
+  // 0x0D / 0x4D with a zero target is STANDBY
   const uint8_t b2 = msg->data[2];
-  const bool v3_marker = (b2 & 0x0CU) == 0x0CU;
-  const bool v3_angle = ((b2 & 0xBFU) == 0x0CU) && (msg->data[3] == 0U);
-  const bool v3_standby = (((b2 & 0xBFU) == 0x0DU) && (target == 0)) && (msg->data[3] == 0U);
-  const bool steering = (request && payload) || v3_angle;
-  bool violation = false;
+  const bool marker = (b2 & 0x0CU) == 0x0CU;
+  const bool steering = (b2 & 0xBFU) == 0x0CU;
+  const bool standby = ((b2 & 0xBFU) == 0x0DU) && (target == 0);
+  bool violation = msg->data[3] != 0U;
 
   if (!lateral_controls_allowed() || !steering) {
-    violation = (target != 0) || request || payload;
-    violation |= v3_marker && !v3_standby;   // the v3 marker only as STANDBY when not steering
+    violation |= (target != 0) || request || payload;
+    violation |= marker && !standby;   // the marker only as STANDBY when not steering
   } else {
     // fudge the speed down 1 m/s: both limits only widen as speed falls
     const float speed = SAFETY_MAX(((float)vehicle_speed.min / VEHICLE_SPEED_FACTOR) - 1.0f, 1.0f);
     const bool meas_fresh = honda_angle_meas_seen &&
       (safety_get_ts_elapsed(microsecond_timer_get(), honda_angle_meas_ts) <= HONDA_ANGLE_MEAS_TIMEOUT_US);
     float lim = honda_angle_accel_limit(speed);
-    if (honda_hw == HONDA_BOSCH) {
+    if (honda_angle_profile != 0U) {
       lim = honda_angle_accel_limit_vm(speed);
     } else if (honda_angle_linear) {
       lim = honda_angle_accel_limit_linear(speed);
     } else {
       // Nidec 0x14A rule: the published-angle table above
     }
-    const int angle_max = (honda_angle_linear || (honda_hw == HONDA_BOSCH)) ? HONDA_ANGLE_MAX_LINEAR : HONDA_ANGLE_MAX;
+    const int angle_max = (honda_angle_linear || (honda_angle_profile != 0U)) ? HONDA_ANGLE_MAX_LINEAR : HONDA_ANGLE_MAX;
     // jerk limit: with lateral jerk = lateral accel = 3.6, the angle rate is the accel angle per second (100 Hz frames)
     const float step = SAFETY_MIN(lim / 100.0f, honda_angle_interp(V, JUMP, 9, speed));
     const int step_can = (int)(step + 1.0f);
@@ -306,7 +332,8 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
     // min/max window; openpilot's carState angle is 10-20 ms older than the newest 0x14A); otherwise of the last target
     const int hi = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.max, -angle_max, angle_max) : honda_angle_last;
     const int lo = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.min, -angle_max, angle_max) : honda_angle_last;
-    violation = !meas_fresh;
+    violation |= !meas_fresh;
+    violation |= (honda_angle_profile != 0U) && !honda_angle_vm_valid();
     violation |= safety_max_limit_check(target, hi + step_can, lo - step_can);
     violation |= safety_max_limit_check(target, lim_can, -lim_can);
   }
@@ -381,7 +408,10 @@ static void honda_rx_hook(const CANPacket_t *msg) {
     // the host's lateral request stands and the AOL token keeps lateral permission. MAIN still withdraws both.
     if ((button == HONDA_BTN_MAIN) || (button == HONDA_BTN_CANCEL)) {
       controls_allowed = false;
-      if ((button == HONDA_BTN_MAIN) || !honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+      if ((button == HONDA_BTN_CANCEL) && honda_stock_aol_flag(HONDA_STOCK_ENABLED)) {
+        // Retain only the existing lateral request without renewing its deadline.
+        aol_host_axis_mask &= 1U;
+      } else {
         aol_set_host_request(0U);
       }
     }
@@ -549,6 +579,20 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
   } else {
   }
 
+  // B-CAN turn signal (body BCM): only the exact cancel, or a well-formed start (byte2 must
+  // be exactly 0x0F, a fixed control parameter the BCM requires) while a non-zero steering
+  // command is permitted (the same condition as the steer check above)
+  if (msg_matches(msg, 0x16F118F0U, 0U)) {
+    const bool bcan_cancel = (GET_BYTES_64_LE(msg, 0, 8) == 0x0000000000000020ULL);
+    const bool bcan_start = (msg->data[0] == 0x30U) &&
+                            ((msg->data[1] == 0x0AU) || (msg->data[1] == 0x0BU)) &&
+                            (msg->data[2] == 0x0FU) &&
+                            (GET_BYTES_64_LE(msg, 3, 5) == 0U);
+    if (!bcan_cancel && !((bcan_start) && lateral_controls_allowed())) {
+      tx = false;
+    }
+  }
+
   // Bosch supplemental control check
   if (msg->addr == 0xE5U) {
     if ((GET_BYTES_64_LE(msg, 0, 8) & 0x00FFFFFFFFFFFFFFULL) != 0x0000000010800004ULL) {
@@ -583,9 +627,10 @@ static bool honda_tx_hook(const CANPacket_t *msg) {
 }
 
 static safety_config honda_nidec_init(uint16_t param_raw) {
-  // the angle bit is independent of every other Nidec option, so the exact-value checks below see the param without it
+  // the angle bits are independent of every other Nidec option, so the exact-value checks below see the param without them
   honda_angle_reset(GET_FLAG(param_raw, HONDA_PARAM_ANGLE));
-  const uint16_t param = param_raw & (uint16_t)~HONDA_PARAM_ANGLE;
+  honda_angle_profile = honda_angle_mode ? ((param_raw & HONDA_PARAM_ANGLE_PROFILE_MASK) >> HONDA_PARAM_ANGLE_PROFILE_SHIFT) : 0U;
+  const uint16_t param = param_raw & (uint16_t)~(HONDA_PARAM_ANGLE | HONDA_PARAM_ANGLE_PROFILE_MASK);
   honda_mvl_stock = false;
   honda_mvl_buttons_fresh = 0U;
   // 0x1FA is dynamically forwarded based on stock AEB
@@ -650,11 +695,13 @@ static safety_config honda_nidec_init(uint16_t param_raw) {
   }
 
   if (honda_angle_mode && (ret.rx_checks_len < 7)) {
-    // STEERING_SENSORS: the measured angle the angle rule bounds the target against (never steers without it)
-    static const RxCheck angle_source = {
-      .msg = {{0x14A, 0, 8, 100U, .max_counter = 3U, .ignore_quality_flag = true}, {0}, {0}},
+    // the measured angle the angle rule bounds the target against (never steers without it): STEERING_SENSORS for the
+    // Clarity rule, EPS_LINEAR_ANGLE for a profile
+    static const RxCheck angle_source[] = {
+      {.msg = {{0x14A, 0, 8, 100U, .max_counter = 3U, .ignore_quality_flag = true}, {0}, {0}}},
+      {.msg = {{0x6A2, 0, 8, 100U, .max_counter = 3U, .ignore_quality_flag = true}, {0}, {0}}},
     };
-    honda_rx_workspace[ret.rx_checks_len] = angle_source;
+    honda_rx_workspace[ret.rx_checks_len] = angle_source[(honda_angle_profile != 0U) ? 1U : 0U];
     ret.rx_checks_len++;
   }
 
@@ -671,9 +718,14 @@ static safety_config honda_nidec_init(uint16_t param_raw) {
 }
 
 static safety_config honda_bosch_init(uint16_t param_raw) {
-  // the angle bit is independent of every other Bosch option, so the exact-value checks below see the param without it
+  // the angle bits are independent of every other Bosch option, so the exact-value checks below see the param without them.
+  // Bosch has no Clarity rule: angle mode on Bosch is always a profile (profile 0 there has no row and never steers)
   honda_angle_reset(GET_FLAG(param_raw, HONDA_PARAM_ANGLE));
-  const uint16_t param = param_raw & (uint16_t)~HONDA_PARAM_ANGLE;
+  honda_angle_profile = honda_angle_mode ? ((param_raw & HONDA_PARAM_ANGLE_PROFILE_MASK) >> HONDA_PARAM_ANGLE_PROFILE_SHIFT) : 0U;
+  if (honda_angle_mode && (honda_angle_profile == 0U)) {
+    honda_angle_profile = HONDA_ANGLE_PROFILE_NONE;
+  }
+  const uint16_t param = param_raw & (uint16_t)~(HONDA_PARAM_ANGLE | HONDA_PARAM_ANGLE_PROFILE_MASK);
   honda_mvl_stock = ((param == 80U) || (param == 81U)) && ((alternative_experience == 0) || (alternative_experience == 32));
   honda_mvl_buttons_fresh = 0U;
   honda_interceptor_reset(false);
@@ -686,6 +738,7 @@ static safety_config honda_bosch_init(uint16_t param_raw) {
     {0x33D, 0, 8, .check_relay = true},
     {0x33DA, 0, 5, .check_relay = true},
     {0x33DB, 0, 8, .check_relay = true},
+    {0x16F118F0, 0, 8, .check_relay = false},
   };
 
   // Bosch w/ gas and brakes
@@ -701,6 +754,7 @@ static safety_config honda_bosch_init(uint16_t param_raw) {
     {0x33DB, 1, 8, .check_relay = true},
     {0x39F, 1, 8, .check_relay = false},
     {0x18DAB0F1, 1, 8, .check_relay = false},
+    {0x16F118F0, 0, 8, .check_relay = false},
   };
 
   static const CanMsg HONDA_MVL_STOCK_TX_MSGS[] = {

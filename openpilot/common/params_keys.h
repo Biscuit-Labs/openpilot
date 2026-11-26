@@ -163,6 +163,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"PIPPreviewShowOnBlinker", {PERSISTENT, BOOL, "0"}},
     {"PIPPreviewShowOnBSM", {PERSISTENT, BOOL, "0"}},
     {"PIPPreviewInvert", {PERSISTENT, BOOL, "0"}},
+    {"CabinWhiteBalance", {PERSISTENT, BOOL, "1"}},
     {"StarPilotDisplayPreferencesEnabled", {PERSISTENT, BOOL}},
     {"ScreenBrightness", {PERSISTENT, INT}},
     {"ScreenBrightnessOnroad", {PERSISTENT, INT}},
@@ -234,6 +235,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AlphaLongitudinalEnabled", {PERSISTENT, BOOL}},
     {"ExperimentalMode", {PERSISTENT, BOOL}},
     {"ExperimentalSpeedNudge", {PERSISTENT, BOOL, "1"}},
+    {"SetSpeedAssist", {PERSISTENT, BOOL, "0"}},
     {"ExperimentalEngage66Mph", {PERSISTENT, BOOL, "1"}},
     {"FirmwareQueryDone", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
     {"ForcePowerDown", {PERSISTENT, BOOL}},
@@ -332,12 +334,12 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HideDMIcon", {PERSISTENT, BOOL, "0"}},
     {"HidePersonalityAlerts", {PERSISTENT, BOOL, "0"}},
     {"ShowSpeedLimits", {PERSISTENT, BOOL, "1"}},
-    {"SLCConfirmation", {PERSISTENT, BOOL, "0"}},
-    {"SLCAdvanceSeconds", {PERSISTENT, INT, "0"}},
-    {"SLCConfirmationHigher", {PERSISTENT, BOOL, "0"}},
-    {"SLCConfirmationLower", {PERSISTENT, BOOL, "0"}},
-    {"SLCFallback", {PERSISTENT, INT}},  // Retired; preserve saved bytes for older versions.
-    {"SLCOverride", {PERSISTENT, INT, "1"}},
+    {"SLCOnEngage", {PERSISTENT, BOOL, "0"}},
+    {"SLCConfirmation", {PERSISTENT, INT, "0"}},
+    {"SLCAdvanceHigherSeconds", {PERSISTENT, INT, "0"}},
+    {"SLCAdvanceLowerSeconds", {PERSISTENT, INT, "0"}},
+    {"SLCOverrideMode", {PERSISTENT, INT, "1"}},
+    {"SLCWheelOverride", {PERSISTENT, BOOL, "0"}},
     {"SLCQualifiedHistory", {PERSISTENT, JSON}},
     {"ConditionalModeConfig", {PERSISTENT | DONT_LOG, JSON}},
     {"ConditionalManualState", {PERSISTENT | DONT_LOG, JSON}},
@@ -366,7 +368,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"VASMPreferences", {PERSISTENT | DONT_LOG, JSON}},
     {"LaneChangePreferences", {PERSISTENT | DONT_LOG, JSON}},
     {"SLCPriority1", {PERSISTENT, STRING, "Vision"}},
-    {"SLCPriority2", {PERSISTENT, STRING, "Dashboard"}},
+    {"SLCPriority2", {PERSISTENT, STRING, "Map Data"}},
+    {"SLCPriority3", {PERSISTENT, STRING, "Off"}},
     {"SpeedLimitController", {PERSISTENT, BOOL, "0"}},
     {"RouteCount", {PERSISTENT, INT, "0"}},
     {"SnoozeUpdate", {CLEAR_ON_MANAGER_START | CLEAR_ON_OFFROAD_TRANSITION, BOOL}},
@@ -398,47 +401,26 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"JetlinkChargePhone", {PERSISTENT, BOOL, "0"}},
     {"JetlinkModel", {PERSISTENT, JSON}},
     {"JetlinkSpec", {PERSISTENT | DONT_LOG, JSON}},
-    {"JetlinkPointers", {PERSISTENT | DONT_LOG, JSON}},
     {"JetlinkProgress", {CLEAR_ON_MANAGER_START | DONT_LOG, JSON}},
     {"Version", {PERSISTENT, STRING}},
 
     // Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
-    {"HondaEpsFirmwareVgr", {PERSISTENT, BOOL, "0"}},  // cars without a yaw-fitted rack map: use the EPS firmware A (position) VGR table
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page (angle mode: the target walks from the wheel to the plan)
+    {"HondaAngleDefaultsReset", {PERSISTENT, BOOL}},  // one-time clear of saved Fade Up / Fade Down / Override Threshold
     {"HondaClarityAngleMode", {PERSISTENT, BOOL, "1"}},  // Clarity on the angle-mode EPS build (0x04): steer by angle; read at car start
-    {"HondaClarityAngleCap3", {PERSISTENT, BOOL, "0"}},  // Clarity angle mode: use mode 4 (3.0 m/s^2 clamp) when the EPS build has it (0x05, 0x06, 0x08, 0x09); live
     {"NrdrClarityAngleLookaheadMs", {PERSISTENT, INT, "0"}},  // Steering Prediction Time (nrdr 25f309ef): Clarity angle mode, absolute lateral horizon 5-400 ms step 5 for a timed action head; 0 = previous timing; read at modeld start (offroad)
-    {"HondaClarityAngleHoldOverride", {PERSISTENT, BOOL, "1"}},  // Clarity angle mode on EPS build 0x06/0x08/0x09: hold the request through an override at zero loop authority; live
-    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page
-    {"HondaOverrideFadeUpReset125", {PERSISTENT, BOOL}},  // one-time clear of the saved Override Fade Up for the 1.25 s default
-    // Shadow car learner (selfdrive/controls/honda_eps_learnerd.py): it measures and publishes, nothing reads it back
-    {"HondaEpsLearner", {PERSISTENT, BOOL, "1"}},
-    {"HondaEpsLearnerReset", {PERSISTENT, BOOL, "0"}},  // set to start the learner over; the daemon clears it
-    {"HondaEpsLearnerResult", {PERSISTENT, JSON}},  // per part: state, reason, frozen value or candidate (logged in initData)
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
-    {"HondaTorqueOutputLowPassFilter", {PERSISTENT, BOOL, "1"}},  // on unless set off (vfn seeded it on at first start)
-    {"HondaTorqueOutputLpfTauHighway", {PERSISTENT, FLOAT, "0.01"}},
-    {"HondaTorqueOutputLpfTauLowSpeed", {PERSISTENT, FLOAT, "0.07"}},
-    {"HondaTorqueOutputLpfTauStandard", {PERSISTENT, FLOAT, "0.05"}},
     // Honda modified-EPS steering in the car controller and car state (opendbc/car/honda/modified_eps.py)
-    {"HondaDriverOverrideThreshold", {PERSISTENT, INT, "2000"}},  // driver torque for steeringPressed on a modified EPS (stock 1200)
+    {"HondaOverrideStartTorque", {PERSISTENT, INT, "1560"}},  // driver torque that starts steeringPressed on a modified EPS (stock units, 1200 = stock); angle mode x1.28 from 45 deg
+    {"HondaOverrideEndTorque", {PERSISTENT, INT, "936"}},  // steeringPressed ends once torque stays under this for 0.1 s; angle mode x1.28 from 45 deg
     {"HondaMinSteerSpeed", {PERSISTENT, INT, "1"}},  // mph; no steering torque below this
     {"HondaOverrideFadeDownSecs", {PERSISTENT, FLOAT, "0.0"}},  // s; 0 cuts at once; Night Star page
     {"HondaOverrideTorqueScale", {PERSISTENT, INT, "0"}},  // percent of torque kept while the driver overrides
     {"HondaDriverAssistDuringOverride", {PERSISTENT, BOOL, "0"}},
-    {"HondaSteerDeltaLimiter", {PERSISTENT, BOOL, "0"}},  // the stock steer rate limit, opt-in on a modified EPS
-    {"HondaSteerDeltaUp", {PERSISTENT, FLOAT, "3.0"}},
-    {"HondaSteerDeltaDown", {PERSISTENT, FLOAT, "3.0"}},
+    // B-CAN turn signals in the car controller (opendbc/car/honda/bcan_blinker.py)
+    {"HondaBcanTurnSignals", {PERSISTENT, BOOL, "0"}},
 
     // Modified-EPS PID fine trim, percent per speed band (selfdrive/controls/lib/latcontrol_honda_modified_pid.py).
     // The base banding is in interface.py; these stay 100 (I: 20 low / 0 highway) unless trimming.
-    {"LatPScaleLowSpeed", {PERSISTENT, INT, "100"}},
-    {"LatPScaleStandard", {PERSISTENT, INT, "100"}},
-    {"LatPScaleHighway", {PERSISTENT, INT, "100"}},
-    {"LatIScaleLowSpeed", {PERSISTENT, INT, "20"}},
-    {"LatIScaleStandard", {PERSISTENT, INT, "100"}},
-    {"LatIScaleHighway", {PERSISTENT, INT, "0"}},
-    {"LatFScaleLowSpeed", {PERSISTENT, INT, "100"}},
-    {"LatFScaleStandard", {PERSISTENT, INT, "100"}},
-    {"LatFScaleHighway", {PERSISTENT, INT, "100"}},
 };

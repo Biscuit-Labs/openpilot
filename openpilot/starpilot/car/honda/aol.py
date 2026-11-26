@@ -1,5 +1,5 @@
 from opendbc.car.structs import car
-from opendbc.car.honda.stock_aol import qualified as qualified_stock, BOSCH_WORDS, NIDEC_WORDS, NIDEC_ANGLE_BIT, temporary_restriction, \
+from opendbc.car.honda.stock_aol import qualified as qualified_stock, BOSCH_WORDS, NIDEC_WORDS, NIDEC_ANGLE_BIT, BOSCH_ANGLE_MASK, temporary_restriction, \
   ALT_RADAR_STOCK, CLASSIC_BOSCH
 from openpilot.starpilot.car.honda.stock_intent import HondaStockCardIntent
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
@@ -61,7 +61,10 @@ def policy_for(CP) -> AolVehiclePolicy:
 
 
 def native_profile_supported(model: int, param: int) -> bool:
-  return ((model == int(car.CarParams.SafetyModel.hondaBosch) and param in BOSCH_WORDS | {34, 35, 163}) or
+  # a Bosch angle car adds the angle bit and its profile (bits 15:13) to the word, as Nidec adds the angle bit; panda
+  # (honda.h) masks both, and opendbc's stock_aol qualifies the masked word, so the native receipt must too (11-24: every
+  # Bosch angle car was refused here, pandad never published aolSafetyWire, and Set raised commIssue)
+  return ((model == int(car.CarParams.SafetyModel.hondaBosch) and (param & ~BOSCH_ANGLE_MASK) in BOSCH_WORDS | {34, 35, 163}) or
           (model == int(car.CarParams.SafetyModel.hondaNidec) and (param & ~NIDEC_ANGLE_BIT) in NIDEC_WORDS))
 
 
@@ -108,15 +111,12 @@ def aol_safety_config(CP):
 
 def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previous,
                                     source_ns, now_ns, axis_session_id) -> bool:
-  """CANCEL ends only longitudinal on a stock-AOL Honda; an armed latch keeps its granted LAT axis.
-
-  A CANCEL mapped to an AOL action is applied by the intent owner first, so a toggled-off latch is not armed here.
-  """
+  """Let the mapped intent owner apply Cancel while retaining a granted LAT axis."""
   from openpilot.starpilot.aol.intent import ButtonType
   from openpilot.starpilot.aol.runtime import (AXIS_MAX_AGE_NS, INTENT_MAX_AGE_NS, SAFETY_MAX_AGE_NS,
                                                native_inventory_matches_cp)
   try:
-    return bool(qualified_stock(cp, marked_only=True) and settings is not None and settings.enabled and
+    return bool(qualified_stock(cp, marked_only=True) and settings is not None and settings.enabled and not any(settings.cancel_actions) and
       previous is not None and previous.lateral_active and previous.native_acknowledged and
       intent is not None and intent.settingsQualified and intent.allowedLatch and intent.lateralArmed and
       not intent.pauseLateral and intent.producerSessionId and intent.carStateLogMonoTime == source_ns and
@@ -135,3 +135,4 @@ def physical_cancel_lateral_allowed(cp, cs, intent, native, *, settings, previou
       native.validUntilMonoTime - native.observedMonoTime <= SAFETY_MAX_AGE_NS)
   except (AttributeError, KeyError, IndexError, TypeError, ValueError, OverflowError):
     return False
+

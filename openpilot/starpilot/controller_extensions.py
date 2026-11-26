@@ -129,6 +129,11 @@ def configure_controller(CI, params):
     if getattr(CI, "CS", None) is not None:
       CI.CS.modified_eps_settings = preferences
 
+  if controller is not None and cp.brand == "honda" and getattr(controller, "bcan_blinker", None) is not None:
+    # one settings source for the B-CAN turn signal toggle (opendbc/car/honda/bcan_blinker.py)
+    from openpilot.starpilot.car.honda.bcan_turn_signals import BcanTurnSignalsPreference
+    controller.bcan_blinker_settings = BcanTurnSignalsPreference(params)
+
   if (controller is not None and cp.brand == "honda" and getattr(controller, "nidec_interceptor", None) is not None and
       controller.nidec_interceptor.learn):
     from openpilot.starpilot.car.honda.longitudinal import BoschLearningParams
@@ -189,3 +194,12 @@ def observe_controller_can(CI, can_list):
     from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
     if isinstance(getattr(controller, 'bp', None), FordBluePilotController):
       controller.bp.observe_can(can_list)
+
+
+def order_controller_can(CI, frames):
+  controller = getattr(CI, "CC", None)
+  if controller is not None and getattr(getattr(CI, 'CP', None), 'brand', None) == 'ford':
+    from openpilot.starpilot.car.ford.bluepilot import FordBluePilotController
+    if isinstance(getattr(controller, 'bp', None), FordBluePilotController):
+      return controller.bp.order_can_sends(frames)
+  return frames

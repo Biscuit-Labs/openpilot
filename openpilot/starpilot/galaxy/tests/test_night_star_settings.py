@@ -49,17 +49,18 @@ class TestNightStarSettings(unittest.TestCase):
     # every calibrated image steers with LatControlHondaEps, so there is no controller choice, but there is its rate limit
     self.assertNotIn('Honda EPS Controller', labels)
     self.assertEqual(labels[0], 'Steering Angle Rate Limit')
-    self.assertIn('Override Torque Threshold', labels)
+    self.assertIn('Override Start Torque', labels)
     self.assertEqual(labels[-1], 'Disable Seatbelt Check')
     self.assertFalse(any('Filter' in label or 'Scale' in label for label in labels))
 
   def test_override_fades_sit_in_press_order(self):
     labels = self.labels()
-    order = ['Override Torque Threshold', 'Override Fade Down', 'Torque During Override', 'Override Fade Up']
+    order = ['Override Start Torque', 'Override End Torque', 'Override Fade Down', 'Torque During Override', 'Override Fade Up']
     self.assertEqual([label for label in labels if label in order], order)
     rows = {row['label']: row for row in self.page()['rows']}
     self.assertEqual(rows['Override Fade Down']['value'], '0.0')   # the registered defaults, nothing saved
     self.assertEqual(rows['Override Fade Up']['value'], '1.25')
+    self.assertEqual((rows['Override Start Torque']['value'], rows['Override End Torque']['value']), ('1560', '936'))
 
   def test_override_fades_are_live_onroad(self):
     self.assertTrue(self.set('Override Fade Up', '1.2'))
@@ -83,8 +84,10 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertEqual(row['value'], '1.5')
 
   def test_settings_are_live_onroad(self):
-    self.assertTrue(self.set('Override Torque Threshold', '1840'))
-    self.assertEqual(self.params.get('HondaDriverOverrideThreshold'), 1840)
+    self.assertTrue(self.set('Override Start Torque', '1840'))
+    self.assertEqual(self.params.get('HondaOverrideStartTorque'), 1840)
+    self.assertTrue(self.set('Override End Torque', '700'))
+    self.assertEqual(self.params.get('HondaOverrideEndTorque'), 700)
     self.assertTrue(self.set('Disable Seatbelt Check', 'On'))
     self.assertTrue(self.params.get_bool('DisableSeatbeltCheck'))
 
@@ -105,13 +108,27 @@ class TestNightStarSettings(unittest.TestCase):
     self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), parked=True)
     self.assertNotIn('Angle Mode', self.labels())
 
+  def test_angle_mode_row_follows_the_angle_image(self):
+    # a profile car (RDX, Fit) offers Angle Mode only on its angle image ('+'); with angle mode off that image runs its stock
+    # torque mode (EPS_MODIFIED cleared), so the page offers the switch back on and none of the torque-EPS rows
+    from opendbc.car.honda.clarity_angle_mode import apply_angle_mode
+    rdx_on = apply_angle_mode(vehicle(CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), True)
+    self.use(rdx_on, parked=True)
+    self.assertIn('Angle Mode', self.labels())
+    # angle mode always yields through a press: the torque-mode press rows would do nothing, so they are not offered
+    labels = self.labels()
+    self.assertTrue({'Override Start Torque', 'Override End Torque', 'Override Fade Up'} <= set(labels))
+    self.assertFalse({'Override Fade Down', 'Torque During Override', 'Assist During Override'} & set(labels))
+    for car, fw in ((CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), (CAR.HONDA_FIT, b'39990+T5R+C030\x00\x00')):
+      self.use(apply_angle_mode(vehicle(car, fw), False), parked=True)
+      self.assertEqual(self.labels()[:1], ['Angle Mode'], car)
+      self.assertNotIn('Override Start Torque', self.labels(), car)
+    self.use(vehicle(CAR.ACURA_RDX_3G, b'39990-TJB,A220\x00\x00'), parked=True)   # torque PTM image
+    self.assertNotIn('Angle Mode', self.labels())
+
   def test_the_steer_rate_limiter_has_no_rows(self):
     labels = self.labels()
     self.assertFalse([label for label in labels if 'Rate Limiter' in label or label.startswith('Rate Limit ')])
-    # the page's save path refuses the limiter's keys too, so nothing can turn it on from here
-    from openpilot.starpilot.ui.night_star_feature import KEYS
-    for key in ('HondaSteerDeltaLimiter', 'HondaSteerDeltaUp', 'HondaSteerDeltaDown'):
-      self.assertNotIn(key, KEYS)
 
   def test_every_calibrated_image_gets_the_rate_limit_and_no_controller_choice(self):
     self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TBA,C020\x00\x00'), parked=True)
@@ -123,7 +140,7 @@ class TestNightStarSettings(unittest.TestCase):
     self.use(vehicle(CAR.HONDA_CIVIC_BOSCH, b'39990-TGG,A020\x00\x00'), parked=True)   # still on the modified PID
     labels = self.labels()
     self.assertNotIn('Steering Angle Rate Limit', labels)
-    self.assertIn('Override Torque Threshold', labels)
+    self.assertIn('Override Start Torque', labels)
     self.assertIn('Override Fade Up', labels)   # the car controller fades on every modified EPS, calibrated or not
 
   def test_other_cars_see_only_the_seatbelt_check(self):

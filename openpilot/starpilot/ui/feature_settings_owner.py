@@ -23,10 +23,9 @@ from openpilot.starpilot.longitudinal.profile_runtime import TRAFFIC_CRUISE_BRAK
 from openpilot.starpilot.longitudinal.lead_approach_runtime import KEY as LEAD_APPROACH_KEY
 from openpilot.starpilot.longitudinal.lead_takeoff_preferences import KEY as LEAD_TAKEOFF_KEY
 from openpilot.starpilot.longitudinal.encouragement import KEY as NUDGE_KEY
+from openpilot.starpilot.longitudinal.set_speed_assist.controller import PARAM as SET_SPEED_ASSIST_KEY
 from openpilot.selfdrive.car.cruise import ENGAGE_66_KEY
 from openpilot.starpilot.longitudinal.planner_selection import KEY as PLANNER_SELECTION_KEY, save_selection
-from openpilot.starpilot.longitudinal.bosch_a_toggles import (KEYS as BOSCH_A_KEYS, settings_rows as bosch_a_settings_rows,
-                                                               vehicle_supported as bosch_a_vehicle_supported)
 
 from openpilot.starpilot.longitudinal.profile_document import (
   ACCELERATION_PRESETS, ACCELERATION_SPEEDS_MPH, BRAKING_PRESETS, FOLLOWING_PRESETS, CURVE_BOUNDS,
@@ -39,13 +38,18 @@ from openpilot.starpilot.longitudinal.profile_document import (
 from openpilot.starpilot.ui.feature_settings_state import (
   FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureSettingsState, SLC_CONFIRM_ACTIONS, SLC_OFFSET_KEYS, TORQUE_CONFIRM_ACTIONS,
 )
-from openpilot.starpilot.speed_limits.runtime_settings import MPH_TO_MPS
+from openpilot.starpilot.speed_limits.offset_document import MPH_TO_MPS
+from openpilot.starpilot.speed_limits.runtime_settings import (
+  ADVANCE_BYTES, ADVANCE_KEYS, CONFIRMATION_CHOICES,
+  PEDAL_OVERRIDE_BYTES, PEDAL_OVERRIDE_CHOICES, PEDAL_OVERRIDE_KEY, SOURCE_PRIORITY_KEYS, WHEEL_OVERRIDE_KEY, PedalOverride,
+)
 from openpilot.starpilot.aol.vehicle import policy_for as aol_policy_for
 from openpilot.starpilot.feature_capabilities import longitudinal_supported as feature_longitudinal_supported
 from openpilot.starpilot.lateral.torque_settings import DOCUMENT_KEY, LEGACY_KEYS
 from openpilot.starpilot.ui.torque_feature import TorqueFeature
 from openpilot.starpilot.ui.controller_feature import ControllerFeature, SETUP_ACTION
 from openpilot.starpilot.ui.slc_offset_feature import SlcOffsetOwner
+from openpilot.starpilot.ui.slc_policy_feature import SLC_ADVANCE_CHOICES, policy_rows
 from openpilot.starpilot.longitudinal.profile_preferences import read_document_value, read_profile_health
 from openpilot.starpilot.ui.long_profile_feature import (LongProfileFeature, is_long_confirm_action, VALUE_HELP, CATEGORY_HELP,
                                                        preset_label, preset_value)
@@ -60,6 +64,7 @@ from openpilot.starpilot.ui.tesla_screen_feature import TeslaScreenFeature, KEYS
 from openpilot.starpilot.ui.night_star_feature import NightStarFeature, KEYS as NIGHT_STAR_KEYS
 from openpilot.starpilot.ui.ford_bluepilot_feature import FordBluePilotFeature, KEYS as FORD_BLUEPILOT_KEYS
 from openpilot.starpilot.ui.ford_cluster_feature import FordClusterFeature
+from openpilot.starpilot.ui.ford_rear_fog_feature import FordRearFogFeature
 from openpilot.starpilot.ui.preap_radar_feature import PreAPRadarFeature, KEYS as PREAP_RADAR_KEYS, capability as preap_radar_capability
 from openpilot.starpilot.ui.gm_tune_feature import GmTuneFeature, GmTruckFeature, GmEvPresetFeature
 from openpilot.starpilot.car.gm.tune_preferences import KEY as GM_TUNE_KEY
@@ -80,10 +85,11 @@ from openpilot.starpilot.curve_speed.actions import ACTION_KEYS as CURVE_ACTION_
 from openpilot.starpilot.controllers.toyota_cruise import capability as toyota_cruise_capability
 
 
-GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, ENGAGE_66_KEY, "DisengageOnAccelerator"))
+GLOBAL_BOOL_PREFERENCES = frozenset((LEAD_APPROACH_KEY, LEAD_TAKEOFF_KEY, NUDGE_KEY, SET_SPEED_ASSIST_KEY, ENGAGE_66_KEY,
+                                    "DisengageOnAccelerator"))
 
 BOOL_DEFAULTS = {
-  "GMPedalLongitudinal": False, "ForceStops": False, "AlwaysAllowUploads": False, "TurnAssist": True,
+  "GMPedalLongitudinal": False, "ForceStops": True, "AlwaysAllowUploads": False, "TurnAssist": True,
   "SubaruAvhStartup": False,
   "SubaruStopStartOff": False,
   "SubaruSNG": False,
@@ -91,14 +97,15 @@ BOOL_DEFAULTS = {
   "ReverseCruise": False, "ToyotaAutoHold": False, "SNGHack": False, "JeepBrakeHold": False, "VoltSNG": False, "GMAutoHold": False, "VoltOnePedalMode": False,
   "RemapCancelToDistance": False, "LongPitch": True, "DisableOpenpilotLongitudinal": False,
   "SpeedLimitController": False, "ShowSpeedLimits": True,
-  "SLCConfirmation": False,
+  "SLCOnEngage": False,
+  WHEEL_OVERRIDE_KEY: False,
   "PauseLateralOnSignal": False,
   "LaneCentering": True, "LaneCenteringPauseOnSignal": True, "Blendful": False,
   "CustomPersonalities": False, PLANNER_SELECTION_KEY: True,
-  **dict.fromkeys(BOSCH_A_KEYS, False),
   LEAD_APPROACH_KEY: False,
   LEAD_TAKEOFF_KEY: False,
   NUDGE_KEY: True,
+  SET_SPEED_ASSIST_KEY: False,
   ENGAGE_66_KEY: True,
   "DisengageOnAccelerator": False,
   CURVE_MASTER_KEY: False, CURVE_NO_LEAD_KEY: False,
@@ -116,9 +123,7 @@ FLOAT_SPECS = {
      for name in ("Aggressive", "Standard", "Relaxed")
      for suffix in ("JerkAcceleration", "JerkDeceleration", "JerkDanger", "JerkSpeedDecrease", "JerkSpeed")},
 }
-SLC_PRIORITY = "SLCPriority1"
-SLC_SECONDARY = "SLCPriority2"
-SLC_ADVANCE_CHOICES = ('Off', *(f'{seconds} s' for seconds in range(1, 11)))
+SLC_PRIORITY, SLC_SECONDARY, SLC_TERTIARY = SOURCE_PRIORITY_KEYS
 LONG_PREFIX = "profile:"
 PRESETS = {"acceleration": ACCELERATION_PRESETS, "braking": BRAKING_PRESETS, "following": FOLLOWING_PRESETS}
 PROFILE_NAMES = ("aggressive", "standard", "relaxed")
@@ -192,9 +197,10 @@ class FeatureSettingsOwner:
   def _source_capability(self) -> tuple[bool, bool]:
     return bool(self.vision_development()), bool(self.maps_available())
 
-  def _source_choices(self, capability: tuple[bool, bool] | None = None) -> tuple[str, ...]:
+  def _source_choices(self, capability: tuple[bool, bool] | None = None, *, key: str = SLC_PRIORITY) -> tuple[str, ...]:
     vision, maps = self._source_capability() if capability is None else capability
-    return ("Dashboard",) + (("Vision",) if vision else ()) + (("Maps",) if maps else ())
+    choices = ("Dashboard",) + (("Vision",) if vision else ()) + (("Maps",) if maps else ())
+    return choices if key == SLC_PRIORITY else ("Off", *choices)
 
   def longitudinal_available(self) -> bool:
     cp = self.vehicle_params()
@@ -213,12 +219,12 @@ class FeatureSettingsOwner:
     release, readable = read_saved(self.params, 'IsReleaseBranch', 8)
     try:
       from opendbc.car.values import PLATFORMS
-      from openpilot.starpilot.car.hyundai.aol import ioniq6_settings_capable
+      from openpilot.starpilot.car.hyundai.aol import ioniq6_alpha_long_available
       from openpilot.starpilot.car.ford.longitudinal_preferences import release_long_available as ford_release_long_available
       platform = PLATFORMS.get(str(cp.carFingerprint))
       if (not self._galaxy() or platform is None or platform.__class__.__module__.split('.')[-2] != str(cp.brand) or
           not readable or release not in (None, b'0', b'1') or cp.notCar or cp.passive or cp.dashcamOnly or
-          not (cp.alphaLongitudinalAvailable or ioniq6_settings_capable(cp)) or
+          not (cp.alphaLongitudinalAvailable or ioniq6_alpha_long_available(cp)) or
           (release == b'1' and not ford_release_long_available(cp))):
         return None
       return (str(cp.carFingerprint), str(cp.brand), int(cp.flags), int(cp.alternativeExperience),
@@ -237,8 +243,8 @@ class FeatureSettingsOwner:
       ('On' if raw == b'1' else 'Off') if valid else 'Invalid saved choice', raw,
       ('Off', 'On') if valid else (), default_value='Off', capability=capability, vehicle_fingerprint=self.vehicle_fingerprint(),
       available=valid and parked and self.authority('parked_preferences') and self.authority('preferences'),
-      reason='Request StarPilot speed control instead of factory ACC. May disable Automatic Emergency Braking. ' +
-             'Applies after the next startup; exact vehicle takeover checks remain required.'),)
+      reason='Let StarPilot control acceleration and braking instead of factory ACC. ' +
+             'Takes effect next drive. May disable factory Automatic Emergency Braking.'),)
 
   def _apply_alpha_long(self, request):
     from openpilot.starpilot.saved_document import commit_exact
@@ -437,6 +443,27 @@ class FeatureSettingsOwner:
     return commit_exact(self.params, key="JeepBrakeHold", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
                         expected=request.expected, authorized=authorized, temp_prefix=".jeep-hold-").verified
 
+  def _honda_bcan_turn_signals_capability(self):
+    from opendbc.car.honda.values import HondaFlags
+    cp = self.vehicle_params()
+    try:
+      if cp is None or cp.brand != "honda" or not int(cp.flags) & int(HondaFlags.HAS_BSM):
+        return None
+      return (str(cp.carFingerprint), int(cp.flags),
+              tuple((str(config.safetyModel), int(config.safetyParam)) for config in cp.safetyConfigs))
+    except (AttributeError, TypeError, ValueError):
+      return None
+
+  def _apply_honda_bcan_turn_signals(self, request):
+    if not request.confirmation or request.value not in ("Off", "On") or request.dependencies:
+      return False
+    def authorized():
+      return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
+              request.capability is not None and request.capability == self._honda_bcan_turn_signals_capability() and
+              self.authority("parked_preferences") and request.expected in (None, b"0", b"1"))
+    return commit_exact(self.params, key="HondaBcanTurnSignals", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
+                        expected=request.expected, authorized=authorized, temp_prefix=".honda-bcan-turn-signals-").verified
+
   def _toyota_sng_capability(self):
     from opendbc.car.toyota.sng import eligible
     cp = self.vehicle_params()
@@ -478,21 +505,6 @@ class FeatureSettingsOwner:
               self.authority("vehicle") and request.expected in (None, b"0", b"1"))
     return commit_exact(self.params, key="ToyotaAutoHold", max_bytes=128, raw=b"1" if request.value == "On" else b"0",
                         expected=request.expected, authorized=authorized, temp_prefix=".toyota-auto-hold-").verified
-
-  def _toyota_radar_capability(self):
-    from openpilot.starpilot.car.toyota.radar_preferences import capability
-    return capability(self.vehicle_params())
-
-  def _apply_toyota_radar(self, request: FeatureSettingsRequest) -> bool:
-    from openpilot.starpilot.car.toyota.radar_preferences import CHOICES, KEY
-    if not request.confirmation or request.value not in CHOICES or request.dependencies:
-      return False
-    def authorized():
-      return (bool(request.vehicle_fingerprint) and self.vehicle_fingerprint() == request.vehicle_fingerprint and
-              request.capability is not None and request.capability == self._toyota_radar_capability() and
-              self.authority("toyota_radar") and request.expected in (None, b"0", b"1", b"2"))
-    return commit_exact(self.params, key=KEY, max_bytes=8, raw=str(CHOICES.index(request.value)).encode(),
-                        expected=request.expected, authorized=authorized, temp_prefix=".toyota-radar-").verified
 
   def _cruise_capability(self) -> tuple | None:
     cp = self.vehicle_params()
@@ -654,7 +666,7 @@ class FeatureSettingsOwner:
       return "Vision"
     if key == "IsMetric":
       return "0"
-    if key in SLC_OFFSET_KEYS or key in ("ForceStopDistanceOffset", "SLCAdvanceSeconds"):
+    if key in SLC_OFFSET_KEYS or key in ("ForceStopDistanceOffset", *ADVANCE_KEYS):
       return "0"
     value = self.params.get_default_value(key)
     return str(value) if value is not None else ""
@@ -702,8 +714,10 @@ class FeatureSettingsOwner:
       return row
     try:
       value = self._default(row.key)
-      if row.key in (SLC_PRIORITY, SLC_SECONDARY) and value not in self._source_choices():
-        return row
+      if row.key in SOURCE_PRIORITY_KEYS:
+        value = 'Maps' if value == 'Map Data' else value
+        if value not in self._source_choices(key=row.key):
+          return row
       if value in ("0", "1") and row.choices == ("Off", "On"):
         value = "On" if value == "1" else "Off"
       if row.choices and value not in row.choices or not value:
@@ -851,14 +865,16 @@ class FeatureSettingsOwner:
               FeatureRow("", "Night Star", "Modified-EPS steering and this fork's own settings", page=FeaturePage.NIGHT_STAR, available=True)]
       if (self._long_pitch_capability() is not None or self._bolt_disable_capability() is not None or
           self._auto_hold_capability() is not None or self._toyota_sng_capability() is not None or self._jeep_hold_capability() is not None or
-          self._toyota_radar_capability() is not None or self._pedal_setup_capability() is not None or
+          self._pedal_setup_capability() is not None or
           self.subaru_smoothing.capability() is not None or
           self._subaru_avh_capability() is not None or self._subaru_startup_capability() is not None or self._subaru_sng_capability() is not None or
           self._subaru_software_capability() is not None or self._gm_stop_capability("VoltSNG") is not None or
           self._gm_stop_capability("GMAutoHold") is not None or self.tesla_screen.capability() is not None or self.tesla_coop.capability() is not None or
           self.gm_tune.capability() is not None or self.gm_truck.capability() is not None or
           self.gm_ev_preset.capability() is not None or self.volt_radar.capability() is not None or
-          self.panda_wake.capability() is not None or preap_radar_capability(self.vehicle_params()) is not None):
+          self.panda_wake.capability() is not None or FordRearFogFeature(self).capability() is not None or
+          self._honda_bcan_turn_signals_capability() is not None or
+          preap_radar_capability(self.vehicle_params()) is not None):
         rows.append(FeatureRow("", "Vehicle Settings", "Configure features supported by your vehicle", page=FeaturePage.VEHICLE, available=True))
       rows.append(FeatureRow("", "Driving Personalities", "Adjust Aggressive, Standard, Relaxed and Traffic profiles",
                              page=FeaturePage.PERSONALITIES, available=True))
@@ -869,6 +885,7 @@ class FeatureSettingsOwner:
     elif page == FeaturePage.VEHICLE:
       title = "Vehicle Settings"
       rows = list(self._alpha_long_rows(parked))
+      rows.extend(FordRearFogFeature(self).rows(parked))
       capability = self._auto_hold_capability()
       allowed = configurable and capability is not None and self.authority("vehicle")
       row = self._bool_row("ToyotaAutoHold", "Automatic Brake Hold", allowed,
@@ -881,22 +898,19 @@ class FeatureSettingsOwner:
                              configurable and parked and self.authority("parked_preferences"),
                              "Automatic resume for Toyota/Lexus vehicles without factory stop-and-go. Applies after the next startup.")
         rows.append(replace(row, available=row.available and self._readable("SNGHack"), capability=sng_capability))
-      radar_capability = self._toyota_radar_capability()
-      if radar_capability is not None:
-        from openpilot.starpilot.car.toyota.radar_preferences import CHOICES, KEY
-        raw, readable = read_saved(self.params, KEY, 8)
-        valid = readable and raw in (None, b"0", b"1", b"2")
-        rows.append(FeatureRow(KEY, "Continental Radar", CHOICES[int(raw or b"0")] if valid else "Invalid saved choice",
-          raw, CHOICES if valid else (), available=bool(valid and configurable and self.authority("toyota_radar")),
-          reason=("Optional RAV4 2022/2023 receiver. Off retains the original radar choice. Applies after startup; " +
-                  "native safety and ECU configuration are unchanged."),
-          capability=radar_capability, default_value="Off"))
       jeep_capability = self._jeep_hold_capability()
       if jeep_capability is not None:
         row = self._bool_row("JeepBrakeHold", "Jeep Brake Hold",
                              configurable and parked and self.authority("vehicle") and self.authority("parked_preferences"),
                              "Retains a cruise-controlled stop until you press a pedal or cancel cruise. Applies after the next startup")
         rows.append(replace(row, available=row.available and self._readable("JeepBrakeHold"), capability=jeep_capability))
+      bcan_capability = self._honda_bcan_turn_signals_capability()
+      if bcan_capability is not None:
+        row = self._bool_row("HondaBcanTurnSignals", "B-CAN Turn Signals",
+                             configurable and parked and self.authority("parked_preferences"),
+                             "Lets openpilot hold the turn signal for a whole lane change and cancel it after. " +
+                             "Needs a body harness with B-CAN gateway; 10th-gen Accord tested.")
+        rows.append(replace(row, available=row.available and self._readable("HondaBcanTurnSignals"), capability=bcan_capability))
       rows.extend(self.tesla_screen.rows(parked))
       rows.extend(self.tesla_coop.rows(parked))
       rows.extend(self.gm_cancel_remap.rows(parked))
@@ -1080,11 +1094,10 @@ class FeatureSettingsOwner:
       master, _, master_valid = self._value("AlwaysOnLateral")
       allowed = configurable and self.authority("aol") and capability is not None
       rows.append(replace(self._bool_row("AlwaysOnLateral", "Enable Always On Lateral",
-                                         (allowed and threshold_valid) or
+                                         (configurable and self.authority("preferences") and threshold_valid) or
                                          (master_valid and master == "1" and self.authority("preferences"))), capability=capability,
                           dependencies=self._dependents(AOL_THRESHOLD, AOL_LEGACY_THRESHOLD),
                           reason="Invalid saved master preference" if not master_valid or master not in ("0", "1") else
-                                 "Connect a supported vehicle to configure Always On Lateral" if capability is None else
                                  "Invalid saved brake threshold" if not threshold_valid else
                                  "Applies after the next startup" if pending else
                                  "Keep steering assistance available independently of cruise control"))
@@ -1124,29 +1137,28 @@ class FeatureSettingsOwner:
       elif not offsets_ready:
         control_reason = "Repair invalid saved speed-limit offsets or units before enabling control"
       else:
-        control_reason = "On adjusts cruise speed to accepted limits; Off keeps speed control unchanged"
+        control_reason = "Follow accepted limits plus offsets, up to your SET speed"
       control_row = self._bool_row("SpeedLimitController", "Speed Limit Controller",
                                    allowed and (offsets_ready or control == "1"), reason=control_reason)
       rows.append(replace(control_row, reason=control_reason) if control_row.choices else control_row)
+      cp = self.vehicle_params()
+      if cp is not None and not cp.pcmCruise:
+        rows.append(self._bool_row("SLCOnEngage", "Match Speed Limit on Engage", allowed and control == "1",
+                                   reason="Start SET at the SLC limit plus offset. RES restores your previous SET"))
       rows.append(self._bool_row("ShowSpeedLimits", "Show speed limit signs", self.authority("preferences"),
                                  reason="Display signs independently of Speed Limit Controller; does not change cruise speed"))
-      confirmation = self._bool_row("SLCConfirmation", "Automatic adoption", allowed,
-        reason="On adopts new limits immediately; Off asks for confirmation within 10 seconds")
-      rows.append(replace(confirmation, value={"On": "Off", "Off": "On"}.get(confirmation.value, confirmation.value), default_value="On"))
-      advance, raw_advance, readable_advance = self._value('SLCAdvanceSeconds')
-      valid_advance = readable_advance and advance in tuple(str(seconds) for seconds in range(11))
-      rows.append(FeatureRow('SLCAdvanceSeconds', 'Adopt limits early',
-        SLC_ADVANCE_CHOICES[int(advance)] if valid_advance else f'Saved {advance}', raw_advance,
-        SLC_ADVANCE_CHOICES if valid_advance else ('Off',), available=allowed, default_value='Off',
-        reason='Offer or adopt mapped limits this many seconds early at the current speed; applies to increases and decreases'
-          if valid_advance else 'Invalid saved advance time; restore Off'))
+      rows.extend(policy_rows(self._value, self._readable, allowed=allowed))
+      if cp is not None and not cp.pcmCruise:
+        rows.append(self._bool_row(WHEEL_OVERRIDE_KEY, "Override speed limit with +", allowed and control == "1",
+                                   reason="Press + to raise SET past the adjusted limit and use your new SET speed."))
       source_capability = self._source_capability()
       vision_dev, maps_available = source_capability
       source_allowed = configurable and self.authority("preferences")
-      choices = self._source_choices(source_capability)
       for key, label, help_text in (
           (SLC_PRIORITY, "Primary source", "Use this source first; try the secondary source when it is unavailable"),
-          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable")):
+          (SLC_SECONDARY, "Secondary source", "Use this source when the primary source is unavailable"),
+          (SLC_TERTIARY, "Third source", "Use this source when neither earlier source has a usable reading")):
+        choices = self._source_choices(source_capability, key=key)
         source, raw, valid = self._value(key)
         source = "Maps" if source == "Map Data" else source
         readable = self._readable(key)
@@ -1157,7 +1169,7 @@ class FeatureSettingsOwner:
           reason = "Camera signs are unavailable; choose a connected source"
         rows.append(FeatureRow(key, label, source if readable else "Unavailable saved source", raw,
           (source, *choices) if valid and source not in choices else choices,
-          available=source_allowed and valid and readable and (vision_dev or maps_available or source != "Dashboard"),
+          available=source_allowed and valid and readable and (len(choices) > 1 or source != "Dashboard"),
           reason=reason, capability=source_capability))
       rows.extend(offset_rows)
       title = "Speed Limit Controller"
@@ -1190,13 +1202,11 @@ class FeatureSettingsOwner:
       title = "Long Planner"
       rows.append(self._bool_row(PLANNER_SELECTION_KEY, "Use StarPilot Longitudinal Planner", self.authority("preferences"),
                                  reason="Off uses the upstream planner. Supported longitudinal control stays active. Changes apply on the next drive."))
-      for ba_key, ba_label, ba_editable, ba_reason in bosch_a_settings_rows(self.vehicle_params(), self._value, self.authority("preferences")):
-        rows.append(self._bool_row(ba_key, ba_label, ba_editable, reason=ba_reason))
       allowed = configurable and system_long
       force_enabled, _, _ = self._value("ForceStops")
-      rows.append(self._bool_row("ForceStops", "Force Stop", allowed or
-                                 (force_enabled == "1" and self.authority("preferences")),
-                                 reason="Commit to detected model stops; press the accelerator to continue"))
+      rows.append(self._bool_row(
+        "ForceStops", "Enhanced Stops", allowed or (force_enabled == "1" and self.authority("preferences")),
+        reason="Improves stopping behavior at traffic lights and enables automatic stopping at detected stop signs. Press the accelerator to continue."))
       offset_row = self._number_row("ForceStopDistanceOffset", "Stop Distance Adjustment", allowed and force_enabled == "1")
       rows.append(replace(offset_row, default_reset_available=allowed and parked and offset_row.step > 0,
                           reason="Positive values stop farther forward; negative values stop earlier"))
@@ -1210,6 +1220,9 @@ class FeatureSettingsOwner:
       rows.append(self._bool_row(NUDGE_KEY, "Experimental Speed Nudge", self.authority("preferences"),
                                 reason="Gently recovers toward set speed when Experimental mode hesitates on a clear road. " +
                                        "Leads, stops, curve limits and driver overrides retain priority."))
+      rows.append(self._bool_row(SET_SPEED_ASSIST_KEY, "Set Speed Assist", self.authority("preferences"),
+                                reason="In Experimental mode, pulls toward your set speed and following distance when the driving " +
+                                       "model holds back. The model still makes every slowdown. Turns off Accel Boost while on."))
       rows.append(self._bool_row(ENGAGE_66_KEY, "Engage at 66 mph in Experimental", self.authority("preferences"),
                                 reason="With the upstream planner in Experimental mode, engaging sets 66 mph or the current " +
                                        "speed if faster. Off uses the saved initial cruise speed."))
@@ -1375,6 +1388,18 @@ class FeatureSettingsOwner:
     key = request.key
     if key in ("LaneCentering", "Blendful"):
       return blendful_settings.apply_toggle(self, request)
+    if key == "AlwaysOnLateral" and request.value == "On":
+      def authorized_on():
+        return (self.authority("preferences") and self._readable(key) and
+                self._raw(key) == request.expected and request.expected in (None, b"0", b"1") and
+                self.vehicle_fingerprint() == request.vehicle_fingerprint and
+                request.capability == self._capability("aol") and self._aol_threshold()[1] and
+                request.dependencies == self._dependents(AOL_THRESHOLD, AOL_LEGACY_THRESHOLD) and
+                all(self._readable(name) and self._raw(name) == raw for name, raw in request.dependencies) and
+                request.related_source is None and not request.display_unit and not request.direction)
+      result = commit_exact(self.params, key=key, max_bytes=8, raw=b"1", expected=request.expected,
+                            authorized=authorized_on, temp_prefix=".aol-on-")
+      return result.committed and result.verified
     if key == "AlwaysOnLateral" and request.value == "Off":
       def authorized_off():
         return (self.authority("preferences") and self._readable(key) and
@@ -1390,6 +1415,8 @@ class FeatureSettingsOwner:
       return self._apply_reverse_cruise(request)
     if key in LATERAL_PAUSE_KEYS:
       return self._apply_lateral_pause(request)
+    if key == "FordRearFogIndicator":
+      return FordRearFogFeature(self).apply(request)
     if key == "FordHandsFreeCluster":
       return FordClusterFeature(self).apply(request)
     if key in FORD_BLUEPILOT_KEYS:
@@ -1452,8 +1479,8 @@ class FeatureSettingsOwner:
       return self._apply_toyota_sng(request)
     if key == "ToyotaAutoHold":
       return self._apply_auto_hold(request)
-    if key == "ToyotaRadarMode":
-      return self._apply_toyota_radar(request)
+    if key == "HondaBcanTurnSignals":
+      return self._apply_honda_bcan_turn_signals(request)
     if key == PLANNER_SELECTION_KEY:
       if request.value not in ("Off", "On") or not self.authority("preferences"):
         return False
@@ -1506,15 +1533,11 @@ class FeatureSettingsOwner:
     elif key.startswith(LONG_PREFIX):
       source_key = PERSONALITY_PROFILES_PARAM
       group = "long"
-    elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (SLC_PRIORITY, SLC_SECONDARY, 'SLCAdvanceSeconds'):
+    elif key in BOOL_DEFAULTS or key in FLOAT_SPECS or key in (*SOURCE_PRIORITY_KEYS, *ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
       source_key = key
       long_key = (key in ("CustomPersonalities", "ForceStops", "ForceStopDistanceOffset") or "Personality" in key or
                   key.endswith(("Follow", "FollowHigh")) or "Jerk" in key)
-      if key in ("ShowSpeedLimits", "AlwaysAllowUploads", SLC_PRIORITY, SLC_SECONDARY) or (key == "ForceStops" and request.value == "Off"):
-        group = "preferences"
-      elif key in BOSCH_A_KEYS:
-        if request.value == "On" and not bosch_a_vehicle_supported(self.vehicle_params()):
-          return False
+      if key in ("ShowSpeedLimits", "AlwaysAllowUploads", *SOURCE_PRIORITY_KEYS) or (key == "ForceStops" and request.value == "Off"):
         group = "preferences"
       elif key in LANE_LIVE_KEYS and not self.authority("lane"):
         group = "lane_live"
@@ -1550,7 +1573,7 @@ class FeatureSettingsOwner:
           return False
         if (key != CURVE_MASTER_KEY or request.value != "Off") and not read_learning(self.params).valid:
           return False
-      if key in (SLC_PRIORITY, SLC_SECONDARY) and request.capability != self._source_capability():
+      if key in SOURCE_PRIORITY_KEYS and request.capability != self._source_capability():
         return False
       if key in LANE_LIVE_KEYS:
         from openpilot.starpilot.lateral.lane_runtime import runtime_supported
@@ -1645,19 +1668,33 @@ class FeatureSettingsOwner:
         encoded = self._edit_document(key, request.value, seed_capability=request.capability if named_acceleration_seed else None)
         if encoded is None:
           return False
-      elif key == 'SLCAdvanceSeconds':
-        current, _, valid = self._value(key)
+      elif key == 'SLCConfirmation':
+        if request.value not in CONFIRMATION_CHOICES.values():
+          return False
+        encoded = next(mode for mode, label in CONFIRMATION_CHOICES.items() if label == request.value)
+      elif key in ADVANCE_KEYS:
+        _, raw, valid = self._value(key)
         if (request.value not in SLC_ADVANCE_CHOICES or request.value != 'Off' and
-            (not valid or current not in tuple(str(seconds) for seconds in range(11)))):
+            (not valid or raw is not None and raw not in ADVANCE_BYTES)):
           return False
         encoded = str(SLC_ADVANCE_CHOICES.index(request.value))
+      elif key == PEDAL_OVERRIDE_KEY:
+        if request.value not in PEDAL_OVERRIDE_CHOICES or (
+            request.value != PEDAL_OVERRIDE_CHOICES[PedalOverride.OFF] and request.expected not in (None, *PEDAL_OVERRIDE_BYTES)):
+          return False
+        encoded = PEDAL_OVERRIDE_CHOICES.index(request.value)
       elif key in BOOL_DEFAULTS:
         current, _, valid = self._value(key)
         if not valid or current not in ("0", "1") or request.value not in ("On", "Off"):
           return False
         if key == "SpeedLimitController" and request.value == "On" and not self.slc_offsets.ready_to_enable():
           return False
-        encoded = ("0" if request.value == "On" else "1") if key == "SLCConfirmation" else ("1" if request.value == "On" else "0")
+        if key in ("SLCOnEngage", WHEEL_OVERRIDE_KEY):
+          cp = self.vehicle_params()
+          if cp is None or cp.pcmCruise or not self.longitudinal_available() or (
+              request.value == "On" and self._raw("SpeedLimitController") != b"1"):
+            return False
+        encoded = "1" if request.value == "On" else "0"
       elif key in FLOAT_SPECS:
         current, _, valid = self._value(key)
         low, high, _, _ = FLOAT_SPECS[key]
@@ -1674,7 +1711,7 @@ class FeatureSettingsOwner:
           return False
         encoded = str(int(number)) if key == "ForceStopDistanceOffset" else str(round(number, 4))
       else:
-        if request.value not in self._source_choices():
+        if request.value not in self._source_choices(key=key):
           return False
         encoded = "Map Data" if request.value == "Maps" else request.value
       if key in LANE_LIVE_KEYS:
@@ -1689,7 +1726,7 @@ class FeatureSettingsOwner:
         return False
       if key == "SpeedLimitController" and request.value == "On" and not self.slc_offsets.ready_to_enable():
         return False
-      if key in (SLC_PRIORITY, SLC_SECONDARY) and request.capability != self._source_capability():
+      if key in SOURCE_PRIORITY_KEYS and request.capability != self._source_capability():
         return False
       if group in ("torque", "aol", "aol_wheel"):
         if request.capability != self._capability(group) or \
@@ -1743,17 +1780,9 @@ class FeatureSettingsOwner:
         result = commit_exact(self.params, key=key, max_bytes=128, raw=encoded.encode(), expected=request.expected,
                               authorized=authorized, temp_prefix=".long-profile-switch-")
         return result.committed and result.verified
-      if source_key == "AlwaysOnLateral":
-        def authorized_aol() -> bool:
-          return (self.authority("aol") and self.vehicle_fingerprint() == request.vehicle_fingerprint and
-                  request.capability == self._capability("aol") and
-                  all(self._readable(name) and self._raw(name) == raw for name, raw in request.dependencies))
-        result = commit_exact(self.params, key=source_key, max_bytes=8, raw=encoded.encode(),
-                              expected=request.expected, authorized=authorized_aol, temp_prefix=".aol-on-")
-        return result.committed and result.verified
       if source_key in BOOL_DEFAULTS:
         self.params.put_bool(source_key, encoded == "1", block=True)
-      elif source_key == 'SLCAdvanceSeconds':
+      elif source_key in (*ADVANCE_KEYS, 'SLCConfirmation', PEDAL_OVERRIDE_KEY):
         self.params.put(source_key, int(encoded), block=True)
       elif source_key == AOL_THRESHOLD:
         self.params.put(source_key, encoded, block=True)

@@ -17,26 +17,25 @@ class TestModifiedEpsPreferences(unittest.TestCase):
     self.assertEqual(read_settings(self.params), DEFAULT_SETTINGS)
 
   def test_saved_values_are_read_and_clamped(self):
-    self.params.put("HondaDriverOverrideThreshold", 1840, block=True)
+    self.params.put("HondaOverrideStartTorque", 1840, block=True)
+    self.params.put("HondaOverrideEndTorque", 700, block=True)
     self.params.put("HondaMinSteerSpeed", 0, block=True)
     self.params.put("HondaOverrideFadeUpSecs", 0.8, block=True)
     self.params.put("HondaOverrideTorqueScale", 250, block=True)
-    self.params.put_bool("HondaSteerDeltaLimiter", True, block=True)
     settings = read_settings(self.params)
-    self.assertEqual(settings.override_threshold, 1840)
+    self.assertEqual((settings.override_start_torque, settings.override_end_torque), (1840, 700))
     self.assertEqual(settings.min_steer_speed_mph, 0)
     self.assertAlmostEqual(settings.fade_up_s, 0.8)
     self.assertEqual(settings.torque_scale, 1.0)
-    self.assertTrue(settings.delta_limiter)
 
   def test_refreshes_once_a_second(self):
     now = [0]
     preferences = ModifiedEpsPreferences(self.params, clock=lambda: now[0])
-    self.params.put("HondaDriverOverrideThreshold", 1840, block=True)
+    self.params.put("HondaOverrideStartTorque", 1840, block=True)
     now[0] = REFRESH_NS - 1
-    self.assertEqual(preferences.current().override_threshold, 2000)
+    self.assertEqual(preferences.current().override_start_torque, 1560)
     now[0] = REFRESH_NS
-    self.assertEqual(preferences.current().override_threshold, 1840)
+    self.assertEqual(preferences.current().override_start_torque, 1840)
 
 
 if __name__ == "__main__":

@@ -4,8 +4,11 @@ from collections import defaultdict
 
 from opendbc.can import CANDefine, CANParser
 from opendbc.car import Bus, create_button_events, structs
+from opendbc.car.carlog import carlog
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import pcm_acc
+from opendbc.car.honda.bcan_blinker import TapHold
+from opendbc.car.honda.angle_profiles import angle_profile
 from opendbc.car.honda.eps_cal_status import MSG as EPS_CAL_STATUS_MSG, EpsCalStatus
 from opendbc.car.honda.meps.linear_angle import MSG as EPS_LINEAR_ANGLE_MSG, LinearAngle
 from opendbc.car.honda.hondacan import CanBus
@@ -31,7 +34,8 @@ class CarState(CarStateBase):
     super().__init__(CP)
     can_define = CANDefine(DBC[CP.carFingerprint][Bus.pt])
     self.eps_cal_status = EpsCalStatus(CP)
-    self.linear_angle = LinearAngle(self.eps_cal_status.angle)   # angle mode on a switch-capable EPS
+    # angle mode on a switch-capable EPS; a profile car (angle_profiles.py) is linear from the start
+    self.linear_angle = LinearAngle(self.eps_cal_status.angle, required=angle_profile(CP) is not None)
     self.published_angle_deg = 0.0
 
     if CP.transmissionType != TransmissionType.manual:
@@ -59,6 +63,21 @@ class CarState(CarStateBase):
     self.brake_switch_prev = False
     self.brake_switch_active = False
     self.low_speed_alert = False
+
+    # B-CAN (body harness) state. The body parser is deliberately not part of canValid,
+    # so a harness dropout only disables blind spot monitoring and B-CAN turn signals
+    self.body_valid = True
+    self.body_valid_prev = True
+    self.hazard_on = False
+    self.bcm_kwp_resp = None
+    self.bcm_kwp_resp_ts = 0
+    self.left_stalk_raw = False
+    self.right_stalk_raw = False
+    if self.CP.flags & HondaFlags.HAS_BSM:
+      # set by the car controller each frame (one frame behind): the side openpilot
+      # holds on the B-CAN lamp, so a quick stalk tap keeps its intent while it is visible
+      self.bcan_holding_side = None
+      self.tap_hold = TapHold()
 
     # Clarity with an interceptor (honda/pcm_acc.py): the controller holds the PCM in ACC while engaged, so
     # cruiseState.enabled keeps reporting it off as before and pcm_acc_active carries the bit. Not while passive.
@@ -142,6 +161,13 @@ class CarState(CarStateBase):
       ret.steerFaultPermanent = False
       ret.steerFaultTemporary = False
 
+    if self.CP.flags & HondaFlags.EPS_ANGLE_LOOP_FW:
+      # the angle-loop EPS's angle is a valid absolute angle only while all three sensor status bits read 1; outside
+      # that the EPS would servo from a false angle, so do not steer
+      sensors = cp.vl["STEERING_SENSORS"]
+      if not all(sensors[f"STEER_SENSOR_STATUS_{i}"] == 1 for i in (1, 2, 3)):
+        ret.steerFaultTemporary = True
+
     # Clarity mode-switch EPS: don't steer unless the EPS reports the calibration the controller is built for (0x6A4)
     if self.eps_cal_status.update(cp):
       ret.steerFaultTemporary = True
@@ -185,8 +211,17 @@ class CarState(CarStateBase):
     if self.linear_angle.latched:
       ret.steeringAngleDeg = self.linear_angle.angle_deg
 
+    # instantaneous stalk states, before the hold in update_blinker_from_stalk
+    self.left_stalk_raw = bool(cp.vl["SCM_FEEDBACK"]["LEFT_BLINKER"])
+    self.right_stalk_raw = bool(cp.vl["SCM_FEEDBACK"]["RIGHT_BLINKER"])
     ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(
       250, cp.vl["SCM_FEEDBACK"]["LEFT_BLINKER"], cp.vl["SCM_FEEDBACK"]["RIGHT_BLINKER"])
+    if self.CP.flags & HondaFlags.HAS_BSM:
+      # a quick stalk tap keeps the lane-change intent for TAP_HOLD_S while the B-CAN
+      # blinker holds the lamp, so the driver has time to nudge
+      ret.leftBlinker, ret.rightBlinker = self.tap_hold.update(
+        ret.leftBlinker, ret.rightBlinker, self.left_stalk_raw, self.right_stalk_raw,
+        self.bcan_holding_side, cp._last_update_nanos * 1e-9)
     ret.brakeHoldActive = cp.vl["VSA_STATUS"]["BRAKE_HOLD_ACTIVE"] == 1
     # some Nidec hybrids (Clarity) report brake hold on a different message; VSA_STATUS stays 0
     if self.CP.flags & HondaFlags.HYBRID_ALT_BRAKEHOLD:
@@ -209,10 +244,13 @@ class CarState(CarStateBase):
 
     ret.steeringTorque = cp.vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"]
     if self.modified_eps:
-      steer_threshold = steering_pressed_threshold(self.CP, current_settings(self.modified_eps_settings).override_threshold)
-      if self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE:   # lower toward center, the full setting from 45 deg
-        steer_threshold = angle_mode_threshold(steer_threshold, self.published_angle_deg)
-      ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, steer_threshold)
+      mset = current_settings(self.modified_eps_settings)
+      press_start = steering_pressed_threshold(self.CP, mset.override_start_torque)
+      press_end = steering_pressed_threshold(self.CP, mset.override_end_torque)
+      if self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE:   # the settings up to 5 deg, 1.28 x from 45 deg
+        press_start = angle_mode_threshold(press_start, self.published_angle_deg)
+        press_end = angle_mode_threshold(press_end, self.published_angle_deg)
+      ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, press_start, press_end)
     else:
       steer_threshold = STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
       ret.steeringPressed = abs(ret.steeringTorque) > steer_threshold
@@ -278,8 +316,27 @@ class CarState(CarStateBase):
     if self.CP.flags & HondaFlags.HAS_BSM:
       # BSM messages are on B-CAN, requires a panda forwarding B-CAN messages to CAN 0
       # more info here: https://github.com/commaai/openpilot/pull/1867
-      ret.leftBlindspot = cp_body.vl["BSM_STATUS_LEFT"]["BSM_ALERT"] == 1
-      ret.rightBlindspot = cp_body.vl["BSM_STATUS_RIGHT"]["BSM_ALERT"] == 1
+      self.body_valid = cp_body.can_valid
+      if self.body_valid_prev and not self.body_valid:
+        carlog.warning("B-CAN body harness not valid; blind spot monitoring and B-CAN turn signals disabled")
+      self.body_valid_prev = self.body_valid
+      if self.body_valid:
+        ret.leftBlindspot = cp_body.vl["BSM_STATUS_LEFT"]["BSM_ALERT"] == 1
+        ret.rightBlindspot = cp_body.vl["BSM_STATUS_RIGHT"]["BSM_ALERT"] == 1
+        self.hazard_on = bool(cp_body.vl["TURN_LAMP_STATUS"]["HAZARD_LAMP"])
+      else:
+        # fail closed: a harness dropout must not report clear blind spots, so lane changes are
+        # blocked as if both sides were occupied until the body messages come back
+        ret.leftBlindspot = True
+        ret.rightBlindspot = True
+      # the BCM KWP reply is event-driven (only after a command), so it is registered with a
+      # nan frequency and a missing reply never times the body parser out
+      resp_ts = cp_body.ts_nanos["BCM_KWP_RESP"]["RESP_CODE"]
+      if resp_ts > self.bcm_kwp_resp_ts:
+        self.bcm_kwp_resp = int(cp_body.vl["BCM_KWP_RESP"]["RESP_CODE"])
+        self.bcm_kwp_resp_ts = resp_ts
+      else:
+        self.bcm_kwp_resp = None
 
     ret.buttonEvents = [
       *create_button_events(self.cruise_buttons, prev_cruise_buttons, BUTTONS_DICT),
@@ -315,6 +372,9 @@ class CarState(CarStateBase):
       parsers[Bus.pt].message_states[0x201].ignore_checksum = True
       parsers[Bus.pt].message_states[0x201].ignore_counter = True
     if CP.flags & HondaFlags.HAS_BSM:
-      parsers[Bus.body] = CANParser(DBC[CP.carFingerprint][Bus.body], [], CanBus(CP).radar)
+      # BCM_KWP_RESP is event-driven and TURN_LAMP_STATUS has an unknown rate: nan frequencies keep
+      # them from timing the parser out, so body validity depends only on the periodic BSM messages
+      parsers[Bus.body] = CANParser(DBC[CP.carFingerprint][Bus.body],
+                                    [("BCM_KWP_RESP", math.nan), ("TURN_LAMP_STATUS", math.nan)], CanBus(CP).radar)
 
     return parsers

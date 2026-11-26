@@ -88,11 +88,27 @@ struct StarPilotCarControl @0x81c2f05a394cf4af {
       distanceMeters @3 :Float32;
       remainingDistanceMeters @4 :Float32;
       remainingDurationSeconds @5 :Float32;
+      lanes @6 :List(Lane);
+      exitDegrees @7 :UInt16;  # roundabout exit angle in the direction of travel, 180 = straight through; 0 = not given
+      exitNumber @8 :UInt8;    # roundabout exit, 1 = first; 0 = not given
+      drivingLeft @9 :Bool;    # left-hand traffic (roundabouts run clockwise)
+      roadName @10 :Text;      # the road this step drives along, the one the car is on; "" = not given
+      roadRef @11 :Text;       # that road's route number(s) as Mapbox gives them ("US 75", "US 75; TX 289"); "" = none
+      toward @12 :Text;        # where the maneuver leads, the banner's secondary line ("Garland"); "" = not given
+    }
+    struct Lane {
+      active @0 :Bool;
+      directions @1 :List(Text);
+      activeDirection @2 :Text;
     }
     version @12 :UInt16;
+    # traffic per route point, from point i to i + 1 (the worst Mapbox level on those segments; the last repeats the one
+    # before): 0 unknown, 1 low, 2 moderate, 3 heavy, 4 severe. Empty without a route or from an older navigationd.
+    routeCongestion @14 :List(UInt8);
   }
 
   phoneGps @3 :StarPilotCarState.Gps;  # sourceMonoTime is comma receive time minus the phone's fix age
+  headUnitGps @4 :StarPilotCarState.Gps;  # the car's GPS from the head unit over Android Auto; sourceMonoTime is comma receive time
 
 
   struct PreapRadarStartup {
@@ -283,6 +299,8 @@ struct StarPilotLongitudinalPlan @0xda96579883444c35 {
   modelMonoTime @2 :UInt64;
   driveStartMonoTime @3 :UInt64;
   forceStopHolding @4 :Bool;
+  forceStopBraking @5 :Bool;
+  forceStopEpisodeMonoTime @6 :UInt64;
 }
 
 struct SlcState @0xa1680744031fdb2d {
@@ -345,7 +363,7 @@ struct SlcState @0xa1680744031fdb2d {
   hasPendingAdjustedLimit @45 :Bool;
   presentationAdjustedLimit @46 :Float32;
   hasPresentationAdjustedLimit @47 :Bool;
-  overrideBasis @48 :Text; # none/pedal/persistent; qualified contribution only
+  overrideBasis @48 :Text; # none/pedal/persistent/wheel; qualified contribution only
   retainedOverride @49 :Bool;
   commandActionSequenceId @50 :UInt64; # UI sequence that issued this command
   automaticAdoptionPending @51 :Bool;
@@ -358,6 +376,10 @@ struct SlcState @0xa1680744031fdb2d {
   # Qualified adoption proposal; the current displayed observation stays above.
   upcomingSpeedLimit @57 :Float32;
   upcomingBoundaryId @58 :Text;
+  acceptedIsPreview @59 :Bool; # a temporary ceiling, ineligible for initializing SET
+  wheelOverrideSince @60 :UInt64; # nonzero while a wheel tap may cross the current adjusted limit
+  wheelAdoptMonoTime @61 :UInt64; # Card's original wheel event timestamp, only on the approval frame
+  wheelAdoptTargetMps @62 :Float32; # exact adjusted SET approved for that event
   struct SourceReading {
     source @0 :Text;
     enabled @1 :Bool;
@@ -459,6 +481,7 @@ struct SlcAction @0x9ccdc8676701b412 {
   conditionalManual @5 :ConditionalManualAction;
   controllerCruise @6 :ControllerCruiseAction;
   controllerMode @7 :ControllerCruiseAction;
+  wheelAdoptMonoTime @8 :UInt64; # original timestamp of a qualified Adopt Speed Limit wheel event
 
   struct ControllerCruiseAction {
     version @0 :UInt16;
@@ -526,6 +549,7 @@ struct SlcCruiseEvent @0xcd96dafb67a082d0 {
   trafficMode @13 :TrafficModeGesture;
   wheelAction @14 :SlcAction.ControllerCruiseAction;
   teslaStockCruise @15 :TeslaStockCruise;
+  wheelOverrideSince @16 :UInt64; # SLC eligibility captured by a physical + tap; zero for ordinary SET changes
 
   struct TeslaStockCruise {
     version @0 :UInt16;
@@ -653,6 +677,27 @@ struct StarPilotModelDataV2 @0x80ae746ee2596b11 {
     modelId @9 :Text; # exact bundled detector/classifier identity
     frameId @10 :UInt32;
     stream @11 :Stream;
+    stopSigns @12 :StopObservation;
+
+    struct StopObservation {
+      status @0 :Status;
+      observedMonoTime @1 :UInt64;
+      validUntilMonoTime @2 :UInt64;
+      cameraFrameEofBootTime @3 :UInt64;
+      frameId @4 :UInt32;
+      imageWidth @5 :UInt16;
+      imageHeight @6 :UInt16;
+      detections @7 :List(StopDetection);
+    }
+
+    struct StopDetection {
+      confidence @0 :Float32;
+      x1Pixels @1 :UInt16;
+      y1Pixels @2 :UInt16;
+      x2Pixels @3 :UInt16;
+      y2Pixels @4 :UInt16;
+    }
+
 
     enum Status @0xc97a1c56dc1427ae {
       unknown @0;
@@ -883,10 +928,6 @@ struct StarPilotLateralState @0xc2243c65e0340384 {
   epsCalibration @19 :Text;        # the EPS image calibration it steers with (EpsFirmwareCalibration.name)
   epsCommandDelay @20 :Float32;    # s, command delay applied this frame (the calibration's, faded with speed)
   epsModelDelay @21 :Float32;      # s, lateral delay controlsd handed over (the delay told to the model + smoothing)
-  # Driver yield, SHADOW (selfdrive/controls/lib/honda_eps_driver_yield.py): computed and logged, never applied
-  epsDriverTorque @22 :Float32;    # counts: steeringTorque less the sensor offset, wheel inertia, column friction and wheel imbalance
-  epsYieldEvidence @23 :Float32;   # count-seconds of driver torque against the controller, leaking away
-  epsYieldAuthority @24 :Float32;  # 0..1, the share of its command the controller would keep
   struct FeedbackConsumption {
     version @0 :UInt16;
     controlMonoTime @1 :UInt64;

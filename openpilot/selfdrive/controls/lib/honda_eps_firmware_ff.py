@@ -146,7 +146,7 @@ class EpsFirmwareCalibration:
   lat_delay_schedule: tuple = LAT_DELAY_SCHEDULE_DEFAULT  # (speed bp, s): the delay told to the model, see above
   rack: RackMapTable | None = None  # rack ratio after the firmware angle table, yaw-fitted on the car or predicted
                                     # from its specs (honda_eps_spec_plant); when set it is the geometry, ahead of the
-                                    # road curve and HondaEpsFirmwareVgr
+                                    # road curve
   friction_width_v: tuple | None = None  # the friction knee at FRICTION_WIDTH_SPEED_BP, deg/s; None: FRICTION_WIDTH_V
   p_clamp: float | None = None  # |Kp * (R5 - R6) / 1024| clamp before scale_q8, where it binds inside the output range (the
                                 # Ridgeline's 942); None: the image's P clamp lies past its output clamp (every SH-2A image)

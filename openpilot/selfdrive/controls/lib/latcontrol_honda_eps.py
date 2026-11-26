@@ -18,14 +18,13 @@ published specs (honda_eps_spec_plant).
 This shell does what LatControlPID does around its PID for a modified-EPS Honda, reusing the same helpers so
 each setting behaves identically, except the geometry: curvature -> wheel angle through the calibration's rack map
 (the firmware VGR table, a rack ratio by angle and a slip factor, honda_eps_rack_map.HondaEpsRackMap; every calibration
-has one, so HondaEpsFirmwareVgr and the road-measured ratio curves are LatControlPID's only), the angle-rate ceiling
+has one, so the road-measured ratio curves are LatControlPID's only), the angle-rate ceiling
 (HondaEpsAngleRateLimit), the shared
-driver-override detector, and the speed-banded output low-pass (HondaTorqueOutputLowPassFilter /
-HondaTorqueOutputLpfTau*). Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
+driver-override detector, and the speed-banded output low-pass (always on, fixed per-band time constants).
+Settings read elsewhere (carcontroller, carstate, controlsd) apply unchanged.
 
-Not read here, on purpose: LatPScale*, LatIScale*, HondaLateralPidKp/KiScale (the PID is fixed per car to the
-tune the feedforward was validated with) and LatFScale* (they scaled the kf * angle * v^2 feedforward this
-replaces).
+No PID trims (the PID is fixed per car to the tune the feedforward was validated with; the LatP/I/FScale
+settings were retired 11-24).
 """
 import math
 from collections import deque
@@ -45,7 +44,6 @@ from openpilot.selfdrive.controls.lib.honda_eps_calibrations import (
   provenance_summary,
   select_eps_firmware_calibration,
 )
-from openpilot.selfdrive.controls.lib.honda_eps_driver_yield import DriverYield, torque_sensor
 from openpilot.selfdrive.controls.lib.honda_eps_firmware_ff import (
   HondaEpsFirmwareFeedforward,
   HondaEpsLateralCore,
@@ -57,8 +55,6 @@ from openpilot.selfdrive.controls.lib.honda_eps_rack_map import HondaEpsRackMap
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.honda_lateral_common import (
   HONDA_ANGLE_RATE_LIMIT_DEG_S,
-  HONDA_TORQUE_OUTPUT_LPF_TAU,
-  _get_param_bool,
   _get_param_float,
   rate_limit_desired_angle,
 )
@@ -194,7 +190,7 @@ def get_rack_map(CP, calibration: EpsFirmwareCalibration | None) -> HondaEpsRack
 
 
 EPS_STATE_FIELDS = ("epsFfActive", "epsFfFeedforward", "epsFfR5", "epsFfLoad", "epsFfDesiredRate", "epsFfWeight",
-                    "epsCalibration", "epsCommandDelay", "epsModelDelay", "epsDriverTorque", "epsYieldEvidence", "epsYieldAuthority")
+                    "epsCalibration", "epsCommandDelay", "epsModelDelay")
 
 
 def write_eps_state(dst, src) -> None:
@@ -221,8 +217,6 @@ class LatControlHondaEps(LatControl):
     self.rack_map = get_rack_map(CP, self.calibration)
     assert self.rack_map is not None, f"no rack map for {self.calibration.name}"
     self.cmd_delay = CommandDelay(dt, self.calibration.cmd_delay_s)
-    # Shadow only: what a proportional yield to the driver would do. Logged, never applied to the output.
-    self.driver_yield = DriverYield(dt, torque_sensor(self.calibration.name))
     self.lateral_source = "unknown"
     self.cmd_delay_scale = 1.0
     self.frame = -1
@@ -236,25 +230,11 @@ class LatControlHondaEps(LatControl):
 
   def _read_settings(self):
     self.angle_rate_limit_deg_s = _get_param_float(self.params, "HondaEpsAngleRateLimit", HONDA_ANGLE_RATE_LIMIT_DEG_S, 0.0, 2000.0)
-    self.core.output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
-    self.core.output_lpf_tau = tuple(
-      _get_param_float(self.params, key, default, 0.0, 5.0)
-      for key, default in zip(("HondaTorqueOutputLpfTauLowSpeed", "HondaTorqueOutputLpfTauStandard", "HondaTorqueOutputLpfTauHighway"),
-                              HONDA_TORQUE_OUTPUT_LPF_TAU, strict=True)
-    )
     self.core.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs", OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
 
   def update_lateral_source(self, source: str) -> None:
     """controlsd: where the model's steering comes from (modeld's ModelLateralSource param)."""
     self.lateral_source = str(source)
-
-  def _shadow_driver_yield(self, active: bool, CS, angle_error: float, angle_no_offset: float) -> None:
-    rate = float(CS.steeringRateDeg)
-    self.driver_yield.measure(float(getattr(CS, "steeringTorque", 0.0)), angle_no_offset, rate)
-    if active:
-      self.driver_yield.update(angle_error, rate)
-    else:
-      self.driver_yield.evidence, self.driver_yield.authority = 0.0, 1.0
 
   def _command_delay(self, v_ego: float) -> float:
     target = CMD_DELAY_SCALE_BY_SOURCE.get(self.lateral_source, 1.0)
@@ -273,7 +253,6 @@ class LatControlHondaEps(LatControl):
     self.core.reset()
     self.steering_pressed_filter_s = 0.0
     self.steering_pressed_prev = False
-    self.driver_yield.reset()
 
   def _desired_angle_no_offset(self, VM, v_ego, roll, desired_curvature):
     # The calibration's rack map is the geometry: fitted against the car's own yaw sensor, or predicted from its
@@ -330,7 +309,6 @@ class LatControlHondaEps(LatControl):
       pid_log.saturated = bool(self._check_saturation(self.steer_max - abs(output) < 1e-3, CS, steer_limited_by_safety,
                                                       curvature_limited))
 
-    self._shadow_driver_yield(bool(active), CS, pid_log.angleError, CS.steeringAngleDeg - params.angleOffsetDeg)
     ff = self.core.ff
     state = self.starpilot_lateral_state
     state.epsFfActive = bool(active)
@@ -342,7 +320,4 @@ class LatControlHondaEps(LatControl):
     state.epsCalibration = self.calibration.name
     state.epsCommandDelay = float(cmd_delay)
     state.epsModelDelay = float(lat_delay)
-    state.epsDriverTorque = float(self.driver_yield.driver_torque)
-    state.epsYieldEvidence = float(self.driver_yield.evidence)
-    state.epsYieldAuthority = float(self.driver_yield.authority)
     return output, angle_des, pid_log

@@ -21,7 +21,6 @@ from openpilot.selfdrive.controls.lib.honda_lateral_common import (
   HONDA_TORQUE_OUTPUT_LPF_TAU,
   rate_limit_desired_angle,
   _get_param_float,
-  _get_param_bool,
 )
 
 _MPH_TO_MS = 0.44704
@@ -98,7 +97,7 @@ class LatControlHondaModifiedPID(LatControlPID):
     self.is_modified_eps_kf_car = self.is_eps_modified and str(CP.carFingerprint) in MODIFIED_EPS_KF_CARS
     # Geometry: the exact image's firmware VGR table on top of paramsd's learned ratio, else that fixed ratio.
     # There is intentionally no vehicle-family fallback: another rack's table is not interchangeable. The road-fit
-    # steer-ratio curves vfn used here are not ported, so HondaEpsFirmwareVgr is inert.
+    # steer-ratio curves vfn used here are not ported.
     self.vgr_inverse = get_honda_vgr_inverse(CP.flags)
     self.prev_angle_steers_des_no_offset = 0.0
     self.eps_modified_steering_pressed_filter_s = 0.0
@@ -131,31 +130,10 @@ class LatControlHondaModifiedPID(LatControlPID):
     self.since_press_s = math.inf
 
   def _read_settings(self):
-    # Lat*Scale are user fine-trim shared by every modified-EPS Honda; the base speed banding stays in
-    # kpBP/kpV in interface.py. A persisted value always has the same scope across the modified-EPS group.
-    self.lat_p_scale_low = _get_param_float(self.params, "LatPScaleLowSpeed", 1.0, 0.0, 5.0, scale=100.0)
-    self.lat_p_scale_standard = _get_param_float(self.params, "LatPScaleStandard", 1.0, 0.0, 5.0, scale=100.0)
-    self.lat_p_scale_highway = _get_param_float(self.params, "LatPScaleHighway", 1.0, 0.0, 5.0, scale=100.0)
-    self.lat_i_scale_low = _get_param_float(self.params, "LatIScaleLowSpeed", 0.2, 0.0, 5.0, scale=100.0)
-    self.lat_i_scale_standard = _get_param_float(self.params, "LatIScaleStandard", 1.0, 0.0, 5.0, scale=100.0)
-    self.lat_i_scale_highway = _get_param_float(self.params, "LatIScaleHighway", 0.0, 0.0, 5.0, scale=100.0)
-    self.lat_f_scale_low = _get_param_float(self.params, "LatFScaleLowSpeed", 1.0, 0.0, 5.0, scale=100.0)
-    self.lat_f_scale_standard = _get_param_float(self.params, "LatFScaleStandard", 1.0, 0.0, 5.0, scale=100.0)
-    self.lat_f_scale_highway = _get_param_float(self.params, "LatFScaleHighway", 1.0, 0.0, 5.0, scale=100.0)
     self.angle_rate_limit_deg_s = _get_param_float(self.params, "HondaEpsAngleRateLimit",
                                                    HONDA_ANGLE_RATE_LIMIT_DEG_S, 0.0, 2000.0)
     self.override_fade_up_s = _get_param_float(self.params, "HondaOverrideFadeUpSecs",
                                                OVERRIDE_FADE_UP_S_DEFAULT, 0.0, 10.0)
-    self.torque_output_lpf_enabled = _get_param_bool(self.params, "HondaTorqueOutputLowPassFilter", True)
-    self.torque_output_lpf_tau_low = _get_param_float(
-      self.params, "HondaTorqueOutputLpfTauLowSpeed", HONDA_TORQUE_OUTPUT_LPF_TAU[0], 0.0, 5.0,
-    )
-    self.torque_output_lpf_tau_standard = _get_param_float(
-      self.params, "HondaTorqueOutputLpfTauStandard", HONDA_TORQUE_OUTPUT_LPF_TAU[1], 0.0, 5.0,
-    )
-    self.torque_output_lpf_tau_highway = _get_param_float(
-      self.params, "HondaTorqueOutputLpfTauHighway", HONDA_TORQUE_OUTPUT_LPF_TAU[2], 0.0, 5.0,
-    )
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited,
              lat_delay, calibrated_pose=None, model_data=None, starpilot_toggles=None):

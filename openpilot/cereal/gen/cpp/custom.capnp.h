@@ -52,6 +52,7 @@ CAPNP_DECLARE_SCHEMA(d28ed59fbe1870aa);
 CAPNP_DECLARE_SCHEMA(83e5f5472aa434b0);
 CAPNP_DECLARE_SCHEMA(837ff4be1f1a9263);
 CAPNP_DECLARE_SCHEMA(e4b42a95dcb60d90);
+CAPNP_DECLARE_SCHEMA(ee74a80b1d309a72);
 CAPNP_DECLARE_SCHEMA(d2fc84e59fa67897);
 CAPNP_DECLARE_SCHEMA(98efbcb40a571c11);
 CAPNP_DECLARE_SCHEMA(aedffd8f31e7b55d);
@@ -199,6 +200,8 @@ enum class TurnDirection_ab5928774e6e64fc: uint16_t {
 };
 CAPNP_DECLARE_ENUM(TurnDirection, ab5928774e6e64fc);
 CAPNP_DECLARE_SCHEMA(9e04a179bcb4ab72);
+CAPNP_DECLARE_SCHEMA(b41e843c9023fcf8);
+CAPNP_DECLARE_SCHEMA(96cd469187ef2cd6);
 CAPNP_DECLARE_SCHEMA(c97a1c56dc1427ae);
 enum class Status_c97a1c56dc1427ae: uint16_t {
   UNKNOWN,
@@ -438,6 +441,7 @@ CAPNP_DECLARE_SCHEMA(db85b982067f1bc1);
 CAPNP_DECLARE_SCHEMA(ef6257bed9318012);
 CAPNP_DECLARE_SCHEMA(bbb8f17940692312);
 CAPNP_DECLARE_SCHEMA(daa1a9f0d8968e31);
+CAPNP_DECLARE_SCHEMA(f7b1a9d3e5c2f486);
 
 }  // namespace schemas
 }  // namespace capnp
@@ -457,7 +461,7 @@ struct StarPilotCarControl {
   struct PreapPedalStartup;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(81c2f05a394cf4af, 0, 4)
+    CAPNP_DECLARE_STRUCT_HEADER(81c2f05a394cf4af, 0, 5)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -504,9 +508,10 @@ struct StarPilotCarControl::Navigation {
   class Pipeline;
   struct Coordinate;
   struct Instruction;
+  struct Lane;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(83e5f5472aa434b0, 4, 7)
+    CAPNP_DECLARE_STRUCT_HEADER(83e5f5472aa434b0, 4, 8)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -536,7 +541,22 @@ struct StarPilotCarControl::Navigation::Instruction {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(e4b42a95dcb60d90, 2, 3)
+    CAPNP_DECLARE_STRUCT_HEADER(e4b42a95dcb60d90, 2, 7)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct StarPilotCarControl::Navigation::Lane {
+  Lane() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(ee74a80b1d309a72, 1, 2)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -727,7 +747,7 @@ struct StarPilotLongitudinalPlan {
   class Pipeline;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 4, 0)
+    CAPNP_DECLARE_STRUCT_HEADER(da96579883444c35, 5, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -747,7 +767,7 @@ struct SlcState {
   struct ConditionalModeState;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(a1680744031fdb2d, 18, 22)
+    CAPNP_DECLARE_STRUCT_HEADER(a1680744031fdb2d, 21, 22)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -843,7 +863,7 @@ struct SlcAction {
 
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(9ccdc8676701b412, 4, 4)
+    CAPNP_DECLARE_STRUCT_HEADER(9ccdc8676701b412, 5, 4)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -895,7 +915,7 @@ struct SlcCruiseEvent {
   struct ManualModeGesture;
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(cd96dafb67a082d0, 7, 6)
+    CAPNP_DECLARE_STRUCT_HEADER(cd96dafb67a082d0, 8, 6)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -998,13 +1018,45 @@ struct StarPilotModelDataV2::VisionObservation {
   class Reader;
   class Builder;
   class Pipeline;
+  struct StopObservation;
+  struct StopDetection;
   typedef ::capnp::schemas::Status_c97a1c56dc1427ae Status;
 
   typedef ::capnp::schemas::Stream_b45fd9e3634d228f Stream;
 
 
   struct _capnpPrivate {
-    CAPNP_DECLARE_STRUCT_HEADER(9e04a179bcb4ab72, 6, 2)
+    CAPNP_DECLARE_STRUCT_HEADER(9e04a179bcb4ab72, 6, 3)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct StarPilotModelDataV2::VisionObservation::StopObservation {
+  StopObservation() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(b41e843c9023fcf8, 5, 1)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
+struct StarPilotModelDataV2::VisionObservation::StopDetection {
+  StopDetection() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(96cd469187ef2cd6, 2, 0)
     #if !CAPNP_LITE
     static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
     #endif  // !CAPNP_LITE
@@ -1852,6 +1904,21 @@ struct LiveTrackingResponseWitness {
   };
 };
 
+struct StarPilotBlendfulState {
+  StarPilotBlendfulState() = delete;
+
+  class Reader;
+  class Builder;
+  class Pipeline;
+
+  struct _capnpPrivate {
+    CAPNP_DECLARE_STRUCT_HEADER(f7b1a9d3e5c2f486, 5, 0)
+    #if !CAPNP_LITE
+    static constexpr ::capnp::_::RawBrandedSchema const* brand() { return &schema->defaultBrand; }
+    #endif  // !CAPNP_LITE
+  };
+};
+
 // =======================================================================================
 
 class StarPilotCarControl::Reader {
@@ -1882,6 +1949,9 @@ public:
 
   inline bool hasPhoneGps() const;
   inline  ::cereal::StarPilotCarState::Gps::Reader getPhoneGps() const;
+
+  inline bool hasHeadUnitGps() const;
+  inline  ::cereal::StarPilotCarState::Gps::Reader getHeadUnitGps() const;
 
 private:
   ::capnp::_::StructReader _reader;
@@ -1939,6 +2009,13 @@ public:
   inline void adoptPhoneGps(::capnp::Orphan< ::cereal::StarPilotCarState::Gps>&& value);
   inline ::capnp::Orphan< ::cereal::StarPilotCarState::Gps> disownPhoneGps();
 
+  inline bool hasHeadUnitGps();
+  inline  ::cereal::StarPilotCarState::Gps::Builder getHeadUnitGps();
+  inline void setHeadUnitGps( ::cereal::StarPilotCarState::Gps::Reader value);
+  inline  ::cereal::StarPilotCarState::Gps::Builder initHeadUnitGps();
+  inline void adoptHeadUnitGps(::capnp::Orphan< ::cereal::StarPilotCarState::Gps>&& value);
+  inline ::capnp::Orphan< ::cereal::StarPilotCarState::Gps> disownHeadUnitGps();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -1961,6 +2038,7 @@ public:
   inline  ::cereal::StarPilotCarControl::SteeringLimitInfo::Pipeline getSteeringLimitInfo();
   inline  ::cereal::StarPilotCarControl::Navigation::Pipeline getNavigation();
   inline  ::cereal::StarPilotCarState::Gps::Pipeline getPhoneGps();
+  inline  ::cereal::StarPilotCarState::Gps::Pipeline getHeadUnitGps();
 private:
   ::capnp::AnyPointer::Pipeline _typeless;
   friend class ::capnp::PipelineHook;
@@ -2203,6 +2281,9 @@ public:
 
   inline float getSpeedLimit() const;
 
+  inline bool hasRouteCongestion() const;
+  inline  ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Reader getRouteCongestion() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -2300,6 +2381,14 @@ public:
 
   inline float getSpeedLimit();
   inline void setSpeedLimit(float value);
+
+  inline bool hasRouteCongestion();
+  inline  ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Builder getRouteCongestion();
+  inline void setRouteCongestion( ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Reader value);
+  inline void setRouteCongestion(::kj::ArrayPtr<const  ::uint8_t> value);
+  inline  ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Builder initRouteCongestion(unsigned int size);
+  inline void adoptRouteCongestion(::capnp::Orphan< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>> disownRouteCongestion();
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -2442,6 +2531,24 @@ public:
 
   inline float getRemainingDurationSeconds() const;
 
+  inline bool hasLanes() const;
+  inline  ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Reader getLanes() const;
+
+  inline  ::uint16_t getExitDegrees() const;
+
+  inline  ::uint8_t getExitNumber() const;
+
+  inline bool getDrivingLeft() const;
+
+  inline bool hasRoadName() const;
+  inline  ::capnp::Text::Reader getRoadName() const;
+
+  inline bool hasRoadRef() const;
+  inline  ::capnp::Text::Reader getRoadRef() const;
+
+  inline bool hasToward() const;
+  inline  ::capnp::Text::Reader getToward() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -2500,6 +2607,43 @@ public:
   inline float getRemainingDurationSeconds();
   inline void setRemainingDurationSeconds(float value);
 
+  inline bool hasLanes();
+  inline  ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Builder getLanes();
+  inline void setLanes( ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Builder initLanes(unsigned int size);
+  inline void adoptLanes(::capnp::Orphan< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>> disownLanes();
+
+  inline  ::uint16_t getExitDegrees();
+  inline void setExitDegrees( ::uint16_t value);
+
+  inline  ::uint8_t getExitNumber();
+  inline void setExitNumber( ::uint8_t value);
+
+  inline bool getDrivingLeft();
+  inline void setDrivingLeft(bool value);
+
+  inline bool hasRoadName();
+  inline  ::capnp::Text::Builder getRoadName();
+  inline void setRoadName( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initRoadName(unsigned int size);
+  inline void adoptRoadName(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownRoadName();
+
+  inline bool hasRoadRef();
+  inline  ::capnp::Text::Builder getRoadRef();
+  inline void setRoadRef( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initRoadRef(unsigned int size);
+  inline void adoptRoadRef(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownRoadRef();
+
+  inline bool hasToward();
+  inline  ::capnp::Text::Builder getToward();
+  inline void setToward( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initToward(unsigned int size);
+  inline void adoptToward(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownToward();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -2513,6 +2657,103 @@ private:
 class StarPilotCarControl::Navigation::Instruction::Pipeline {
 public:
   typedef Instruction Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class StarPilotCarControl::Navigation::Lane::Reader {
+public:
+  typedef Lane Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline bool getActive() const;
+
+  inline bool hasDirections() const;
+  inline  ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Reader getDirections() const;
+
+  inline bool hasActiveDirection() const;
+  inline  ::capnp::Text::Reader getActiveDirection() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class StarPilotCarControl::Navigation::Lane::Builder {
+public:
+  typedef Lane Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline bool getActive();
+  inline void setActive(bool value);
+
+  inline bool hasDirections();
+  inline  ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Builder getDirections();
+  inline void setDirections( ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Reader value);
+  inline void setDirections(::kj::ArrayPtr<const  ::capnp::Text::Reader> value);
+  inline  ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Builder initDirections(unsigned int size);
+  inline void adoptDirections(::capnp::Orphan< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>> disownDirections();
+
+  inline bool hasActiveDirection();
+  inline  ::capnp::Text::Builder getActiveDirection();
+  inline void setActiveDirection( ::capnp::Text::Reader value);
+  inline  ::capnp::Text::Builder initActiveDirection(unsigned int size);
+  inline void adoptActiveDirection(::capnp::Orphan< ::capnp::Text>&& value);
+  inline ::capnp::Orphan< ::capnp::Text> disownActiveDirection();
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class StarPilotCarControl::Navigation::Lane::Pipeline {
+public:
+  typedef Lane Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -3482,6 +3723,8 @@ public:
 
   inline  ::uint64_t getRadarTracksMonoTime() const;
 
+  inline bool getSteeringAngleLinear() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -3667,6 +3910,9 @@ public:
 
   inline  ::uint64_t getRadarTracksMonoTime();
   inline void setRadarTracksMonoTime( ::uint64_t value);
+
+  inline bool getSteeringAngleLinear();
+  inline void setSteeringAngleLinear(bool value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -4258,6 +4504,10 @@ public:
 
   inline bool getForceStopHolding() const;
 
+  inline bool getForceStopBraking() const;
+
+  inline  ::uint64_t getForceStopEpisodeMonoTime() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -4300,6 +4550,12 @@ public:
 
   inline bool getForceStopHolding();
   inline void setForceStopHolding(bool value);
+
+  inline bool getForceStopBraking();
+  inline void setForceStopBraking(bool value);
+
+  inline  ::uint64_t getForceStopEpisodeMonoTime();
+  inline void setForceStopEpisodeMonoTime( ::uint64_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -4483,6 +4739,14 @@ public:
 
   inline bool hasUpcomingBoundaryId() const;
   inline  ::capnp::Text::Reader getUpcomingBoundaryId() const;
+
+  inline bool getAcceptedIsPreview() const;
+
+  inline  ::uint64_t getWheelOverrideSince() const;
+
+  inline  ::uint64_t getWheelAdoptMonoTime() const;
+
+  inline float getWheelAdoptTargetMps() const;
 
 private:
   ::capnp::_::StructReader _reader;
@@ -4776,6 +5040,18 @@ public:
   inline  ::capnp::Text::Builder initUpcomingBoundaryId(unsigned int size);
   inline void adoptUpcomingBoundaryId(::capnp::Orphan< ::capnp::Text>&& value);
   inline ::capnp::Orphan< ::capnp::Text> disownUpcomingBoundaryId();
+
+  inline bool getAcceptedIsPreview();
+  inline void setAcceptedIsPreview(bool value);
+
+  inline  ::uint64_t getWheelOverrideSince();
+  inline void setWheelOverrideSince( ::uint64_t value);
+
+  inline  ::uint64_t getWheelAdoptMonoTime();
+  inline void setWheelAdoptMonoTime( ::uint64_t value);
+
+  inline float getWheelAdoptTargetMps();
+  inline void setWheelAdoptTargetMps(float value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -5629,6 +5905,8 @@ public:
   inline bool hasControllerMode() const;
   inline  ::cereal::SlcAction::ControllerCruiseAction::Reader getControllerMode() const;
 
+  inline  ::uint64_t getWheelAdoptMonoTime() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -5696,6 +5974,9 @@ public:
   inline  ::cereal::SlcAction::ControllerCruiseAction::Builder initControllerMode();
   inline void adoptControllerMode(::capnp::Orphan< ::cereal::SlcAction::ControllerCruiseAction>&& value);
   inline ::capnp::Orphan< ::cereal::SlcAction::ControllerCruiseAction> disownControllerMode();
+
+  inline  ::uint64_t getWheelAdoptMonoTime();
+  inline void setWheelAdoptMonoTime( ::uint64_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -6088,6 +6369,8 @@ public:
   inline bool hasTeslaStockCruise() const;
   inline  ::cereal::SlcCruiseEvent::TeslaStockCruise::Reader getTeslaStockCruise() const;
 
+  inline  ::uint64_t getWheelOverrideSince() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -6187,6 +6470,9 @@ public:
   inline  ::cereal::SlcCruiseEvent::TeslaStockCruise::Builder initTeslaStockCruise();
   inline void adoptTeslaStockCruise(::capnp::Orphan< ::cereal::SlcCruiseEvent::TeslaStockCruise>&& value);
   inline ::capnp::Orphan< ::cereal::SlcCruiseEvent::TeslaStockCruise> disownTeslaStockCruise();
+
+  inline  ::uint64_t getWheelOverrideSince();
+  inline void setWheelOverrideSince( ::uint64_t value);
 
 private:
   ::capnp::_::StructBuilder _builder;
@@ -6852,6 +7138,9 @@ public:
 
   inline  ::cereal::StarPilotModelDataV2::VisionObservation::Stream getStream() const;
 
+  inline bool hasStopSigns() const;
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader getStopSigns() const;
+
 private:
   ::capnp::_::StructReader _reader;
   template <typename, ::capnp::Kind>
@@ -6924,6 +7213,13 @@ public:
   inline  ::cereal::StarPilotModelDataV2::VisionObservation::Stream getStream();
   inline void setStream( ::cereal::StarPilotModelDataV2::VisionObservation::Stream value);
 
+  inline bool hasStopSigns();
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder getStopSigns();
+  inline void setStopSigns( ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader value);
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder initStopSigns();
+  inline void adoptStopSigns(::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>&& value);
+  inline ::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation> disownStopSigns();
+
 private:
   ::capnp::_::StructBuilder _builder;
   template <typename, ::capnp::Kind>
@@ -6937,6 +7233,219 @@ private:
 class StarPilotModelDataV2::VisionObservation::Pipeline {
 public:
   typedef VisionObservation Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline getStopSigns();
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class StarPilotModelDataV2::VisionObservation::StopObservation::Reader {
+public:
+  typedef StopObservation Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status getStatus() const;
+
+  inline  ::uint64_t getObservedMonoTime() const;
+
+  inline  ::uint64_t getValidUntilMonoTime() const;
+
+  inline  ::uint64_t getCameraFrameEofBootTime() const;
+
+  inline  ::uint32_t getFrameId() const;
+
+  inline  ::uint16_t getImageWidth() const;
+
+  inline  ::uint16_t getImageHeight() const;
+
+  inline bool hasDetections() const;
+  inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader getDetections() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class StarPilotModelDataV2::VisionObservation::StopObservation::Builder {
+public:
+  typedef StopObservation Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status getStatus();
+  inline void setStatus( ::cereal::StarPilotModelDataV2::VisionObservation::Status value);
+
+  inline  ::uint64_t getObservedMonoTime();
+  inline void setObservedMonoTime( ::uint64_t value);
+
+  inline  ::uint64_t getValidUntilMonoTime();
+  inline void setValidUntilMonoTime( ::uint64_t value);
+
+  inline  ::uint64_t getCameraFrameEofBootTime();
+  inline void setCameraFrameEofBootTime( ::uint64_t value);
+
+  inline  ::uint32_t getFrameId();
+  inline void setFrameId( ::uint32_t value);
+
+  inline  ::uint16_t getImageWidth();
+  inline void setImageWidth( ::uint16_t value);
+
+  inline  ::uint16_t getImageHeight();
+  inline void setImageHeight( ::uint16_t value);
+
+  inline bool hasDetections();
+  inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder getDetections();
+  inline void setDetections( ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader value);
+  inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder initDetections(unsigned int size);
+  inline void adoptDetections(::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>&& value);
+  inline ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>> disownDetections();
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline {
+public:
+  typedef StopObservation Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
+class StarPilotModelDataV2::VisionObservation::StopDetection::Reader {
+public:
+  typedef StopDetection Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline float getConfidence() const;
+
+  inline  ::uint16_t getX1Pixels() const;
+
+  inline  ::uint16_t getY1Pixels() const;
+
+  inline  ::uint16_t getX2Pixels() const;
+
+  inline  ::uint16_t getY2Pixels() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class StarPilotModelDataV2::VisionObservation::StopDetection::Builder {
+public:
+  typedef StopDetection Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline float getConfidence();
+  inline void setConfidence(float value);
+
+  inline  ::uint16_t getX1Pixels();
+  inline void setX1Pixels( ::uint16_t value);
+
+  inline  ::uint16_t getY1Pixels();
+  inline void setY1Pixels( ::uint16_t value);
+
+  inline  ::uint16_t getX2Pixels();
+  inline void setX2Pixels( ::uint16_t value);
+
+  inline  ::uint16_t getY2Pixels();
+  inline void setY2Pixels( ::uint16_t value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class StarPilotModelDataV2::VisionObservation::StopDetection::Pipeline {
+public:
+  typedef StopDetection Pipelines;
 
   inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
   inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
@@ -14976,6 +15485,122 @@ private:
 };
 #endif  // !CAPNP_LITE
 
+class StarPilotBlendfulState::Reader {
+public:
+  typedef StarPilotBlendfulState Reads;
+
+  Reader() = default;
+  inline explicit Reader(::capnp::_::StructReader base): _reader(base) {}
+
+  inline ::capnp::MessageSize totalSize() const {
+    return _reader.totalSize().asPublic();
+  }
+
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const {
+    return ::capnp::_::structString(_reader, *_capnpPrivate::brand());
+  }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint16_t getVersion() const;
+
+  inline float getCurvature() const;
+
+  inline float getTrust() const;
+
+  inline float getModelCurvature() const;
+
+  inline bool getGoingAround() const;
+
+  inline float getLeftProb() const;
+
+  inline float getRightProb() const;
+
+  inline float getLaneWidth() const;
+
+  inline  ::uint64_t getModelMonoTime() const;
+
+private:
+  ::capnp::_::StructReader _reader;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::List;
+  friend class ::capnp::MessageBuilder;
+  friend class ::capnp::Orphanage;
+};
+
+class StarPilotBlendfulState::Builder {
+public:
+  typedef StarPilotBlendfulState Builds;
+
+  Builder() = delete;  // Deleted to discourage incorrect usage.
+                       // You can explicitly initialize to nullptr instead.
+  inline Builder(decltype(nullptr)) {}
+  inline explicit Builder(::capnp::_::StructBuilder base): _builder(base) {}
+  inline operator Reader() const { return Reader(_builder.asReader()); }
+  inline Reader asReader() const { return *this; }
+
+  inline ::capnp::MessageSize totalSize() const { return asReader().totalSize(); }
+#if !CAPNP_LITE
+  inline ::kj::StringTree toString() const { return asReader().toString(); }
+#endif  // !CAPNP_LITE
+
+  inline  ::uint16_t getVersion();
+  inline void setVersion( ::uint16_t value);
+
+  inline float getCurvature();
+  inline void setCurvature(float value);
+
+  inline float getTrust();
+  inline void setTrust(float value);
+
+  inline float getModelCurvature();
+  inline void setModelCurvature(float value);
+
+  inline bool getGoingAround();
+  inline void setGoingAround(bool value);
+
+  inline float getLeftProb();
+  inline void setLeftProb(float value);
+
+  inline float getRightProb();
+  inline void setRightProb(float value);
+
+  inline float getLaneWidth();
+  inline void setLaneWidth(float value);
+
+  inline  ::uint64_t getModelMonoTime();
+  inline void setModelMonoTime( ::uint64_t value);
+
+private:
+  ::capnp::_::StructBuilder _builder;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+  friend class ::capnp::Orphanage;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::_::PointerHelpers;
+};
+
+#if !CAPNP_LITE
+class StarPilotBlendfulState::Pipeline {
+public:
+  typedef StarPilotBlendfulState Pipelines;
+
+  inline Pipeline(decltype(nullptr)): _typeless(nullptr) {}
+  inline explicit Pipeline(::capnp::AnyPointer::Pipeline&& typeless)
+      : _typeless(kj::mv(typeless)) {}
+
+private:
+  ::capnp::AnyPointer::Pipeline _typeless;
+  friend class ::capnp::PipelineHook;
+  template <typename, ::capnp::Kind>
+  friend struct ::capnp::ToDynamic_;
+};
+#endif  // !CAPNP_LITE
+
 // =======================================================================================
 
 inline bool StarPilotCarControl::Reader::hasHudControl() const {
@@ -15132,6 +15757,45 @@ inline void StarPilotCarControl::Builder::adoptPhoneGps(
 inline ::capnp::Orphan< ::cereal::StarPilotCarState::Gps> StarPilotCarControl::Builder::disownPhoneGps() {
   return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::disown(_builder.getPointerField(
       ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotCarControl::Reader::hasHeadUnitGps() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Builder::hasHeadUnitGps() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::StarPilotCarState::Gps::Reader StarPilotCarControl::Reader::getHeadUnitGps() const {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::get(_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline  ::cereal::StarPilotCarState::Gps::Builder StarPilotCarControl::Builder::getHeadUnitGps() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::get(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+#if !CAPNP_LITE
+inline  ::cereal::StarPilotCarState::Gps::Pipeline StarPilotCarControl::Pipeline::getHeadUnitGps() {
+  return  ::cereal::StarPilotCarState::Gps::Pipeline(_typeless.getPointerField(4));
+}
+#endif  // !CAPNP_LITE
+inline void StarPilotCarControl::Builder::setHeadUnitGps( ::cereal::StarPilotCarState::Gps::Reader value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::StarPilotCarState::Gps::Builder StarPilotCarControl::Builder::initHeadUnitGps() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Builder::adoptHeadUnitGps(
+    ::capnp::Orphan< ::cereal::StarPilotCarState::Gps>&& value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::StarPilotCarState::Gps> StarPilotCarControl::Builder::disownHeadUnitGps() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotCarState::Gps>::disown(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
 }
 
 inline  ::cereal::StarPilotCarControl::HUDControl::AudibleAlert StarPilotCarControl::HUDControl::Reader::getAudibleAlert() const {
@@ -15592,6 +16256,44 @@ inline void StarPilotCarControl::Navigation::Builder::setSpeedLimit(float value)
       ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
 }
 
+inline bool StarPilotCarControl::Navigation::Reader::hasRouteCongestion() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Builder::hasRouteCongestion() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Reader StarPilotCarControl::Navigation::Reader::getRouteCongestion() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::get(_reader.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Builder StarPilotCarControl::Navigation::Builder::getRouteCongestion() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::get(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Builder::setRouteCongestion( ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), value);
+}
+inline void StarPilotCarControl::Navigation::Builder::setRouteCongestion(::kj::ArrayPtr<const  ::uint8_t> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::set(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>::Builder StarPilotCarControl::Navigation::Builder::initRouteCongestion(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::init(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Builder::adoptRouteCongestion(
+    ::capnp::Orphan< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>> StarPilotCarControl::Navigation::Builder::disownRouteCongestion() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::uint8_t,  ::capnp::Kind::PRIMITIVE>>::disown(_builder.getPointerField(
+      ::capnp::bounded<7>() * ::capnp::POINTERS));
+}
+
 inline double StarPilotCarControl::Navigation::Coordinate::Reader::getLatitude() const {
   return _reader.getDataField<double>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
@@ -15762,6 +16464,270 @@ inline float StarPilotCarControl::Navigation::Instruction::Builder::getRemaining
 inline void StarPilotCarControl::Navigation::Instruction::Builder::setRemainingDurationSeconds(float value) {
   _builder.setDataField<float>(
       ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Instruction::Reader::hasLanes() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Instruction::Builder::hasLanes() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Reader StarPilotCarControl::Navigation::Instruction::Reader::getLanes() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Builder StarPilotCarControl::Navigation::Instruction::Builder::getLanes() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setLanes( ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>::Builder StarPilotCarControl::Navigation::Instruction::Builder::initLanes(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::adoptLanes(
+    ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>> StarPilotCarControl::Navigation::Instruction::Builder::disownLanes() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotCarControl::Navigation::Lane,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<3>() * ::capnp::POINTERS));
+}
+
+inline  ::uint16_t StarPilotCarControl::Navigation::Instruction::Reader::getExitDegrees() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotCarControl::Navigation::Instruction::Builder::getExitDegrees() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setExitDegrees( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint8_t StarPilotCarControl::Navigation::Instruction::Reader::getExitNumber() const {
+  return _reader.getDataField< ::uint8_t>(
+      ::capnp::bounded<14>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint8_t StarPilotCarControl::Navigation::Instruction::Builder::getExitNumber() {
+  return _builder.getDataField< ::uint8_t>(
+      ::capnp::bounded<14>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setExitNumber( ::uint8_t value) {
+  _builder.setDataField< ::uint8_t>(
+      ::capnp::bounded<14>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Instruction::Reader::getDrivingLeft() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<120>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotCarControl::Navigation::Instruction::Builder::getDrivingLeft() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<120>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setDrivingLeft(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<120>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Instruction::Reader::hasRoadName() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Instruction::Builder::hasRoadName() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader StarPilotCarControl::Navigation::Instruction::Reader::getRoadName() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Instruction::Builder::getRoadName() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setRoadName( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Instruction::Builder::initRoadName(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::adoptRoadName(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> StarPilotCarControl::Navigation::Instruction::Builder::disownRoadName() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<4>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotCarControl::Navigation::Instruction::Reader::hasRoadRef() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Instruction::Builder::hasRoadRef() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader StarPilotCarControl::Navigation::Instruction::Reader::getRoadRef() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Instruction::Builder::getRoadRef() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setRoadRef( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Instruction::Builder::initRoadRef(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::adoptRoadRef(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> StarPilotCarControl::Navigation::Instruction::Builder::disownRoadRef() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotCarControl::Navigation::Instruction::Reader::hasToward() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Instruction::Builder::hasToward() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader StarPilotCarControl::Navigation::Instruction::Reader::getToward() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Instruction::Builder::getToward() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::setToward( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Instruction::Builder::initToward(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Instruction::Builder::adoptToward(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> StarPilotCarControl::Navigation::Instruction::Builder::disownToward() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<6>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotCarControl::Navigation::Lane::Reader::getActive() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotCarControl::Navigation::Lane::Builder::getActive() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarControl::Navigation::Lane::Builder::setActive(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotCarControl::Navigation::Lane::Reader::hasDirections() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Lane::Builder::hasDirections() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Reader StarPilotCarControl::Navigation::Lane::Reader::getDirections() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Builder StarPilotCarControl::Navigation::Lane::Builder::getDirections() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Lane::Builder::setDirections( ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline void StarPilotCarControl::Navigation::Lane::Builder::setDirections(::kj::ArrayPtr<const  ::capnp::Text::Reader> value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>::Builder StarPilotCarControl::Navigation::Lane::Builder::initDirections(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Lane::Builder::adoptDirections(
+    ::capnp::Orphan< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>> StarPilotCarControl::Navigation::Lane::Builder::disownDirections() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::capnp::Text,  ::capnp::Kind::BLOB>>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline bool StarPilotCarControl::Navigation::Lane::Reader::hasActiveDirection() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotCarControl::Navigation::Lane::Builder::hasActiveDirection() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::Text::Reader StarPilotCarControl::Navigation::Lane::Reader::getActiveDirection() const {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_reader.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Lane::Builder::getActiveDirection() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::get(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
+}
+inline void StarPilotCarControl::Navigation::Lane::Builder::setActiveDirection( ::capnp::Text::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::set(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::Text::Builder StarPilotCarControl::Navigation::Lane::Builder::initActiveDirection(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::init(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotCarControl::Navigation::Lane::Builder::adoptActiveDirection(
+    ::capnp::Orphan< ::capnp::Text>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::Text>::adopt(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::Text> StarPilotCarControl::Navigation::Lane::Builder::disownActiveDirection() {
+  return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
+      ::capnp::bounded<1>() * ::capnp::POINTERS));
 }
 
 inline  ::uint16_t StarPilotCarControl::PreapRadarStartup::Reader::getVersion() const {
@@ -17876,6 +18842,20 @@ inline void StarPilotCarState::Builder::setRadarTracksMonoTime( ::uint64_t value
       ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
 }
 
+inline bool StarPilotCarState::Reader::getSteeringAngleLinear() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<70>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotCarState::Builder::getSteeringAngleLinear() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<70>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotCarState::Builder::setSteeringAngleLinear(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<70>() * ::capnp::ELEMENTS, value);
+}
+
 inline  ::uint16_t StarPilotCarState::ToyotaCruise::Reader::getVersion() const {
   return _reader.getDataField< ::uint16_t>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
@@ -18688,6 +19668,34 @@ inline bool StarPilotLongitudinalPlan::Builder::getForceStopHolding() {
 inline void StarPilotLongitudinalPlan::Builder::setForceStopHolding(bool value) {
   _builder.setDataField<bool>(
       ::capnp::bounded<16>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotLongitudinalPlan::Reader::getForceStopBraking() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotLongitudinalPlan::Builder::getForceStopBraking() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLongitudinalPlan::Builder::setForceStopBraking(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<17>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotLongitudinalPlan::Reader::getForceStopEpisodeMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotLongitudinalPlan::Builder::getForceStopEpisodeMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotLongitudinalPlan::Builder::setForceStopEpisodeMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool SlcState::Reader::hasSlotId() const {
@@ -19974,6 +20982,62 @@ inline void SlcState::Builder::adoptUpcomingBoundaryId(
 inline ::capnp::Orphan< ::capnp::Text> SlcState::Builder::disownUpcomingBoundaryId() {
   return ::capnp::_::PointerHelpers< ::capnp::Text>::disown(_builder.getPointerField(
       ::capnp::bounded<21>() * ::capnp::POINTERS));
+}
+
+inline bool SlcState::Reader::getAcceptedIsPreview() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<141>() * ::capnp::ELEMENTS);
+}
+
+inline bool SlcState::Builder::getAcceptedIsPreview() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<141>() * ::capnp::ELEMENTS);
+}
+inline void SlcState::Builder::setAcceptedIsPreview(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<141>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t SlcState::Reader::getWheelOverrideSince() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<18>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcState::Builder::getWheelOverrideSince() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<18>() * ::capnp::ELEMENTS);
+}
+inline void SlcState::Builder::setWheelOverrideSince( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<18>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t SlcState::Reader::getWheelAdoptMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<19>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcState::Builder::getWheelAdoptMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<19>() * ::capnp::ELEMENTS);
+}
+inline void SlcState::Builder::setWheelAdoptMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<19>() * ::capnp::ELEMENTS, value);
+}
+
+inline float SlcState::Reader::getWheelAdoptTargetMps() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<40>() * ::capnp::ELEMENTS);
+}
+
+inline float SlcState::Builder::getWheelAdoptTargetMps() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<40>() * ::capnp::ELEMENTS);
+}
+inline void SlcState::Builder::setWheelAdoptTargetMps(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<40>() * ::capnp::ELEMENTS, value);
 }
 
 inline bool SlcState::SourceReading::Reader::hasSource() const {
@@ -21483,6 +22547,20 @@ inline ::capnp::Orphan< ::cereal::SlcAction::ControllerCruiseAction> SlcAction::
       ::capnp::bounded<3>() * ::capnp::POINTERS));
 }
 
+inline  ::uint64_t SlcAction::Reader::getWheelAdoptMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcAction::Builder::getWheelAdoptMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void SlcAction::Builder::setWheelAdoptMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
 inline  ::uint16_t SlcAction::ControllerCruiseAction::Reader::getVersion() const {
   return _reader.getDataField< ::uint16_t>(
       ::capnp::bounded<0>() * ::capnp::ELEMENTS);
@@ -22349,6 +23427,20 @@ inline void SlcCruiseEvent::Builder::adoptTeslaStockCruise(
 inline ::capnp::Orphan< ::cereal::SlcCruiseEvent::TeslaStockCruise> SlcCruiseEvent::Builder::disownTeslaStockCruise() {
   return ::capnp::_::PointerHelpers< ::cereal::SlcCruiseEvent::TeslaStockCruise>::disown(_builder.getPointerField(
       ::capnp::bounded<5>() * ::capnp::POINTERS));
+}
+
+inline  ::uint64_t SlcCruiseEvent::Reader::getWheelOverrideSince() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t SlcCruiseEvent::Builder::getWheelOverrideSince() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS);
+}
+inline void SlcCruiseEvent::Builder::setWheelOverrideSince( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<7>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t SlcCruiseEvent::TeslaStockCruise::Reader::getVersion() const {
@@ -23268,6 +24360,247 @@ inline  ::cereal::StarPilotModelDataV2::VisionObservation::Stream StarPilotModel
 inline void StarPilotModelDataV2::VisionObservation::Builder::setStream( ::cereal::StarPilotModelDataV2::VisionObservation::Stream value) {
   _builder.setDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Stream>(
       ::capnp::bounded<22>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotModelDataV2::VisionObservation::Reader::hasStopSigns() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotModelDataV2::VisionObservation::Builder::hasStopSigns() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS).isNull();
+}
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader StarPilotModelDataV2::VisionObservation::Reader::getStopSigns() const {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::get(_reader.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder StarPilotModelDataV2::VisionObservation::Builder::getStopSigns() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::get(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+#if !CAPNP_LITE
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline StarPilotModelDataV2::VisionObservation::Pipeline::getStopSigns() {
+  return  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Pipeline(_typeless.getPointerField(2));
+}
+#endif  // !CAPNP_LITE
+inline void StarPilotModelDataV2::VisionObservation::Builder::setStopSigns( ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Reader value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::set(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), value);
+}
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation::Builder StarPilotModelDataV2::VisionObservation::Builder::initStopSigns() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::init(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+inline void StarPilotModelDataV2::VisionObservation::Builder::adoptStopSigns(
+    ::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>&& value) {
+  ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::adopt(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation> StarPilotModelDataV2::VisionObservation::Builder::disownStopSigns() {
+  return ::capnp::_::PointerHelpers< ::cereal::StarPilotModelDataV2::VisionObservation::StopObservation>::disown(_builder.getPointerField(
+      ::capnp::bounded<2>() * ::capnp::POINTERS));
+}
+
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getStatus() const {
+  return _reader.getDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Status>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::cereal::StarPilotModelDataV2::VisionObservation::Status StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getStatus() {
+  return _builder.getDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Status>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setStatus( ::cereal::StarPilotModelDataV2::VisionObservation::Status value) {
+  _builder.setDataField< ::cereal::StarPilotModelDataV2::VisionObservation::Status>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getObservedMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getObservedMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setObservedMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getValidUntilMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getValidUntilMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setValidUntilMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getCameraFrameEofBootTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getCameraFrameEofBootTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setCameraFrameEofBootTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint32_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getFrameId() const {
+  return _reader.getDataField< ::uint32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint32_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getFrameId() {
+  return _builder.getDataField< ::uint32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setFrameId( ::uint32_t value) {
+  _builder.setDataField< ::uint32_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getImageWidth() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getImageWidth() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setImageWidth( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getImageHeight() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getImageHeight() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setImageHeight( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotModelDataV2::VisionObservation::StopObservation::Reader::hasDetections() const {
+  return !_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline bool StarPilotModelDataV2::VisionObservation::StopObservation::Builder::hasDetections() {
+  return !_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS).isNull();
+}
+inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader StarPilotModelDataV2::VisionObservation::StopObservation::Reader::getDetections() const {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::get(_reader.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder StarPilotModelDataV2::VisionObservation::StopObservation::Builder::getDetections() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::get(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::setDetections( ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Reader value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::set(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), value);
+}
+inline  ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>::Builder StarPilotModelDataV2::VisionObservation::StopObservation::Builder::initDetections(unsigned int size) {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::init(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), size);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopObservation::Builder::adoptDetections(
+    ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>&& value) {
+  ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::adopt(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS), kj::mv(value));
+}
+inline ::capnp::Orphan< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>> StarPilotModelDataV2::VisionObservation::StopObservation::Builder::disownDetections() {
+  return ::capnp::_::PointerHelpers< ::capnp::List< ::cereal::StarPilotModelDataV2::VisionObservation::StopDetection,  ::capnp::Kind::STRUCT>>::disown(_builder.getPointerField(
+      ::capnp::bounded<0>() * ::capnp::POINTERS));
+}
+
+inline float StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getConfidence() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getConfidence() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setConfidence(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getX1Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getX1Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setX1Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getY1Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getY1Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setY1Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getX2Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getX2Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setX2Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Reader::getY2Pixels() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotModelDataV2::VisionObservation::StopDetection::Builder::getY2Pixels() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotModelDataV2::VisionObservation::StopDetection::Builder::setY2Pixels( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
 }
 
 inline  ::uint16_t StarPilotSteeringTracking::Reader::getVersion() const {
@@ -36877,6 +38210,132 @@ inline  ::uint64_t LiveTrackingResponseWitness::Builder::getValidUntilMonoTime()
 inline void LiveTrackingResponseWitness::Builder::setValidUntilMonoTime( ::uint64_t value) {
   _builder.setDataField< ::uint64_t>(
       ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint16_t StarPilotBlendfulState::Reader::getVersion() const {
+  return _reader.getDataField< ::uint16_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint16_t StarPilotBlendfulState::Builder::getVersion() {
+  return _builder.getDataField< ::uint16_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setVersion( ::uint16_t value) {
+  _builder.setDataField< ::uint16_t>(
+      ::capnp::bounded<0>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotBlendfulState::Reader::getCurvature() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotBlendfulState::Builder::getCurvature() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setCurvature(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<1>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotBlendfulState::Reader::getTrust() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotBlendfulState::Builder::getTrust() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setTrust(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<2>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotBlendfulState::Reader::getModelCurvature() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotBlendfulState::Builder::getModelCurvature() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setModelCurvature(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<3>() * ::capnp::ELEMENTS, value);
+}
+
+inline bool StarPilotBlendfulState::Reader::getGoingAround() const {
+  return _reader.getDataField<bool>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+
+inline bool StarPilotBlendfulState::Builder::getGoingAround() {
+  return _builder.getDataField<bool>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setGoingAround(bool value) {
+  _builder.setDataField<bool>(
+      ::capnp::bounded<16>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotBlendfulState::Reader::getLeftProb() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotBlendfulState::Builder::getLeftProb() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setLeftProb(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotBlendfulState::Reader::getRightProb() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotBlendfulState::Builder::getRightProb() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setRightProb(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<5>() * ::capnp::ELEMENTS, value);
+}
+
+inline float StarPilotBlendfulState::Reader::getLaneWidth() const {
+  return _reader.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+
+inline float StarPilotBlendfulState::Builder::getLaneWidth() {
+  return _builder.getDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setLaneWidth(float value) {
+  _builder.setDataField<float>(
+      ::capnp::bounded<6>() * ::capnp::ELEMENTS, value);
+}
+
+inline  ::uint64_t StarPilotBlendfulState::Reader::getModelMonoTime() const {
+  return _reader.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+
+inline  ::uint64_t StarPilotBlendfulState::Builder::getModelMonoTime() {
+  return _builder.getDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS);
+}
+inline void StarPilotBlendfulState::Builder::setModelMonoTime( ::uint64_t value) {
+  _builder.setDataField< ::uint64_t>(
+      ::capnp::bounded<4>() * ::capnp::ELEMENTS, value);
 }
 
 }  // namespace

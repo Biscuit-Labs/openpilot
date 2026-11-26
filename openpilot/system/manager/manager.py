@@ -35,12 +35,13 @@ def manager_init() -> None:
       cloudlog.warning(f"Renamed Honda EPS settings: {renamed}")
   except OSError:
     cloudlog.exception("Honda EPS settings rename interrupted; retrying at next startup")
-  from openpilot.starpilot.honda_eps_settings import reset_override_fade_up_once
+  from openpilot.starpilot.honda_eps_settings import reset_angle_defaults_once
   try:
-    if reset_override_fade_up_once(params):
-      cloudlog.warning("Override Fade Up: saved value cleared once for the 1.25 s default")
+    cleared = reset_angle_defaults_once(params)
+    if cleared:
+      cloudlog.warning(f"Angle-hold defaults: saved values cleared once: {cleared}")
   except OSError:
-    cloudlog.exception("Override Fade Up reset interrupted; retrying at next startup")
+    cloudlog.exception("Angle-hold defaults reset interrupted; retrying at next startup")
   # Konik only: carry a vfn device's Konik identity over before the migration archives vfn's keys
   from openpilot.starpilot.connect.konik_adoption import adopt_vfn_konik_identity
   try:
@@ -98,7 +99,7 @@ def manager_init() -> None:
   for k in params.all_keys():
     if k == b"LKASButtonControl":
       continue  # Card enrolls the vehicle-specific default after identification.
-    default_value = not os.path.lexists(params.get_param_path("Version")) if k == b"LaneCentering" else params.get_default_value(k)
+    default_value = not os.path.lexists(params.get_param_path("Version")) if k in (b"LaneCentering", b"ForceStops") else params.get_default_value(k)
     if default_value is not None and not os.path.lexists(params.get_param_path(k)):
       params.put(k, default_value, block=True)
 

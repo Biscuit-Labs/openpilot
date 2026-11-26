@@ -1,4 +1,5 @@
 import gzip
+import math
 import os
 import struct
 import sys
@@ -9,7 +10,7 @@ from argparse import ArgumentParser
 from opendbc.car.structs import CarParams
 from rwd_format.x5a import x5a
 from panda import Panda
-from opendbc.car.uds import UdsClient, SESSION_TYPE, ACCESS_TYPE, ROUTINE_CONTROL_TYPE, ROUTINE_IDENTIFIER_TYPE, DATA_IDENTIFIER_TYPE, RESET_TYPE, NegativeResponseError
+from opendbc.car.uds import UdsClient, SESSION_TYPE, ACCESS_TYPE, ROUTINE_CONTROL_TYPE, ROUTINE_IDENTIFIER_TYPE, DATA_IDENTIFIER_TYPE, RESET_TYPE, NegativeResponseError, MessageTimeoutError
 from unittest import mock
 
 # Honda EPS firmware decryption-key DID. Not present in stock opendbc
@@ -31,6 +32,41 @@ SESSION_SETTLE_S = 0.5
 # The former duplicate validator was retired: unknown lengths used to pass,
 # and its checksum assertion could be disabled by optimized Python.
 
+# V850 (Ridgeline T6Z / Pilot TG7) bootloader, lab/pilot-tg7/V850_FLASH_PROTOCOL_20261124.md (traced from the boot and
+# loader code, run end to end in v850-emu): the same request sequence as below, with three differences handled here.
+# - 10 02 hands over to a RAM loader that refuses 10 01/10 03 (7F 10 7E); 11 01 is its only way out. The dry run
+#   therefore leaves with 11 01: nothing was erased, so the ECU resets into the untouched app.
+# - With consecutive frames back to back the emulated loader dropped about one 36 in 270 without replying; it accepts
+#   the same sequence counter again (answered without rewriting). So frames go out at least 1 ms apart and a 36
+#   that times out is resent with the same counter.
+# - 10 02 answers 7F 10 78 and 50 02 follows 0.4-0.9 s later; the client's response-pending wait covers it.
+V850_CF_SPACING_S = 0.001
+V850_TRANSFER_RETRIES = 3
+
+
+def is_v850(fw):
+  from check_rwd import is_t6z
+  return is_t6z(fw)
+
+
+def space_consecutive_frames(uds_client, spacing_s):
+  """Send ISO-TP consecutive frames at least spacing_s apart, whatever STmin the ECU's flow control asks for."""
+  can_client = uds_client._can_client
+  send = can_client.send
+  can_client.send = lambda msgs, delay=0: send(msgs, delay=max(delay, spacing_s) if len(msgs) > 1 else delay)
+
+
+def transfer_block(uds_client, seq, data, retries):
+  """36 with a resend on timeout: the loader answers a repeated counter positively without writing twice."""
+  for attempt in range(retries + 1):
+    try:
+      return uds_client.transfer_data(seq, data)
+    except MessageTimeoutError:
+      if attempt == retries:
+        raise
+      print(f"\n  block {seq:#04x}: no reply, resending ({attempt + 1}/{retries})")
+
+
 def auto_int(i):
   return int(i, 0)
 
@@ -48,9 +84,10 @@ def read_file(fn):
 
 def validate_fw(fw):
   # No bypass: an image that is malformed or fails a checksum is never flashed.
-  from check_rwd import validate_container, validate_firmware
+  from check_rwd import require_uds_flashable, validate_container, validate_firmware
   validate_container(fw)
   validate_firmware(fw)
+  require_uds_flashable(fw)
 
 
 def calculate_session_key(const_bytes, seed_bytes):
@@ -102,6 +139,22 @@ def get_seed_secret(fw, app_id):
 def get_can_address(fw):
   return 0x18da00f1 | struct.unpack('!B', fw.file_headers[2].values[0].value)[0] << 8
 
+# The extended session drops after about 5 s without a request (S3; measured on the V850 app and boot server, 5.0 s kept,
+# 5.5 s dropped). A seed retry 10 s later then got 7F 27 7F and the flash stopped: the common case is recovery, right
+# after a power cycle, when the boot's seed delay is still running. Tester present every 2 s holds the session while
+# the seed requests themselves keep their slow interval.
+SESSION_KEEPALIVE_S = 2.0
+
+
+def keep_session_alive(uds_client, wait_s):
+  """Sleep wait_s, sending tester present between 2 s slices so the extended session survives the wait."""
+  slices = max(1, math.ceil(wait_s / SESSION_KEEPALIVE_S))
+  for i in range(slices):
+    time.sleep(min(SESSION_KEEPALIVE_S, wait_s - i * SESSION_KEEPALIVE_S))
+    if i < slices - 1:
+      uds_client.tester_present()
+
+
 def request_seed(uds_client, timeout_s):
   """Request a security-access seed, waiting out the ECU's delay timer.
 
@@ -133,7 +186,7 @@ def request_seed(uds_client, timeout_s):
       wait = min(SEED_RETRY_INTERVAL_S, remaining)
       print(f"  attempt {attempt}: {reason} — waiting {wait:.0f}s "
             f"({remaining:.0f}s of {timeout_s:.0f}s budget left)")
-      time.sleep(wait)
+      keep_session_alive(uds_client, wait)
 
 def leave_diagnostic_session(uds_client):
   """Drop back to the default session so the EPS isn't left in extended/programming."""
@@ -173,6 +226,9 @@ if __name__ == "__main__":
     raise SystemExit("ERROR: --danger requires a real Panda connection (got mock client)")
 
   debug_output = list()
+  v850 = is_v850(fw)
+  if v850 and not isinstance(uds_client, mock.Mock):
+    space_consecutive_frames(uds_client, V850_CF_SPACING_S)
 
   print("tester present ...")
   uds_client.tester_present()
@@ -205,6 +261,10 @@ if __name__ == "__main__":
     debug_output = debug_output + [data]
 
     if not args.danger:
+      if v850:
+        # the V850 loader is now running from RAM and refuses 10 01; reset back into the app (nothing erased)
+        print("V850: leaving the loader with ECU reset (nothing erased, the app restarts)")
+        uds_client.ecu_reset(RESET_TYPE.HARD)
       raise RuntimeError('Safe mode: aborting before mutating actions')
 
     print("Erasing flash")
@@ -231,7 +291,9 @@ if __name__ == "__main__":
       seq = 1
       while cursor < length:
         block_size = min(max_chunk_size, length - cursor)
-        data = uds_client.transfer_data(seq, fw.firmware_encrypted[0][cursor:cursor+block_size])
+        chunk = fw.firmware_encrypted[0][cursor:cursor+block_size]
+        data = (transfer_block(uds_client, seq, chunk, V850_TRANSFER_RETRIES) if v850 else
+                uds_client.transfer_data(seq, chunk))
         debug_output = debug_output + [data]
         seq = (seq + 1) & 0xFF
         cursor += block_size
@@ -255,7 +317,7 @@ if __name__ == "__main__":
       print(str(e))
     else:
       print(traceback.format_exc())
-    if not isinstance(uds_client, mock.Mock):
+    if not isinstance(uds_client, mock.Mock) and not (v850 and expected_abort):
       leave_diagnostic_session(uds_client)
     # Dry-run intentionally raises here; treat that as success. Any other failure
     # must be a non-zero exit so callers (e.g. flash.py) don't treat it as done.

@@ -9,7 +9,7 @@ import sys
 import tempfile
 import types
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 TOOLS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(TOOLS))
@@ -61,9 +61,11 @@ def image(length=0x4c000, key=b'\x01\x02\x03', ids=1, secrets=1):
     return body + struct.pack('<I', sum(body) & 0xffffffff)
 
 
-def rom_crc_image(software_id=b'39990-TJB,A220', start=0xc000, length=0x74000, stale=False):
-    """A THR/TJB-shaped image whose checksums are right and ROM CRCs right unless stale."""
+def rom_crc_image(software_id=b'39990-TJB,A220', start=0xc000, length=0x74000, stale=False, edits=()):
+    """A THR/TJB-shaped image whose checksums are right and ROM CRCs right unless stale; edits = (flash addr, bytes)."""
     app = bytearray(length)
+    for addr, data in edits:
+        app[addr - start:addr - start + len(data)] = data
     for region_start, region_end, slot in check_rwd.ROM_CRC_REGIONS:
         app[region_start - start + 7] = 0x5a  # some content to CRC
         crc = check_rwd.crc32_bzip2(app[region_start - start:region_end - start])
@@ -75,6 +77,28 @@ def rom_crc_image(software_id=b'39990-TJB,A220', start=0xc000, length=0x74000, s
     header = (b'\x00\x00\x01\x01\x30\x01' + bytes([len(software_id)]) + software_id +
               b'\x01\x06' + b'\x00' * 6 + b'\x01\x03\x01\x02\x03')
     body = b'\x5a\x0d\x0a' + header + struct.pack('!II', start, length) + bytes(inverse[b] for b in app)
+    return body + struct.pack('<I', sum(body) & 0xffffffff)
+
+
+def t6z_image(software_ids=(b'39990-T6Z-A110', b'39990,T6Z,A110', b'39990-T6Z,A110'), corrupt=False, start=0x10000,
+              product=b'HNAB11FMM022518A', part=b'39990-T6Z,A110'):
+    """A V850-shaped image: product block + part number in the app, each bank LE32-summing to 0 via its last word."""
+    length, keys = check_rwd.T6Z_LENGTH, b'\x01\x02\x03'
+    app = bytearray(b'\xff' * length)
+    app[0x3428:0x3438] = product
+    app[0x3438:0x3446] = part
+    for win_start, win_end in check_rwd.T6Z_SUM_WINDOWS:
+        hole = win_end - 4
+        app[hole:hole + 4] = b'\x00' * 4
+        app[hole:hole + 4] = struct.pack('<I', (-check_rwd.le32_sum(app, win_start, win_end)) & 0xffffffff)
+    if corrupt:
+        app[0x20000] ^= 1
+    k0, k1, k2 = keys
+    encrypted = bytes(((((p - k0) & 0xff) ^ k1) + k2) & 0xff for p in app)
+    ids = b''.join(bytes([len(i)]) + i for i in software_ids)
+    header = (b'\x00\x00\x01\x01\x30' + bytes([len(software_ids)]) + ids +
+              b'\x02' + (b'\x06' + b'\x00\x11\x00\x12\x10\x20') * 2 + b'\x01\x03' + keys)
+    body = b'\x5a\x0d\x0a' + header + struct.pack('!II', start, length) + encrypted
     return body + struct.pack('<I', sum(body) & 0xffffffff)
 
 
@@ -125,6 +149,130 @@ class ValidationTests(unittest.TestCase):
                 with self.subTest(length=len(raw), expected=expected), contextlib.redirect_stdout(io.StringIO()):
                     self.assertEqual(check_rwd.check(path), expected)
 
+    def test_t6z_images_get_their_own_checks(self):
+        # Ridgeline T6Z-A110: its own cipher and LE32 bank sums, 3 software IDs against 2 seed secrets.
+        cases = ((t6z_image(), True), (t6z_image(corrupt=True), False), (t6z_image(start=0xc000), False),
+                 # angle builds ('+' in the header IDs and the app part number) and the Pilot TG7 (same family)
+                 (t6z_image(software_ids=(b'39990-T6Z-A110', b'39990+T6Z+A110'), part=b'39990+T6Z+A110'), True),
+                 (t6z_image(software_ids=(b'39990-TG7-A070', b'39990+TG7+A070'), product=b'HN9A10BMM019518A',
+                            part=b'39990+TG7+A070'), True),
+                 # not a V850 app: no HN product block, or another ECU's part number
+                 (t6z_image(product=b'XXAB11FMM022518A'), False), (t6z_image(part=b'39990-TJB-A220'), False))
+        with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
+            path = Path(folder) / 't6z.rwd'
+            for raw, expected in cases:
+                path.write_bytes(raw)
+                with self.subTest(expected=expected), contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(check_rwd.check(path), expected)
+                if expected:
+                    self.assertIn('T6Z validate (FF01) sum', output.getvalue())
+        # The 3/4 count exception is T6Z's only; other images still need one secret per ID.
+        with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
+            path = Path(folder) / 'image.rwd'
+            path.write_bytes(image(ids=3, secrets=2))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertFalse(check_rwd.check(path))
+
+    def _v850_client(self, drop_seq=None):
+        """A fake UDS client for a V850 image: the loader replies 74 20 02 02 (514), and one 36 can go unanswered once."""
+        client = Mock()
+        client.read_data_by_identifier.return_value = b'39990-T6Z-A110\x00\x00'
+        client.security_access.return_value = b'\x00\x01'
+        client.request_download.return_value = 514
+        dropped = []
+
+        def transfer(seq, data):
+            if seq == drop_seq and not dropped:
+                dropped.append(seq)
+                raise Timeout()
+            return b''
+        client.transfer_data.side_effect = transfer
+        can_client = types.SimpleNamespace(send=Mock())
+        names = ('read_data_by_identifier', 'security_access', 'tester_present', 'diagnostic_session_control',
+                 'routine_control', 'write_data_by_identifier', 'request_download', 'transfer_data',
+                 'request_transfer_exit', 'ecu_reset')
+        fake = types.SimpleNamespace(_can_client=can_client, **{name: getattr(client, name) for name in names})
+        return client, fake, can_client
+
+    def _run_eps_update(self, fake, *flags):
+        modules = dependencies()
+        modules['opendbc.car.uds'].UdsClient.return_value = fake
+        modules['tqdm'] = types.SimpleNamespace(tqdm=MagicMock())   # the progress bar is a context manager
+        with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
+            path = Path(folder) / 't6z.rwd'
+            path.write_bytes(t6z_image())
+            with patch.dict(sys.modules, modules), \
+                 patch.object(sys, 'argv', ['eps-update.py', str(path), *flags]), \
+                 patch('time.sleep'), contextlib.redirect_stdout(io.StringIO()) as output:
+                try:
+                    runpy.run_path(str(TOOLS / 'eps-update.py'), run_name='__main__')
+                    code = None
+                except SystemExit as status:
+                    code = status.code
+        return modules, output.getvalue(), code
+
+    def test_seed_delay_keeps_the_session_alive(self):
+        # the extended session drops after ~5 s idle (S3), so the 10 s seed retry wait sends tester present every 2 s
+        modules = dependencies()
+
+        class Pending(Exception):
+            error_code = 0x37
+        modules['opendbc.car.uds'].NegativeResponseError = Pending
+        with patch.dict(sys.modules, modules):
+            update = load('eps_update_seed', 'eps-update.py')
+        client = Mock()
+        client.security_access.side_effect = [Pending(), b'\x12\x34']
+        with patch('time.sleep') as sleep, contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(update.request_seed(client, 120.0), b'\x12\x34')
+        self.assertEqual(client.tester_present.call_count, 4)
+        self.assertEqual([c.args[0] for c in sleep.call_args_list], [2.0] * 5)
+
+    def test_v850_images_are_programmed(self):
+        # the V850 bootloader takes the same sequence (lab/pilot-tg7/V850_FLASH_PROTOCOL_20261124.md)
+        check_rwd.require_uds_flashable(x5a(t6z_image()))
+        client, fake, can_client = self._v850_client(drop_seq=5)
+        raw_send = can_client.send                                   # eps-update wraps it in place
+        modules, output, code = self._run_eps_update(fake, '--danger')
+        uds = modules['opendbc.car.uds']
+        self.assertIn(code, (None, 0), output)
+        self.assertEqual([c.args[1] for c in client.routine_control.call_args_list],
+                         [uds.ROUTINE_IDENTIFIER_TYPE.ERASE_MEMORY, uds.ROUTINE_IDENTIFIER_TYPE.CHECK_PROGRAMMING_DEPENDENCIES])
+        client.write_data_by_identifier.assert_called_once_with(0xF101, b'\x01\x02\x03')
+        client.request_download.assert_called_once_with(0x10000, 0x50000)
+        seqs = [c.args[0] for c in client.transfer_data.call_args_list]
+        self.assertEqual(len(seqs), 640 + 1)                       # 640 blocks of 512 bytes, block 5 resent once
+        self.assertEqual(seqs[4:6], [5, 5])
+        self.assertEqual({len(c.args[1]) for c in client.transfer_data.call_args_list}, {512})
+        self.assertEqual(seqs[-1], 640 & 0xFF)
+        client.request_transfer_exit.assert_called_once()
+        client.ecu_reset.assert_called_once()
+        self.assertIn('resending', output)
+        # consecutive frames are spaced at least 1 ms apart, whatever STmin the ECU asks for; single frames untouched
+        fake._can_client.send([b'a', b'b'], delay=0)
+        fake._can_client.send([b'a'], delay=0)
+        self.assertEqual(raw_send.call_args_list[-2].kwargs['delay'], 0.001)
+        self.assertEqual(raw_send.call_args_list[-1].kwargs['delay'], 0)
+
+    def test_v850_transfer_gives_up_after_the_retries(self):
+        client, fake, _ = self._v850_client()
+        client.transfer_data.side_effect = Timeout()
+        _, output, code = self._run_eps_update(fake, '--danger')
+        self.assertEqual(code, 1)
+        self.assertEqual(client.transfer_data.call_count, 4)    # the first try and 3 resends of block 1
+        client.ecu_reset.assert_not_called()
+
+    def test_v850_dry_run_leaves_the_loader_by_reset(self):
+        # after 10 02 the V850 RAM loader refuses 10 01; nothing was erased, so 11 01 restarts the app
+        client, fake, _ = self._v850_client()
+        modules, output, code = self._run_eps_update(fake)
+        uds = modules['opendbc.car.uds']
+        self.assertEqual(code, 0, output)
+        self.assertIn(load('eps_flash_marker', 'flash.py').DRY_RUN_OK_MARKER, output)
+        client.ecu_reset.assert_called_once()
+        client.routine_control.assert_not_called()
+        client.transfer_data.assert_not_called()
+        self.assertNotIn(((uds.SESSION_TYPE.DEFAULT,), {}), client.diagnostic_session_control.call_args_list)
+
     def test_thr_tjb_rom_crcs(self):
         # Odyssey THR and RDX TJB images must also carry valid runtime ROM CRCs;
         # other software IDs are not held to them.
@@ -139,6 +287,28 @@ class ValidationTests(unittest.TestCase):
                     self.assertEqual(check_rwd.check(path), expected)
                 if not expected:
                     self.assertTrue('ROM CRC failed' in output.getvalue() or 'THR/TJB image' in output.getvalue())
+
+    def test_thr_tjb_monitor_shadows(self):
+        # A primary calibration edit must be mirrored to the monitor shadow (TJB's sits 0x4D00 below THR's),
+        # in every populated row; checksums and ROM CRCs are recomputed here, so only the shadow check can catch it.
+        tracker = struct.pack('!H', 1641)
+        cases = (
+            (b'39990-THR,A020', ((0x57bd2, tracker), (0x67be8, tracker)), True),
+            (b'39990-THR,A020', ((0x57bd2, tracker),), False),
+            (b'39990-THR,A020', ((0x57bd2 + 6 * 0x300, tracker),), False),
+            (b'39990-TJB,A220', ((0x57bd2, tracker), (0x67be8 - 0x4d00, tracker)), True),
+            (b'39990-TJB,A220', ((0x57bd2, tracker), (0x67be8, tracker)), False),
+            (b'39990-TJB,A220', ((0x57bd2 + 5 * 0x300, tracker),), True),  # TJB rows 5-6 are erased in the primary only
+            (b'39990-TLA,A040', ((0x57bd2, tracker),), True),  # no monitor shadow outside THR/TJB
+        )
+        with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
+            path = Path(folder) / 'image.rwd'
+            for software_id, edits, expected in cases:
+                path.write_bytes(rom_crc_image(software_id, edits=edits))
+                with self.subTest(software_id=software_id, edits=edits), contextlib.redirect_stdout(io.StringIO()) as output:
+                    self.assertEqual(check_rwd.check(path), expected)
+                if not expected:
+                    self.assertIn('monitor shadow stale: tracker_1', output.getvalue())
 
     def test_known_lengths_match_published_offsets(self):
         # Offsets the per-vehicle tables used before validation was generalized, including
@@ -336,6 +506,12 @@ class FlashTests(unittest.TestCase):
                 self.assertEqual(exit_status.exception.code, rc)
                 self.assertEqual(menu.call_args.kwargs['flash_succeeded'], rc == 0)
                 self.assertEqual('Firmware programming completed.' in output.getvalue(), rc == 0)
+
+    def test_valid_v850_image_is_flashable(self):
+        with tempfile.TemporaryDirectory(dir=TOOLS / 'tests') as folder:
+            path = Path(folder) / 't6z.rwd'
+            path.write_bytes(t6z_image())
+            self.assertIsNone(self.flash.not_flashable_reason(str(path)))
 
     def run_main_with_status(self, status):
         with patch.object(sys, 'argv', ['flash.py']), \

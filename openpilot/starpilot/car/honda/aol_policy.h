@@ -9,7 +9,10 @@ inline bool honda_aol_param(uint16_t param) {
 inline constexpr AolSafetyProfile HONDA_AOL_PROFILE{20U, honda_aol_param, false};
 
 
-inline bool honda_stock_aol_param(uint16_t param) {
+// A Bosch angle car's word also carries the angle bit (4096) and its angle profile in bits 15:13 (opendbc stock_aol
+// BOSCH_ANGLE_MASK); panda masks them, so does this check (11-24: unmasked, every Bosch angle car was refused here).
+inline bool honda_stock_aol_param(uint16_t param_raw) {
+  const uint16_t param = param_raw & static_cast<uint16_t>(~0xF000U);
   return (param == 0U) || (param == 1U) || (param == 8U) || (param == 9U) || (param == 10U) || (param == 11U) || (param == 16U) || (param == 17U) || (param == 80U) || (param == 81U) || (param == 512U) || (param == 513U) ||
          (param == 1058U) || (param == 1059U) || (param == 1570U) || (param == 1571U) || (param == 2082U) || (param == 2083U) || (param == 2211U);
 }

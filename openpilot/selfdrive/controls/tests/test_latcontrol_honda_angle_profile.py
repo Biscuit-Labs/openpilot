@@ -1,6 +1,6 @@
-"""Angle-profile cars (opendbc car/honda/angle_profiles.py, RDX 3G first): angle mode on the 0x0C angle PTM image selects
-LatControlHondaAngle, and on the linear angle (starpilotCarState.steeringAngleLinear) the desired angle is the plain
-vehicle model with paramsd's ratio, starting at the profile's on-center ratio: no VGR table, no rack map."""
+"""Angle-profile cars (opendbc car/honda/angle_profiles.py, RDX 3G first): angle mode on an angle image selects StarPilot's
+LatControlAngle. The EPS steers in the 0x6A2 raw (rack-linear) angle, so the desired angle is the plain vehicle model with
+paramsd's ratio, starting at the profile's on-center ratio: no VGR table, no rack map."""
 import math
 
 import pytest
@@ -12,7 +12,7 @@ from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.values import CAR
 from opendbc.car.vehicle_model import VehicleModel
 from openpilot.selfdrive.controls.lib.lateral_controller_factory import create_lateral_controller
-from openpilot.selfdrive.controls.lib.latcontrol_honda_angle import LatControlHondaAngle
+from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 
 
 def rdx_cp(fw=b'39990+TJB+A220\x00\x00', angle=True, candidate=CAR.ACURA_RDX_3G):
@@ -37,19 +37,30 @@ def test_angle_profile_car_uses_the_plain_vehicle_model_when_linear(candidate, f
   cp = rdx_cp(fw=fw, candidate=candidate)
   assert cp.steerControlType == structs.CarParams.SteerControlType.angle
   lac = create_lateral_controller(cp, CarInterface(cp), 0.01, mode=None)
-  assert isinstance(lac, LatControlHondaAngle)
+  assert type(lac) is LatControlAngle
   vm = VehicleModel(cp)
   assert vm.sR == pytest.approx(OWN_GEOMETRY[candidate].steer_ratio)    # paramsd starts at the on-center ratio
-  lac.linear = True
+  import types
+  params = types.SimpleNamespace(roll=0., angleOffsetDeg=0.)
+  def desired(k, v):
+    cs = types.SimpleNamespace(steeringAngleDeg=0., vEgo=v, steeringPressed=False, steeringRateDeg=0.)
+    return lac.update(True, cs, vm, params, False, k, False, 0.)[1]
   for v, k in ((5., 0.02), (15., 0.004), (30., -0.001)):
-    want = math.degrees(vm.get_steer_from_curvature(-k, v, 0.))
-    assert lac.desired_angle_no_offset(k, v, 0., vm) == pytest.approx(want)
+    assert desired(k, v) == pytest.approx(math.degrees(vm.get_steer_from_curvature(-k, v, 0.)))
   # paramsd's live ratio carries straight through (the VM it updates is the one passed in)
   vm.update_params(1.0, 17.0)
-  assert lac.desired_angle_no_offset(0.004, 15., 0., vm) == pytest.approx(math.degrees(vm.get_steer_from_curvature(-0.004, 15., 0.)))
+  assert desired(0.004, 15.) == pytest.approx(math.degrees(vm.get_steer_from_curvature(-0.004, 15., 0.)))
 
 
 def test_torque_ptm_image_keeps_its_torque_controller():
   cp = rdx_cp(fw=b'39990-TJB,A220\x00\x00')
   assert cp.steerControlType == structs.CarParams.SteerControlType.torque
-  assert not isinstance(create_lateral_controller(cp, CarInterface(cp), 0.01, mode=None), LatControlHondaAngle)
+  assert not isinstance(create_lateral_controller(cp, CarInterface(cp), 0.01, mode=None), LatControlAngle)
+
+
+def test_clarity_angle_mode_uses_the_raw_linear_angle_without_the_vgr_table():
+  # the Clarity's angle-mode EPS steers in its 0x6A2 raw (rack-linear) angle: StarPilot's LatControlAngle with no VGR
+  # table (that table is for Ray's Accord angle-loop EPS, which takes the published angle)
+  cp = rdx_cp(fw=b'39990+TRW+A020\x00\x00', candidate=CAR.HONDA_CLARITY)
+  lac = create_lateral_controller(cp, CarInterface(cp), 0.01, mode=None)
+  assert type(lac) is LatControlAngle and lac.vgr_inverse is None

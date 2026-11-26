@@ -1,6 +1,7 @@
 import math
 
 from openpilot.cereal import log
+from opendbc.car.honda.clarity_angle_mode import angle_mode as honda_angle_mode
 from opendbc.car.honda.steer_ratio import get_honda_vgr_inverse, vgr_linear_to_physical
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.starpilot.car.subaru.angle_tune import _ascent_angle_tracking_target, _ascent_low_speed_angle_target
@@ -17,8 +18,10 @@ class LatControlAngle(LatControl):
     self.sat_check_min_speed = 5.
     # honda (angle-loop EPS): the EPS angle loop lags 0.3-0.6 s, so the raw angle-error rule would flag ordinary turn entries
     self.use_steer_limited_by_safety = CP.brand in ("tesla", "hyundai", "honda")
-    # CP.flags bits are per brand; None (no variable-ratio rack map) leaves the angle as VehicleModel gives it
-    self.vgr_inverse = get_honda_vgr_inverse(CP.flags) if CP.brand == "honda" else None
+    # CP.flags bits are per brand; None (no variable-ratio rack map) leaves the angle as VehicleModel gives it. The Honda
+    # modified-EPS angle mode steers in the EPS's raw (rack-linear) angle from 0x6A2 (opendbc honda/meps/linear_angle.py),
+    # already linear, so no VGR table there; Ray's Accord angle-loop EPS takes the published angle and keeps it
+    self.vgr_inverse = get_honda_vgr_inverse(CP.flags) if CP.brand == "honda" and not honda_angle_mode(CP) else None
 
   def update(self, active, CS, VM, params, steer_limited_by_safety, desired_curvature, curvature_limited, lat_delay):
     angle_log = log.ControlsState.LateralAngleState.new_message()

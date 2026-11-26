@@ -58,8 +58,10 @@ class AngleComboBase(unittest.TestCase):
     return self.rx_raw(msg[0], msg[2], msg[1])
 
   def angle(self, target, request=True, payload=True):
+    # protocol v3 (meps/protocol.py): request + payload = a DRIVE angle frame (0x4C), neither = STANDBY (0x0D); byte 3 0
+    b2 = 0x4C if (request and payload) else 0x0D if not (request or payload) else (0x80 if request else 0) | (0x20 if payload else 0)
     t = target & 0xFFFF
-    dat = bytearray([t >> 8, t & 0xFF, (0x80 if request else 0) | (0x20 if payload else 0), 0xF1, 0])
+    dat = bytearray([t >> 8, t & 0xFF, b2, 0, 0])
     dat[4] = honda_checksum(0xE4, None, dat)
     return self.tx((0xE4, bytes(dat), self.STEER_BUS))
 
@@ -88,7 +90,7 @@ class AngleComboBase(unittest.TestCase):
     self.assertTrue(self.angle(lim))                     # at the row's limit
     self.assertFalse(self.angle(lim + 1))                # beyond it
     self.safety.set_controls_allowed(False)
-    self.assertFalse(self.angle(0))                      # not allowed: request/payload refused
+    self.assertFalse(self.angle(0))                      # not allowed: no angle frame
     self.assertTrue(self.angle(0, False, False))
 
 

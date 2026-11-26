@@ -53,7 +53,7 @@ from openpilot.starpilot.ui.sounds_owner import AUTO_PREFIX as SOUND_AUTO_PREFIX
 from openpilot.starpilot.ui.feature_settings_state import (
   FeatureInput, FeaturePage, FeatureRow, FeatureSettingsRequest, FeatureUiAction, row_change,
   feature_scroll, feature_parent_page, feature_parent_title, value_request, value_editor_state,
-  SOUND_PRESETS as SOUND_PRESETS, SYSTEM_PRESETS, sound_editor_state,
+  SOUND_PRESETS as SOUND_PRESETS, SYSTEM_PRESETS, sound_editor_state, ChoiceStrip,
 )
 from openpilot.starpilot.ui.lane_change_feature import KEYS as LANE_CHANGE_KEYS, RESET as LANE_CHANGE_RESET
 from openpilot.starpilot.models.runtime import ModelStatusSource
@@ -150,6 +150,10 @@ def visual_border_state(state: OnroadState, signals: Signals) -> OnroadState:
   return replace(state, border_signals=BorderSignals(
     border.left_blinker, border.right_blinker,
     border.left_blindspot or signals.vasm_left, border.right_blindspot or signals.vasm_right))
+
+
+def choice_strip(session) -> ChoiceStrip:
+  return session.__dict__.setdefault("_choice_strip", ChoiceStrip())  # also works on a mocked session
 
 
 class StarShellSession:
@@ -967,7 +971,7 @@ class StarShellSession:
   def _display_ui(self, action: FeatureUiAction) -> None:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.SYSTEM:
       return
-    state = self.system_snapshot()
+    state = choice_strip(self).window("display", self.system_snapshot())
     if action.kind == "back":
       if state.editor:
         self.display_edit_key = None
@@ -1055,7 +1059,7 @@ class StarShellSession:
   def _appearance_ui(self, action: FeatureUiAction) -> None:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.APPEARANCE:
       return
-    state = self.appearance_snapshot()
+    state = choice_strip(self).window("appearance", self.appearance_snapshot())
     if action.kind == "back":
       if getattr(self, "appearance_edit_key", None) is not None:
         self.appearance_edit_key = None
@@ -1109,7 +1113,7 @@ class StarShellSession:
   def _sounds_ui(self, action: FeatureUiAction) -> None:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.SOUNDS:
       return
-    state = self.sounds_snapshot()
+    state = choice_strip(self).window("sounds", self.sounds_snapshot())
     if action.kind == "back":
       if self.sounds_edit_key is not None:
         self.sounds_edit_key = None
@@ -1131,7 +1135,7 @@ class StarShellSession:
   def _feature_ui(self, action: FeatureUiAction) -> None:
     if self._mode != ShellMode.SETTINGS or self.selected != Destination.DRIVING_CONTROLS:
       return
-    state = self.feature_snapshot()
+    state = choice_strip(self).window("feature", self.feature_snapshot())
     if action.kind == "back":
       self._lane_change_request_epoch = getattr(self, "_lane_change_request_epoch", 0) + 1
       if getattr(self, "feature_edit_key", None) is not None:
@@ -1327,7 +1331,7 @@ class StarShellSession:
       snapshot = replace(snapshot, settings=replace(snapshot.settings, availability=availability, nav_bar_alpha=0,
                                                    force_drive_label=label))
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.DRIVING_CONTROLS:
-      feature = self.feature_snapshot()
+      feature = choice_strip(self).window("feature", self.feature_snapshot())
       if not feature.editor:
         self.feature_scroll = feature_scroll(self.feature_scroll, 0, len(feature.rows))
       feature = replace(feature, scroll=0 if feature.editor else self.feature_scroll, sidebar_expanded=self.sidebar_expanded,
@@ -1335,13 +1339,13 @@ class StarShellSession:
                         "StarPilot" if self.feature_page == self.feature_root_page else feature_parent_title(self.feature_page))
       snapshot = replace(snapshot, features=feature)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.SOUNDS:
-      sounds = self.sounds_snapshot()
+      sounds = choice_strip(self).window("sounds", self.sounds_snapshot())
       if self.sounds_edit_key is None:
         self.sounds_scroll = feature_scroll(self.sounds_scroll, 0, len(sounds.rows))
       sounds = replace(sounds, scroll=self.sounds_scroll if self.sounds_edit_key is None else 0, sidebar_expanded=self.sidebar_expanded)
       snapshot = replace(snapshot, sounds=sounds)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.APPEARANCE:
-      appearance = self.appearance_snapshot()
+      appearance = choice_strip(self).window("appearance", self.appearance_snapshot())
       if not appearance.editor:
         self.appearance_scroll = feature_scroll(self.appearance_scroll, 0, len(appearance.rows))
       appearance = replace(appearance, scroll=0 if appearance.editor else self.appearance_scroll, sidebar_expanded=self.sidebar_expanded,
@@ -1349,7 +1353,7 @@ class StarShellSession:
                            "Appearance" if getattr(self, "appearance_page", "appearance") == "pip" else "StarPilot")
       snapshot = replace(snapshot, appearance=appearance)
     if self.profile == Profile.LARGE and mode == ShellMode.SETTINGS and self.selected == Destination.SYSTEM:
-      display = self.system_snapshot()
+      display = choice_strip(self).window("display", self.system_snapshot())
       if not display.editor:
         self.display_scroll = feature_scroll(self.display_scroll, 0, len(display.rows))
       display = replace(display, scroll=0 if display.editor else self.display_scroll, sidebar_expanded=self.sidebar_expanded)
@@ -1519,6 +1523,9 @@ class StarShellSession:
       self._snapshot_cache = None  # the owner acknowledged; read its state on the next frame
     elif request.source in ("features", "sounds", "appearance", "display", "models") and isinstance(action, FeatureUiAction) and action.kind == "details":
       self._feature_details(request.source, action)
+    elif isinstance(action, FeatureUiAction) and action.kind == "page":
+      choice_strip(self).page(action)
+      self._snapshot_cache = None
     elif request.source == "features" and isinstance(action, FeatureUiAction):
       self._feature_ui(action)
     elif request.source == "sounds" and isinstance(action, FeatureUiAction):

@@ -22,7 +22,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
 from openpilot.starpilot.ui.pip_owner import PiPOwner
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.settings_state import Destination
-from openpilot.starpilot.ui.shell import ShellMode
+from openpilot.starpilot.ui.shell import ShellMode, ShellRequest
 from openpilot.starpilot.ui.tests.test_feature_settings_visuals import fake_fonts
 from openpilot.system.ui.widgets import DialogResult
 
@@ -92,19 +92,46 @@ class ValueEditorTests(unittest.TestCase):
         disabled = replace(editor, rows=(replace(row, available=False),))
         self.assertIsNone(value_request(disabled, FeatureUiAction("action", disabled.rows[0], index)))
 
-  def test_every_choice_remains_reachable_and_quick_picks_are_bounded(self):
+  def test_every_choice_remains_reachable_and_the_strip_lists_all_choices(self):
     for count in (2, 3, 5, 15):
       choices = tuple(f"Choice {i}" for i in range(count))
       row = FeatureRow("choice", "Choice", choices[0], choices=choices, available=True, default_value=choices[1])
       editor = value_editor_state(FeatureSettingsState(rows=(row,)), row.key)
       current = editor.rows[0]
-      self.assertLessEqual(len(current.presets), 3)
-      self.assertIn((choices[1], choices[1]), current.presets)
+      # The paged strip shows at most three choices at a time, so presets now carry every choice.
+      self.assertEqual(tuple(value for value, _ in current.presets), choices)
       for choice in choices[1:]:
         request = value_request(replace(editor, rows=(current,)), FeatureUiAction("change", current, 1))
         self.assertEqual(request.value, choice)
         current = replace(current, value=choice)
       self.assertIsNone(value_request(replace(editor, rows=(current,)), FeatureUiAction("change", current, 1)))
+
+  def test_paged_choices_resolve_against_the_window_on_screen(self):
+    choices = tuple(f"Choice {i}" for i in range(15))
+    row = FeatureRow("choice", "Choice", choices[7], b"saved", choices=choices, available=True)
+    self.session.feature_owner = Mock(snapshot=Mock(return_value=FeatureSettingsState(page=FeaturePage.WHEEL, rows=(row,))))
+    self.session.feature_request = Mock()
+    self.open_feature("choice")
+
+    def emit(action):
+      self.session._emit(ShellRequest("features", action))
+
+    def shown():
+      state = runtime_app.choice_strip(self.session).window("feature", self.session.feature_snapshot())
+      return state, {button[0]: button[1] for button in value_buttons(state, state.rows[0], feature_row_top(state))}
+
+    state, bounds = shown()
+    self.assertEqual((state.choice_offset, tuple(bounds)), (6, ("-", "<", *choices[6:9], ">", "+")))
+    self.tap(state, bounds[">"], emit)
+    state, bounds = shown()
+    self.assertEqual((state.choice_offset, tuple(bounds)), (9, ("-", "<", *choices[9:12], ">", "+")))
+    self.session.feature_request.assert_not_called()
+    self.tap(state, bounds[choices[10]], emit)
+    self.assertEqual(self.session.feature_request.call_args.args[0].value, choices[10])
+    self.session._feature_ui(FeatureUiAction("back"))
+    self.assertFalse(self.session.feature_snapshot().editor)
+    self.open_feature("choice")
+    self.assertEqual(shown()[0].choice_offset, 6)
 
   def test_long_choices_and_precise_numbers_fit_the_existing_editor(self):
     from openpilot.starpilot.ui.raylib import rl

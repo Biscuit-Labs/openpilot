@@ -144,7 +144,7 @@ The Night Star page (`openpilot/starpilot/ui/night_star_feature.py`) edits these
 | Param | Meaning |
 |---|---|
 | `HondaEpsAngleRateLimit` | deg/s ceiling on the desired-angle slew (0 disables); shown on calibrated cars only |
-| `HondaDriverOverrideThreshold`, `HondaOverrideFadeDownSecs`, `HondaOverrideTorqueScale`, `HondaOverrideFadeUpSecs`, `HondaDriverAssistDuringOverride` | the override the carcontroller applies (fades 0-10 s; defaults 0 s down, 0.5 s up) |
+| `HondaOverrideStartTorque`, `HondaOverrideEndTorque`, `HondaOverrideFadeDownSecs`, `HondaOverrideTorqueScale`, `HondaOverrideFadeUpSecs`, `HondaDriverAssistDuringOverride` | the override the carcontroller applies: a press starts above Start Torque (default 1560) and ends once torque stays under End Torque (default 624) for 0.1 s; in angle mode both rise to 1.28 x from 45 deg of wheel angle, and only Fade Up applies (angle mode always yields); fades 0-10 s, defaults 0 s down, 1.25 s up. Replaced the single `HondaDriverOverrideThreshold` 2026-11-26 (a saved value X migrates to 0.78 X / 0.312 X) |
 | `HondaMinSteerSpeed` | no steering torque below this speed |
 
 Fixed by design, with no row: `HondaTorqueOutputLowPassFilter` / `HondaTorqueOutputLpfTau*` (the output filter),

@@ -26,13 +26,13 @@ def _flag(params, key, fallback):
 def read_settings(params) -> ModifiedEpsSettings:
   d = DEFAULT_SETTINGS
   return ModifiedEpsSettings(
-    override_threshold=int(_number(params, "HondaDriverOverrideThreshold", d.override_threshold, 0, 10000)),
+    override_start_torque=int(_number(params, "HondaOverrideStartTorque", d.override_start_torque, 0, 10000)),
+    override_end_torque=int(_number(params, "HondaOverrideEndTorque", d.override_end_torque, 0, 10000)),
     min_steer_speed_mph=int(_number(params, "HondaMinSteerSpeed", d.min_steer_speed_mph, 0, 45)),
     fade_down_s=_number(params, "HondaOverrideFadeDownSecs", d.fade_down_s, 0.0, 10.0),
     fade_up_s=_number(params, "HondaOverrideFadeUpSecs", d.fade_up_s, 0.0, 10.0),
     torque_scale=_number(params, "HondaOverrideTorqueScale", d.torque_scale * 100.0, 0.0, 100.0) / 100.0,
     assist_during_override=_flag(params, "HondaDriverAssistDuringOverride", d.assist_during_override),
-    angle_hold_override=_flag(params, "HondaClarityAngleHoldOverride", d.angle_hold_override),
     angle_rate_limit_deg_s=_number(params, "HondaEpsAngleRateLimit", d.angle_rate_limit_deg_s, 0.0, 2000.0),
   )
 

@@ -115,7 +115,10 @@ DESCRIPTIONS = {
   'TeslaAOLScreenTap': 'Lets a three-finger tap on a supported Tesla screen toggle Always On Lateral.',
   'TeslaAOLDisengageOnBrake': 'Disarms Tesla Always On Lateral when you press the brake, with either harness.',
   'HondaEpsAngleRateLimit': 'Caps how fast the desired steering-wheel angle may move. 0 turns the cap off.',
-  'HondaDriverOverrideThreshold': 'Sets the driver torque that counts as a steering override on a modified EPS.',
+  'HondaOverrideStartTorque': ('Driver torque that starts a steering override on a modified EPS (1200 = stock). Angle mode: this is the ' +
+                               'straight-road value; it rises in sharp turns to 1.28 x from 45 degrees of wheel angle.'),
+  'HondaOverrideEndTorque': ('The override ends once your torque stays under this for 0.1 s (1200 = stock). Angle mode: rises in sharp ' +
+                             'turns like the start torque. Must be below the start torque.'),
   'HondaMinSteerSpeed': 'Sends no steering torque below this speed. 0 steers down to a stop.',
   'HondaOverrideTorqueScale': 'Keeps this share of the steering command while you override the wheel.',
   'HondaOverrideFadeDownSecs': 'Eases the steering command out over this time when you override the wheel. 0 cuts it at once.',
@@ -123,8 +126,6 @@ DESCRIPTIONS = {
   'HondaDriverAssistDuringOverride': 'Keeps steering assist active while you override the wheel.',
   'HondaBcanTurnSignals': 'Lets openpilot hold the turn signal for a whole lane change and cancel it after. ' +
                           'Needs a body harness with B-CAN gateway; 10th-gen Accord tested.',
-  'HondaClarityAngleHoldOverride': ('Angle mode: keeps steering engaged through an override, with assist faded to zero while you steer ' +
-                                    'and ramped back after you let go.'),
   'NrdrClarityAngleLookaheadMs': ('Clarity angle mode only: how far ahead (ms) the driving model\'s steering action is taken, in place of the ' +
                                   'learned delay. 0 keeps the previous timing. Only models with a timed action output use it. Applies at the next start.'),
   'HondaClarityAngleMode': ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +

@@ -1,4 +1,4 @@
-"""RDX 3G (TJB) angle mode on the linear-angle EPS build 0x0C, the first angle-profile car (angle_profiles.py).
+"""RDX 3G (TJB) angle mode on the linear-angle EPS build 0x0E (protocol v3), the first angle-profile car (angle_profiles.py).
 
 The whole openpilot side runs as on the car: CarInterface on the angle PTM image, carState from 0x6A2 / 0x6A4 frames the
 EPS would send, the real CarController and packer (Bosch STEERING_CONTROL), and every 0xE4 it builds goes through panda's
@@ -12,13 +12,14 @@ from opendbc.car.honda import clarity_angle_mode as cam
 from opendbc.car.honda.angle_profiles import ANGLE_PROFILES, OWN_GEOMETRY, safety_param_bits, vm_angle_limit
 from opendbc.car.honda.hondacan import CanBus
 from opendbc.car.honda.interface import CarInterface
+from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.meps.linear_angle import SEND_FRAMES, STALE_FRAMES
 from opendbc.car.honda.tests.test_eps_cal_status import honda_checksum, v4
 from opendbc.car.honda.tests.test_modified_eps import eps, params
 from opendbc.car.honda.values import CAR, DBC, HondaFlags, HondaSafetyFlags
 from opendbc.safety.tests.libsafety import libsafety_py
 
-ANGLE_FW = b'39990+TJB+A220\x00\x00'   # angle PTM (build 0x0C)
+ANGLE_FW = b'39990+TJB+A220\x00\x00'   # angle PTM (build 0x0E)
 TORQUE_FW = b'39990-TJB,A220\x00\x00'  # torque PTM (FadeMatch)
 STOCK_FW = b'39990-TJB-A220\x00\x00'
 PROFILE = ANGLE_PROFILES[CAR.ACURA_RDX_3G]
@@ -45,7 +46,7 @@ def lin_frame(lin_deg, pub_deg, counter, loop=1, ref_latched=1):
 
 class Car:
   """The EPS side of the bus at 100 Hz (0x6A2 every frame, 0x6A4 every other), openpilot's CarInterface, and panda."""
-  def __init__(self, ci, v=10.0, wheel=0.0, send_lin=True, build=0x0C):
+  def __init__(self, ci, v=10.0, wheel=0.0, send_lin=True, build=0x0E):
     self.ci, self.v, self.wheel, self.send_lin, self.build = ci, float(v), float(wheel), send_lin, build
     self.ref_latched = 1
     self.bus = CanBus(ci.CP)
@@ -94,8 +95,17 @@ class Car:
     return cs, dat, ok, target
 
 
+DRIVE, YIELD = meps_protocol.v3_byte2(True), meps_protocol.v3_byte2(False)
+
+
 def request(dat):
-  return bool(dat[2] & 0x80) and bool(dat[2] & 0x20)
+  """Protocol v3: 'steering' is an angle frame, DRIVE or YIELD (byte 2 bits 3:2 = 3, request bit 0); never steering is
+  STANDBY with a zero target. Byte 3 is always 0."""
+  assert dat[3] == 0 and not dat[2] & 0x80
+  if not meps_protocol.is_v3_angle(dat[2]):
+    assert dat[0:2] == bytes(2) and dat[2] == meps_protocol.V3_STANDBY, dat.hex()
+    return False
+  return True
 
 
 # --- startup selection ---
@@ -107,9 +117,8 @@ def test_angle_image_selects_angle_mode_with_profile_1():
   assert param & HondaSafetyFlags.CLARITY_ANGLE and (param & 0xE000) == safety_param_bits(PROFILE) == 1 << 13
   assert ci.CP.steerRatio == pytest.approx(OWN_GEOMETRY[CAR.ACURA_RDX_3G].steer_ratio) == pytest.approx(16.79)         # paramsd starts at the on-center ratio, not 11.95
   assert ci.CP.maxLateralAccel == 3.0                               # the torque bar's angle-mode scale (ISO)
-  assert ci.CC.angle_sender.profile is PROFILE and ci.CC.angle_sender.linear and ci.CC.stock_arm   # Clarity arm/abort field (STOCK_ARM_IMAGES)
+  assert ci.CC.angle_sender.profile is PROFILE and ci.CC.angle_sender.linear
   assert ci.CS.eps_cal_status.enabled and ci.CS.linear_angle.required
-  assert ci.CC.eps_mode == 0xF1
 
 
 @pytest.mark.parametrize("fw,angle", [(TORQUE_FW, True), (ANGLE_FW, False), (STOCK_FW, True)],
@@ -118,7 +127,7 @@ def test_other_images_and_setting_off_keep_torque_mode(fw, angle):
   ci = rdx(fw, angle)
   assert not ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.torque
   assert not ci.CP.safetyConfigs[-1].safetyParam & (HondaSafetyFlags.CLARITY_ANGLE | 0xE000)
-  assert ci.CC.angle_sender is None and ci.CC.eps_mode == 0
+  assert ci.CC.angle_sender is None
   assert not ci.CS.eps_cal_status.enabled and not ci.CS.linear_angle.enabled
 
 
@@ -152,7 +161,7 @@ def test_carstate_angle_is_the_linear_angle():
   assert car.ci.CS.linear_angle.published_deg == pytest.approx(0.97 * 12.5, abs=0.05)
 
 
-@pytest.mark.parametrize("build", [0x0C, 0x0B])
+@pytest.mark.parametrize("build", [0x0E, 0x0B])
 def test_no_linear_angle_never_steers(build):
   # a profile car needs 0x6A2 whatever build 0x6A4 reports (panda: it is the RX check); never a silent fallback
   car = Car(rdx(), send_lin=False, build=build)
@@ -211,38 +220,50 @@ def test_sender_limit_is_the_profile_row():
 @pytest.mark.parametrize("sign", [1., -1.])
 def test_sender_at_its_clamp_passes_panda(v, sign):
   # openpilot asks for more than the 3.6 m/s^2 angle with the wheel following the target: every frame passes, and the
-  # target walks up to the clamp (byte 3 = MODE 1 | AUTH 15, byte 2 = request | payload, via the Bosch DBC signals)
+  # target walks up to the clamp (byte 2 = DRIVE 0x4C, byte 3 = 0, via the Bosch DBC signals)
   car = Car(rdx(), v=v)
   desired = sign * 1.2 * vm_angle_limit(v, PROFILE)
   for i in range(700):
     _, dat, ok, target = car.step(True, desired)
     assert ok, (v, i, target)
     car.wheel = target
-  assert request(dat) and dat[3] == 0xF1
+  assert request(dat) and dat[2] == DRIVE
   assert abs(target) > 0.98 * vm_angle_limit(v, PROFILE)
   assert abs(target) <= vm_angle_limit(max(v - 1., 1.), PROFILE) + 0.1
 
 
 @pytest.mark.parametrize("v", [2.2, 10., 20.])
 def test_sender_through_an_override_passes_panda(v):
-  # hold through override (default on): the request stays up, AUTH drops to 0 while the driver turns the wheel away at
-  # 350 deg/s, then climbs back; the target stays on the plan. Stock arm 2, abort while pressed.
+  # protocol v3 override: YIELD (0x0C) while the driver turns the wheel away at 350 deg/s, the target following the
+  # wheel; DRIVE (0x4C) at once after the release, the target walking from the wheel back to the plan. The wheel stays
+  # inside panda's lateral-accel angle (a wheel beyond it: test_yield_follow_beyond_the_limit_passes_panda below)
   car = Car(rdx(), v=v)
   plan = 0.5 * vm_angle_limit(v, PROFILE)
-  auth, arm = [], []
+  wheel_max = 0.9 * vm_angle_limit(v, PROFILE)
+  b2, tg = [], []
   for i in range(700):
     pressed = 150 <= i < 400
-    car.wheel = min(car.wheel + 3.5, 450.) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
+    car.wheel = min(car.wheel + 3.5, wheel_max) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
     _, dat, ok, target = car.step(True, plan, pressed=pressed, torque=3000. if pressed else 0.)
     assert ok, (v, i, target)
     if i > 20:
-      # payload bit 5 + the stock arm field: arm 2 (0x48), abort (0x44) while the driver yields; panda reads only bits 7 / 5
-      assert request(dat) and (dat[2] & 0x7F) in (0x20 | cam.E4_ARM2, 0x20 | cam.E4_ARM2_ABORT), (i, hex(dat[2]))
-    auth.append(dat[3] >> 4)
-    arm.append(dat[2] & 0x4C)
-  assert min(auth[160:400]) == 0 and auth[-1] == 15          # no authority while pressed, full again after the release
-  assert set(arm[21:150]) == {cam.E4_ARM2} and set(arm[160:400]) == {cam.E4_ARM2_ABORT} and set(arm[450:]) == {cam.E4_ARM2}
-  assert target == pytest.approx(plan, abs=0.06)
+      assert request(dat) and dat[2] in (DRIVE, YIELD), (i, hex(dat[2]))
+    b2.append(dat[2])
+    tg.append(target)
+  assert set(b2[21:150]) == {DRIVE} and set(b2[160:400]) == {YIELD} and set(b2[450:]) == {DRIVE}
+  assert 1.5 * plan < tg[399] <= wheel_max + 0.2   # the target left the plan and followed the wheel
+  assert target == pytest.approx(plan, abs=0.06)                        # walked from the wheel back to the plan
+
+
+def test_yield_follow_beyond_the_limit_passes_panda():
+  # the wheel goes far past panda's lateral-accel angle while pressed: the YIELD target waits at the limit, every frame passes
+  v = 20.
+  car = Car(rdx(), v=v)
+  for i in range(700):
+    pressed = 150 <= i < 400
+    car.wheel = min(car.wheel + 3.5, 450.) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
+    _, dat, ok, target = car.step(True, 0.5 * vm_angle_limit(v, PROFILE), pressed=pressed, torque=3000. if pressed else 0.)
+    assert ok, (i, target)
 
 
 @pytest.mark.parametrize("v", [10., 20., 30.])

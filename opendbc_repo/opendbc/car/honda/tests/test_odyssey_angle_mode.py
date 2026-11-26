@@ -12,10 +12,10 @@ from opendbc.car.honda.angle_profiles import ANGLE_PROFILES, OWN_GEOMETRY, safet
 from opendbc.car.honda.interface import CarInterface
 from opendbc.car.honda.meps.linear_angle import SEND_FRAMES, STALE_FRAMES
 from opendbc.car.honda.tests.test_modified_eps import eps, params
-from opendbc.car.honda.tests.test_rdx_angle_mode import Car, request
+from opendbc.car.honda.tests.test_rdx_angle_mode import DRIVE, YIELD, Car, request
 from opendbc.car.honda.values import CAR, HondaFlags, HondaSafetyFlags
 
-ANGLE_FW = b'39990+THR+A020\x00\x00'   # angle PTM (build 0x0C / 0x0D)
+ANGLE_FW = b'39990+THR+A020\x00\x00'   # angle PTM
 STOCK_FW = b'39990-THR-A020\x00\x00'
 PROFILE = ANGLE_PROFILES[CAR.HONDA_ODYSSEY]
 
@@ -36,9 +36,8 @@ def test_angle_image_selects_angle_mode_with_profile_4():
   assert param & HondaSafetyFlags.CLARITY_ANGLE and not param & HondaSafetyFlags.NIDEC_ALT
   assert ci.CP.steerRatio == pytest.approx(OWN_GEOMETRY[CAR.HONDA_ODYSSEY].steer_ratio)
   assert ci.CP.maxLateralAccel == 3.0
-  assert ci.CC.angle_sender.profile == PROFILE and ci.CC.angle_sender.linear and ci.CC.stock_arm   # Clarity arm/abort field (STOCK_ARM_IMAGES)
+  assert ci.CC.angle_sender.profile == PROFILE and ci.CC.angle_sender.linear
   assert ci.CS.eps_cal_status.enabled and ci.CS.linear_angle.required
-  assert ci.CC.eps_mode == 0xF1
 
 
 @pytest.mark.parametrize("fw,angle", [(ANGLE_FW, False), (STOCK_FW, True)], ids=["setting_off", "stock"])
@@ -47,7 +46,7 @@ def test_setting_off_or_stock_image_is_stock_torque_mode(fw, angle):
   assert ci.CP.steerControlType == structs.CarParams.SteerControlType.torque
   assert not ci.CP.flags & (HondaFlags.CLARITY_ANGLE_MODE | HondaFlags.EPS_MODIFIED)
   assert not ci.CP.safetyConfigs[-1].safetyParam & (HondaSafetyFlags.CLARITY_ANGLE | 0xE000)
-  assert ci.CC.angle_sender is None and ci.CC.eps_mode == 0
+  assert ci.CC.angle_sender is None
 
 
 # --- the 0x6A2 latch ---
@@ -107,28 +106,30 @@ def test_sender_at_its_clamp_passes_panda(v, sign):
     _, dat, ok, target = car.step(True, desired)
     assert ok, (v, i, target)
     car.wheel = target
-  assert request(dat) and dat[3] == 0xF1
+  assert request(dat) and dat[2] == DRIVE
   assert abs(target) > 0.98 * vm_angle_limit(v, PROFILE)
   assert abs(target) <= vm_angle_limit(max(v - 1., 1.), PROFILE) + 0.1
 
 
 @pytest.mark.parametrize("v", [2.2, 10., 20.])
 def test_sender_through_an_override_passes_panda(v):
+  # protocol v3: YIELD while pressed with the target following the wheel (inside panda's angle limit), DRIVE after the
+  # release with the target walking back to the plan
   car = Car(odyssey(), v=v)
   plan = 0.5 * vm_angle_limit(v, PROFILE)
-  auth, arm = [], []
+  wheel_max = 0.9 * vm_angle_limit(v, PROFILE)
+  b2, tg = [], []
   for i in range(700):
     pressed = 150 <= i < 400
-    car.wheel = min(car.wheel + 3.5, 520.) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
+    car.wheel = min(car.wheel + 3.5, wheel_max) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
     _, dat, ok, target = car.step(True, plan, pressed=pressed, torque=3000. if pressed else 0.)
     assert ok, (v, i, target)
     if i > 20:
-      # payload bit 5 + the stock arm field: arm 2 (0x48), abort (0x44) while the driver yields; panda reads only bits 7 / 5
-      assert request(dat) and (dat[2] & 0x7F) in (0x20 | cam.E4_ARM2, 0x20 | cam.E4_ARM2_ABORT), (i, hex(dat[2]))
-    auth.append(dat[3] >> 4)
-    arm.append(dat[2] & 0x4C)
-  assert min(auth[160:400]) == 0 and auth[-1] == 15
-  assert set(arm[21:150]) == {cam.E4_ARM2} and set(arm[160:400]) == {cam.E4_ARM2_ABORT} and set(arm[450:]) == {cam.E4_ARM2}
+      assert request(dat) and dat[2] in (DRIVE, YIELD), (i, hex(dat[2]))
+    b2.append(dat[2])
+    tg.append(target)
+  assert set(b2[21:150]) == {DRIVE} and set(b2[160:400]) == {YIELD} and set(b2[450:]) == {DRIVE}
+  assert 1.5 * plan < tg[399] <= wheel_max + 0.2
   assert target == pytest.approx(plan, abs=0.06)
 
 

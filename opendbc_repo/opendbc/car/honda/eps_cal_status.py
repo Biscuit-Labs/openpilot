@@ -1,18 +1,18 @@
-"""Clarity modified EPS: the 0x6A4 EPS_CAL_STATUS interlock, protocol v2 only (build 0x0B on; meps/protocol.py, spec
-rwd-xray lab/audit_fable_20261121/v2/PROTOCOL_V2.md). The v1 builds (MM 0x02, angle 0x04-0x0A, 0x6A4 layouts 2/3) are
-no longer supported: any non-layout-4 status faults "unsupported_build".
+"""Modified EPS: the 0x6A4 EPS_CAL_STATUS interlock, protocol v3 only (build 0x0E on; meps/protocol.py, spec
+rwd-xray lab/PROTOCOL_V3_20261125.md). The v1 builds (MM 0x02, angle 0x04-0x0A, 0x6A4 layouts 2/3) fault
+"unsupported_build"; the v2 builds 0x0B-0x0D report layout 4 with a build ID outside KNOWN_BUILDS and fault "unknown_build".
 
 On a Clarity with modified EPS firmware the interlock is enabled:
   - no 0x6A4 ever seen: torque mode (CleanPTM, P1) nothing changes; angle mode faults "no_status"
   - 0x6A4 seen, then silent for more than STATUS_TIMEOUT_FRAMES: fault "lost" (as for missing EPS frames)
   - a frame that is not layout 4 (byte 0 bit 7 clear, a v1 build): "unsupported_build"
-  - a layout-4 build that is not in KNOWN_BUILDS (v2 or v3): "unknown_build"
-  - torque mode on a v2 EPS (v2 has no torque PTM mode, the EPS runs stock tables): "mode_not_built"
+  - a layout-4 build that is not in KNOWN_BUILDS (v2 0x0B-0x0D, or a newer build): "unknown_build"
+  - torque mode on an angle build that still reports 0x6A4 (it has no torque PTM mode, it runs stock tables): "mode_not_built"
   - active MODE != 1 (angle): "inactive_mode" (the EPS switches at the next LKAS idle, which the fault brings about)
   - FAULT (byte 0 bit 6): "angle_fault (<reason>)"; it drops the request and so clears it
   - an angle request for more than LOOP_START_FRAMES with STEERING (byte 0 bit 5: loop running, no fault, stock LKAS
-    engaged) clear: "loop_not_running (<reason>)". STEERING stays set at AUTH 0 (reason AUTHORITY_ZERO), so a driver
-    override with the request held does not trip it. Without this a request that never reaches the loop is a silent
+    engaged) clear: "loop_not_running (<reason>)". STEERING stays set while yielding (reason AUTHORITY_ZERO), so a
+    driver override does not trip it. Without this a request that never reaches the loop is a silent
     no-steer (audit 11-21 S-4); the fault drops the request, so it retries at the next engage.
 A fault sets carState.steerFaultTemporary. Only checksum- and counter-valid frames count (CANParser drops the others).
 angle_ready is True only when nothing faults; CarController sends angle payloads only then.
@@ -20,7 +20,7 @@ angle_ready is True only when nothing faults; CarController sends angle payloads
 from opendbc.car.carlog import carlog
 from opendbc.car.honda.angle_profiles import angle_profile
 from opendbc.car.honda.clarity_angle_mode import angle_mode
-from opendbc.car.honda.meps.protocol import KNOWN_BUILDS, V2_MODE_ANGLE, decode_layout4, is_layout4, protocol_of
+from opendbc.car.honda.meps.protocol import KNOWN_BUILDS, MODE_ANGLE, decode_layout4, is_layout4, protocol_of
 from opendbc.car.honda.modified_eps import modified_eps
 from opendbc.car.honda.values import CAR
 
@@ -80,9 +80,9 @@ class EpsCalStatus:
     if not is_layout4(vl):
       self.build_id = int(vl["BUILD_ID"])
       return "unsupported_build"
-    return self._check_v2(vl)
+    return self._check_layout4(vl)
 
-  def _check_v2(self, vl) -> str:
+  def _check_layout4(self, vl) -> str:
     s = decode_layout4(vl)
     self.build_id, self.active_mode = s["build"], s["mode"]
     self.reason, self.clamp = s["reason_name"], s["clamp"]
@@ -90,7 +90,7 @@ class EpsCalStatus:
       return "unknown_build"
     if not self.angle:
       return "mode_not_built"
-    if self.active_mode != V2_MODE_ANGLE:
+    if self.active_mode != MODE_ANGLE:
       return "inactive_mode"
     self.loop_running = s["steering"]
     self.angle_ref_deg, self.angle_out = float(vl["ANGLE_REF"]), int(vl["ANGLE_OUT"])
@@ -109,16 +109,10 @@ class EpsCalStatus:
 
   @property
   def protocol(self) -> int | None:
-    """2 (byte-3 MODE/AUTH, builds 0x0B-0x0D) or 3 (byte-2 angle marker, 0x0E on); None before a known build reports."""
+    """3 (byte-2 angle marker, build 0x0E on); None before a known build reports."""
     return protocol_of(self.build_id) if self.announced else None
 
   @property
-  def authority_ready(self) -> bool:
-    """Every v2 build takes AUTH in byte 3 bits 7:4, so openpilot may hold the request through an override at low
-    authority instead of dropping it."""
-    return self.angle_ready
-
-  @property
   def angle_ready(self) -> bool:
-    """Angle mode only: a v2 EPS runs MODE 1, reports no fault, and is not lost."""
+    """Angle mode only: a v3 EPS runs MODE 1, reports no fault, and is not lost."""
     return self.angle and self.announced and self.fault == ""

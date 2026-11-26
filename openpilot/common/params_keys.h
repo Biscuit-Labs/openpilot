@@ -406,14 +406,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     // Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
-    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page (angle hold: the authority climb)
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page (angle mode: the target walks from the wheel to the plan)
     {"HondaAngleDefaultsReset", {PERSISTENT, BOOL}},  // one-time clear of saved Fade Up / Fade Down / Override Threshold
     {"HondaClarityAngleMode", {PERSISTENT, BOOL, "1"}},  // Clarity on the angle-mode EPS build (0x04): steer by angle; read at car start
     {"NrdrClarityAngleLookaheadMs", {PERSISTENT, INT, "0"}},  // Steering Prediction Time (nrdr 25f309ef): Clarity angle mode, absolute lateral horizon 5-400 ms step 5 for a timed action head; 0 = previous timing; read at modeld start (offroad)
-    {"HondaClarityAngleHoldOverride", {PERSISTENT, BOOL, "1"}},  // Clarity angle mode on EPS build 0x06/0x08/0x09: hold the request through an override at zero loop authority; live
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
     // Honda modified-EPS steering in the car controller and car state (opendbc/car/honda/modified_eps.py)
-    {"HondaDriverOverrideThreshold", {PERSISTENT, INT, "2000"}},  // driver torque for steeringPressed on a modified EPS (stock 1200)
+    {"HondaOverrideStartTorque", {PERSISTENT, INT, "1560"}},  // driver torque that starts steeringPressed on a modified EPS (stock units, 1200 = stock); angle mode x1.28 from 45 deg
+    {"HondaOverrideEndTorque", {PERSISTENT, INT, "624"}},  // steeringPressed ends once torque stays under this for 0.1 s; angle mode x1.28 from 45 deg
     {"HondaMinSteerSpeed", {PERSISTENT, INT, "1"}},  // mph; no steering torque below this
     {"HondaOverrideFadeDownSecs", {PERSISTENT, FLOAT, "0.0"}},  // s; 0 cuts at once; Night Star page
     {"HondaOverrideTorqueScale", {PERSISTENT, INT, "0"}},  // percent of torque kept while the driver overrides

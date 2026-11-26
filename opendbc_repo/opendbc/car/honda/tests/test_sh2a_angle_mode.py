@@ -1,4 +1,4 @@
-"""SH-2A family linear-angle EPS builds 0x0C / 0x0D (rwd-xray lab/ptm-family/SH2A_0x0C_PORTS_20261122, SH2A_0x0D_PORTS_20261123) on their angle-profile rows:
+"""SH-2A family linear-angle EPS build 0x0E, protocol v3 (rwd-xray lab/ptm-family SH2A ports) on their angle-profile rows:
 Civic (Nidec, row 2: TBA-A030, TEG-A010), Civic Bosch (row 3: TGG-A120, TBA-C020, TBA-C120), CR-V 5G (row 1: TLA-A040,
 TLA-A220), Insight (row 1, shared with the CR-V: TXM-A040).
 
@@ -19,8 +19,9 @@ from opendbc.car.honda.interface import CarInterface
 
 SAFETY = rdx_t.SAFETY
 request = rdx_t.request
+DRIVE, YIELD = rdx_t.DRIVE, rdx_t.YIELD
 
-# (platform, part code) of every SH-2A 0x0C build; the angle image is 39990+CODE+VAR, the torque PTM 39990-CODE,VAR
+# (platform, part code) of every SH-2A angle build; the angle image is 39990+CODE+VAR, the torque PTM 39990-CODE,VAR
 SH2A = [
   (CAR.HONDA_CIVIC, "TBA", "A030"), (CAR.HONDA_CIVIC, "TEG", "A010"),
   (CAR.HONDA_CIVIC_BOSCH, "TGG", "A120"), (CAR.HONDA_CIVIC_BOSCH, "TBA", "C020"), (CAR.HONDA_CIVIC_BOSCH, "TBA", "C120"),
@@ -44,7 +45,7 @@ def make(car, code, var, kind="angle", angle=True):
 
 class Car(rdx_t.Car):
   """test_rdx_angle_mode.Car with the platform's own DBC and safety model."""
-  def __init__(self, ci, v=10.0, wheel=0.0, send_lin=True, build=0x0C):
+  def __init__(self, ci, v=10.0, wheel=0.0, send_lin=True, build=0x0E):
     self.ci, self.v, self.wheel, self.send_lin, self.build = ci, float(v), float(wheel), send_lin, build
     self.ref_latched = 1
     self.bus = rdx_t.CanBus(ci.CP)
@@ -84,9 +85,8 @@ def test_angle_image_selects_angle_mode_on_its_row(build):
   assert sc.safetyModel == (structs.CarParams.SafetyModel.hondaBosch if bosch else structs.CarParams.SafetyModel.hondaNidec)
   assert ci.CP.steerRatio == pytest.approx(OWN_GEOMETRY[car].steer_ratio)
   assert ci.CP.maxLateralAccel == 3.0
-  # the stock byte 2 arm/abort path is the Clarity A020's on every SH-2A family angle image (clarity_angle_mode.STOCK_ARM_IMAGES)
-  assert ci.CC.angle_sender.profile is ANGLE_PROFILES[car] and ci.CC.angle_sender.linear and ci.CC.stock_arm
-  assert ci.CS.linear_angle.required and ci.CC.eps_mode == 0xF1
+  assert ci.CC.angle_sender.profile is ANGLE_PROFILES[car] and ci.CC.angle_sender.linear
+  assert ci.CS.linear_angle.required
 
 
 @pytest.mark.parametrize("kind,angle", [("torque", True), ("angle", False), ("stock", True)], ids=["torque_ptm", "setting_off", "stock"])
@@ -95,7 +95,7 @@ def test_other_images_and_setting_off_keep_torque_mode(build, kind, angle):
   ci = make(car, code, var, kind, angle)
   assert not ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.torque
   assert not ci.CP.safetyConfigs[-1].safetyParam & (HondaSafetyFlags.CLARITY_ANGLE | 0xE000)
-  assert ci.CC.angle_sender is None and ci.CC.eps_mode == 0
+  assert ci.CC.angle_sender is None
 
 
 # --- 0x6A2 ---
@@ -108,14 +108,22 @@ def test_carstate_angle_is_the_linear_angle(build):
   assert cs.steeringAngleDeg == pytest.approx(12.5, abs=0.05)
 
 
-@pytest.mark.parametrize("bid", [0x0C, 0x0D])
-def test_builds_0c_and_0d_steer_the_same(build, bid):
-  # 0x0D = 0x0C + the EPS-internal lock taper, same wire format: both latch the linear angle and steer
-  car = Car(make(*build), wheel=3.0, build=bid)
+def test_build_0e_steers(build):
+  car = Car(make(*build), wheel=3.0, build=0x0E)
   for _ in range(30):
     cs, dat, ok, _ = car.step(True, 3.)
     assert ok
-  assert car.ci.CS.linear_angle.latched and request(dat) and not cs.steerFaultTemporary
+  assert car.ci.CS.linear_angle.latched and request(dat) and dat[2] == DRIVE and not cs.steerFaultTemporary
+
+
+@pytest.mark.parametrize("bid", [0x0B, 0x0C, 0x0D])
+def test_v2_builds_never_steer(build, bid):
+  # protocol v2 builds are unsupported: eps_cal_status faults them (unknown_build) and only STANDBY goes out
+  car = Car(make(*build), wheel=3.0, build=bid)
+  for _ in range(30):
+    cs, dat, ok, _ = car.step(True, 3.)
+    assert ok and not request(dat)
+  assert cs.steerFaultTemporary and car.ci.CS.eps_cal_status.fault == "unknown_build"
 
 
 def test_no_linear_angle_never_steers(build):
@@ -152,29 +160,31 @@ def test_sender_at_its_clamp_passes_panda(build, v, sign):
     _, dat, ok, target = c.step(True, desired)
     assert ok, (v, i, target)
     c.wheel = target
-  assert request(dat) and dat[3] == 0xF1
+  assert request(dat) and dat[2] == DRIVE
   assert abs(target) > 0.98 * vm_angle_limit(v, prof)
   assert abs(target) <= vm_angle_limit(max(v - 1., 1.), prof) + 0.1
 
 
 @pytest.mark.parametrize("v", [2.2, 20.])
 def test_sender_through_an_override_passes_panda(build, v):
+  # protocol v3: YIELD while pressed with the target following the wheel (inside panda's angle limit), DRIVE after the
+  # release with the target walking back to the plan
   car, code, var = build
   c = Car(make(car, code, var), v=v)
   plan = 0.5 * vm_angle_limit(v, ANGLE_PROFILES[car])
-  auth, arm = [], []
+  wheel_max = 0.9 * vm_angle_limit(v, ANGLE_PROFILES[car])
+  b2, tg = [], []
   for i in range(700):
     pressed = 150 <= i < 400
-    c.wheel = min(c.wheel + 3.5, 450.) if pressed else c.wheel + 0.2 * (c.ci.CC.angle_sender.out_angle - c.wheel)
+    c.wheel = min(c.wheel + 3.5, wheel_max) if pressed else c.wheel + 0.2 * (c.ci.CC.angle_sender.out_angle - c.wheel)
     _, dat, ok, target = c.step(True, plan, pressed=pressed, torque=3000. if pressed else 0.)
     assert ok, (v, i, target)
     if i > 20:
-      # payload bit 5 + the stock arm field: arm 2 (0x48), abort (0x44) while the driver yields; panda reads only bits 7 / 5
-      assert request(dat) and (dat[2] & 0x7F) in (0x20 | cam.E4_ARM2, 0x20 | cam.E4_ARM2_ABORT), (i, hex(dat[2]))
-    auth.append(dat[3] >> 4)
-    arm.append(dat[2] & 0x4C)
-  assert min(auth[160:400]) == 0 and auth[-1] == 15
-  assert set(arm[21:150]) == {cam.E4_ARM2} and set(arm[160:400]) == {cam.E4_ARM2_ABORT} and set(arm[450:]) == {cam.E4_ARM2}
+      assert request(dat) and dat[2] in (DRIVE, YIELD), (i, hex(dat[2]))
+    b2.append(dat[2])
+    tg.append(target)
+  assert set(b2[21:150]) == {DRIVE} and set(b2[160:400]) == {YIELD} and set(b2[450:]) == {DRIVE}
+  assert 1.5 * plan < tg[399] <= wheel_max + 0.2
   assert target == pytest.approx(plan, abs=0.06)
 
 

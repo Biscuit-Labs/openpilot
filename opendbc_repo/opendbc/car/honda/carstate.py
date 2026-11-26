@@ -244,10 +244,13 @@ class CarState(CarStateBase):
 
     ret.steeringTorque = cp.vl["STEER_STATUS"]["STEER_TORQUE_SENSOR"]
     if self.modified_eps:
-      steer_threshold = steering_pressed_threshold(self.CP, current_settings(self.modified_eps_settings).override_threshold)
-      if self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE:   # lower toward center, the full setting from 45 deg
-        steer_threshold = angle_mode_threshold(steer_threshold, self.published_angle_deg)
-      ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, steer_threshold)
+      mset = current_settings(self.modified_eps_settings)
+      press_start = steering_pressed_threshold(self.CP, mset.override_start_torque)
+      press_end = steering_pressed_threshold(self.CP, mset.override_end_torque)
+      if self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE:   # the settings up to 5 deg, 1.28 x from 45 deg
+        press_start = angle_mode_threshold(press_start, self.published_angle_deg)
+        press_end = angle_mode_threshold(press_end, self.published_angle_deg)
+      ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, press_start, press_end)
     else:
       steer_threshold = STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
       ret.steeringPressed = abs(ret.steeringTorque) > steer_threshold

@@ -49,6 +49,25 @@ class TestHondaEpsSettings(unittest.TestCase):
       self.assertFalse(Path(self.params.get_param_path(key)).exists(), key)
     self.assertEqual(migrate_honda_eps_param_names(self.params), [])   # idempotent
 
+  def test_single_override_threshold_becomes_start_and_end(self):
+    # angle mode used 0.78 x the old setting near centre and ended a press under 0.4 of that: the same levels carry over
+    self.write_raw("HondaDriverOverrideThreshold", b"1800")
+    self.write_raw("HondaClarityAngleHoldOverride", b"0")
+    renamed = migrate_honda_eps_param_names(self.params)
+    self.assertIn("HondaDriverOverrideThreshold->HondaOverrideStartTorque,HondaOverrideEndTorque", renamed)
+    self.assertEqual((self.params.get("HondaOverrideStartTorque"), self.params.get("HondaOverrideEndTorque")), (1404, 562))
+    for key in ("HondaDriverOverrideThreshold", "HondaClarityAngleHoldOverride"):
+      self.assertFalse(Path(self.params.get_param_path(key)).exists(), key)
+    self.assertEqual(migrate_honda_eps_param_names(self.params), [])
+
+  def test_override_threshold_migration_keeps_new_values(self):
+    self.params.put("HondaOverrideEndTorque", 500, block=True)
+    self.write_raw("NrdrDriverOverrideThreshold", b"2400")
+    migrate_honda_eps_param_names(self.params)
+    self.assertIsNone(self.params.get("HondaOverrideStartTorque"))
+    self.assertEqual(self.params.get("HondaOverrideEndTorque"), 500)
+    self.assertFalse(Path(self.params.get_param_path("NrdrDriverOverrideThreshold")).exists())
+
   def test_retired_settings_are_deleted(self):
     from openpilot.starpilot.honda_eps_settings import RETIRED_HONDA_EPS_KEYS
     for key in ("HondaSteerDeltaLimiter", "LatPScaleHighway", "HondaTorqueOutputLowPassFilter", "HondaEpsFirmwareVgr"):
@@ -77,12 +96,12 @@ if __name__ == "__main__":
   def test_angle_defaults_reset_clears_saved_values_once(self):
     self.params.put('HondaOverrideFadeUpSecs', 0.5, block=True)
     self.params.put('HondaOverrideFadeDownSecs', 0.3, block=True)
-    self.params.put('HondaDriverOverrideThreshold', 1600, block=True)
+    self.params.put('HondaOverrideStartTorque', 1600, block=True)
     self.assertEqual(sorted(reset_angle_defaults_once(self.params)),
-                     ['HondaDriverOverrideThreshold', 'HondaOverrideFadeDownSecs', 'HondaOverrideFadeUpSecs'])
+                     ['HondaOverrideFadeDownSecs', 'HondaOverrideFadeUpSecs', 'HondaOverrideStartTorque'])
     self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs', return_default=True), 1.25)
     self.assertAlmostEqual(self.params.get('HondaOverrideFadeDownSecs', return_default=True), 0.0)
-    self.assertEqual(self.params.get('HondaDriverOverrideThreshold', return_default=True), 2000)
+    self.assertEqual(self.params.get('HondaOverrideStartTorque', return_default=True), 1560)
     self.params.put('HondaOverrideFadeUpSecs', 0.8, block=True)            # set after the reset: kept
     self.assertEqual(reset_angle_defaults_once(self.params), [])
     self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs'), 0.8)

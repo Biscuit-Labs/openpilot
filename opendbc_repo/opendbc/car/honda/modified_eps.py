@@ -21,13 +21,13 @@ STOCK_STEER_THRESHOLD = 1200
 
 @dataclass(frozen=True)
 class ModifiedEpsSettings:
-  override_threshold: int = 2000         # HondaDriverOverrideThreshold, driver torque for steeringPressed (stock 1200)
+  override_start_torque: int = 1560      # HondaOverrideStartTorque: driver torque that starts a press (stock units, 1200 = stock)
+  override_end_torque: int = 624         # HondaOverrideEndTorque: the press ends once torque stays under this for RELEASE_HOLD_S
   min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this (0 = no speed gate)
   fade_down_s: float = 0.0               # HondaOverrideFadeDownSecs, soft cut on a press, request held while it eases out (0 = cut at once)
-  fade_up_s: float = 1.25                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle hold: the authority climb)
+  fade_up_s: float = 1.25                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle mode: the target walks from the wheel to the plan)
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
   assist_during_override: bool = False   # HondaDriverAssistDuringOverride, keep LKAS active while pressed
-  angle_hold_override: bool = True       # HondaClarityAngleHoldOverride, Clarity angle mode: hold the request through an override (authority -> 0)
   angle_rate_limit_deg_s: float = 300.0  # HondaEpsAngleRateLimit, Clarity angle mode: cap on the target's rate in CarController (0 = off)
 
 
@@ -43,24 +43,24 @@ def current_settings(source) -> ModifiedEpsSettings:
   return source.current() if source is not None else DEFAULT_SETTINGS
 
 
-def steering_pressed_threshold(CP, override_threshold: int) -> float:
-  # A modified EPS pushes column torque of its own, which trips the stock threshold. The setting is in stock-1200 units;
-  # a car whose stock threshold differs scales it.
+def steering_pressed_threshold(CP, torque: int) -> float:
+  # A modified EPS pushes column torque of its own, which trips the stock threshold. The settings are in stock-1200 units;
+  # a car whose stock threshold differs scales them (0 = the car's stock threshold).
   stock = STEER_THRESHOLD.get(CP.carFingerprint, STOCK_STEER_THRESHOLD)
-  if override_threshold <= 0:
+  if torque <= 0:
     return stock
-  return override_threshold if stock == STOCK_STEER_THRESHOLD else stock * override_threshold / STOCK_STEER_THRESHOLD
+  return torque if stock == STOCK_STEER_THRESHOLD else stock * torque / STOCK_STEER_THRESHOLD
 
 
-# Clarity angle mode: the press threshold follows the wheel angle. Driver Override Threshold is the value from
-# ANGLE_THRESHOLD_BP[-1] up; toward center it scales down. Owner's 0x05 angle-mode drive 11-19 (route 000000ea, 15
-# segments, lateral active, no press within 2 s): |torque| max 1193 / p99.9 991 at 0-5 deg, 591 at 5-15, 1218 at 15-45,
-# but 1601 (p99.9 1585, 21 frames > 1300) at 45-90 deg; real presses peaked 1500-2700. So near center a press can count
-# from ~1300 (with 1660: 1295 / 1394 / 1660) and large angles keep the full setting, where a false press would fade the
-# angle loop out mid-turn. The top stays at the setting (not above): the stock EPS flags its own override at
-# |T_comp| >= 1536 and a press openpilot sees later than the EPS risks the stock lockout (scale vs this torque unverified).
+# Angle mode: both override levels rise in sharp turns, by ANGLE_THRESHOLD_SCALE of the settings (the settings are the
+# straight-road values, up to 5 deg). Owner's 0x05 angle-mode drive 11-19 (route 000000ea, 15 segments, lateral active,
+# no press within 2 s): |torque| max 1193 / p99.9 991 at 0-5 deg, 591 at 5-15, 1218 at 15-45, but 1601 (p99.9 1585, 21
+# frames > 1300) at 45-90 deg; real presses peaked 1500-2700. A false press in a sharp turn would yield the angle loop
+# mid-turn, so from 45 deg the levels are 1.28 x the settings (the default start 1560 -> 2000, the old single setting's
+# value). These factors keep the old behaviour exactly: the single 2000 setting scaled 0.78 / 0.84 / 1.0 at 5 / 15 / 45
+# deg. The settings' descriptions state the raise (no hidden scaling).
 ANGLE_THRESHOLD_BP = [5., 15., 45.]       # |steering angle| deg
-ANGLE_THRESHOLD_SCALE = [0.78, 0.84, 1.0]
+ANGLE_THRESHOLD_SCALE = [1.0, 1.08, 1.28]
 
 
 def angle_mode_threshold(threshold: float, steering_angle_deg: float) -> float:
@@ -72,14 +72,14 @@ def lane_change_nudge_torque(CP) -> float | None:
   return STEER_THRESHOLD.get(CP.carFingerprint, STOCK_STEER_THRESHOLD) if modified_eps(CP) else None
 
 
-# A press starts over the threshold and ends once the torque has stayed under RELEASE_FRACTION of it for RELEASE_HOLD_S.
-# With one level the press flickered: the cut takes away the torque the driver leans on, their reading drops under the
-# line, the fade brings it back and they cross again (2026-11 logs, 7 cars: 58-79% of presses within 1.5 s of the last).
-# The hold is 0.1 s: 0.3 s kept openpilot off ~0.3 s after the driver let go (Clarity 11-15: 0.29 s, then the 0.5 s
-# fade), and on the CR-V A220's recorded torque 0.1 s cut the re-presses within 1.5 s as far as 0.15 s did.
-# 11-24 (owner): release level lowered 0.6 -> 0.4 of the threshold. Drivers still steering through a turn let their
-# torque sag below 60 % and op took back over mid-manoeuvre (stutter); the press now has to fall further before op resumes.
-RELEASE_FRACTION = 0.4
+# A press starts once |torque| exceeds Override Start Torque and ends once it has stayed under Override End Torque for
+# RELEASE_HOLD_S. With one level the press flickered: the cut takes away the torque the driver leans on, their reading
+# drops under the line, the fade brings it back and they cross again (2026-11 logs, 7 cars: 58-79% of presses within
+# 1.5 s of the last). The hold is 0.1 s: 0.3 s kept openpilot off ~0.3 s after the driver let go (Clarity 11-15: 0.29 s,
+# then the 0.5 s fade), and on the CR-V A220's recorded torque 0.1 s cut the re-presses within 1.5 s as far as 0.15 s did.
+# 11-24 (owner): the end level went from 0.6 to 0.4 of the start (drivers still steering through a turn let their torque
+# sag below 60 % and openpilot took back over mid-manoeuvre). 11-26: the two levels are separate settings, the defaults
+# the old ones near centre (start 1560, end 624). An end level at or above the start is taken as the start.
 RELEASE_HOLD_S = 0.1
 
 
@@ -88,12 +88,12 @@ class SteeringPressedHysteresis:
     self.pressed = False
     self.below_s = 0.0
 
-  def update(self, steering_torque: float, threshold: float) -> bool:
+  def update(self, steering_torque: float, start: float, end: float) -> bool:
     if not self.pressed:
-      self.pressed = abs(steering_torque) > threshold
+      self.pressed = abs(steering_torque) > start
       self.below_s = 0.0
     else:
-      self.below_s = self.below_s + DT_CTRL if abs(steering_torque) < RELEASE_FRACTION * threshold else 0.0
+      self.below_s = self.below_s + DT_CTRL if abs(steering_torque) < min(end, start) else 0.0
       self.pressed = self.below_s < RELEASE_HOLD_S - 1e-6
     return self.pressed
 

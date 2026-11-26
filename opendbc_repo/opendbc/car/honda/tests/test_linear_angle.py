@@ -1,6 +1,6 @@
-"""Linear-angle EPS (build 0x0C on, meps/linear_angle.py): 0x6A2 EPS_LINEAR_ANGLE latches linear mode (as panda does),
+"""Linear-angle EPS (build 0x0E, protocol v3, meps/linear_angle.py): 0x6A2 EPS_LINEAR_ANGLE latches linear mode (as panda does),
 carState.steeringAngleDeg becomes the rack-linear angle, the sender's limits switch to linear units, a stale 0x6A2 is a
-temporary fault, and a 0x0C that never sends 0x6A2 never steers. 0x0B and torque mode are unchanged."""
+temporary fault, and a 0x0E that never sends 0x6A2 never steers. A v2 build (0x0B) never steers and torque mode is unchanged."""
 import pytest
 
 from opendbc.car.honda.meps.linear_angle import STALE_FRAMES
@@ -26,7 +26,7 @@ def angle_on():
   T.ANGLE[0] = False
 
 
-def drive(ci, n, build=0x0C, lin=None, start=0, t0=1_000_000_000):
+def drive(ci, n, build=0x0E, lin=None, start=0, t0=1_000_000_000):
   """n carState updates at 100 Hz: 0x6A4 (build) every other one, 0x6A2 every one when lin is not None."""
   cs = None
   for k in range(start, start + n):
@@ -39,7 +39,7 @@ def drive(ci, n, build=0x0C, lin=None, start=0, t0=1_000_000_000):
   return cs
 
 
-def test_0x0C_steers_in_the_linear_angle(angle_on):
+def test_0x0E_steers_in_the_linear_angle(angle_on):
   ci = T.clarity()
   cs = drive(ci, 20, lin=120.0)
   assert ci.CS.linear_angle.latched and not cs.steerFaultTemporary
@@ -47,16 +47,17 @@ def test_0x0C_steers_in_the_linear_angle(angle_on):
   assert ci.CS.linear_angle.published_deg == pytest.approx(111.6, abs=0.05)
 
 
-def test_0x0B_is_unchanged(angle_on):
+def test_v2_build_0x0B_never_steers(angle_on):
+  # protocol v2 is unsupported: unknown_build fault, no linear latch, the 0x14A angle as before
   ci = T.clarity()
   cs = drive(ci, 20, build=0x0B, lin=None)
-  assert not ci.CS.linear_angle.latched and not cs.steerFaultTemporary
+  assert not ci.CS.linear_angle.latched and cs.steerFaultTemporary and ci.CS.eps_cal_status.fault == "unknown_build"
   assert cs.steeringAngleDeg == ci.CS.published_angle_deg                 # the 0x14A angle, as before
 
 
-def test_0x0C_without_0x6A2_never_steers(angle_on):
+def test_0x0E_without_0x6A2_never_steers(angle_on):
   ci = T.clarity()
-  cs = drive(ci, 20, build=0x0C, lin=None)
+  cs = drive(ci, 20, build=0x0E, lin=None)
   assert cs.steerFaultTemporary and not ci.CS.linear_angle.latched
 
 

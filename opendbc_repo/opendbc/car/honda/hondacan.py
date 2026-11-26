@@ -122,8 +122,7 @@ def create_acc_commands(packer, CAN, enabled, active, accel, gas, stopping_count
   return commands
 
 
-def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, eps_mode=0, angle_payload=0, arm_bits=0,
-                            angle_arm=None, v3_byte2=None):
+def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control, angle_arm=None, v3_byte2=None):
   if v3_byte2 is not None:
     return _create_steering_control_v3(packer, CAN, apply_torque, v3_byte2)
   values = {
@@ -132,28 +131,6 @@ def create_steering_control(packer, CAN, apply_torque, lkas_active, tja_control,
   }
   if angle_arm is not None:
     values["STEER_CONTROL_ARM"] = angle_arm
-  if eps_mode:
-    # byte 3 (stock EPS firmware never reads it); the Clarity angle-mode EPS (protocol v2, meps/protocol.py) reads
-    # AUTH << 4 | MODE
-    values["SET_ME_X00_2"] = eps_mode
-  set_me = 0
-  if angle_payload and lkas_active:
-    # angle mode (clarity_angle_mode.py): byte 2 bit 5 = bytes 0-1 carry an angle target, not a torque. On Bosch byte 2
-    # bit 1 is DRIVER_OVERRIDE, so the bit has its own signal there (ANGLE_PAYLOAD) instead of the Nidec SET_ME_X00
-    if "ANGLE_PAYLOAD" in packer.dbc.name_to_msg["STEERING_CONTROL"].sigs:
-      values["ANGLE_PAYLOAD"] = 1
-    else:
-      set_me |= angle_payload
-  if arm_bits and lkas_active:
-    # Clarity angle hold: the stock engage arm bits in byte 2 (clarity_angle_mode.stock_arm_bits), with the request.
-    # Bosch has no SET_ME_X00 (byte 2 bit 1 is DRIVER_OVERRIDE): bits 3:2 are STEER_CONTROL_ARM, bit 6 its own signal
-    if "SET_ME_X00" in packer.dbc.name_to_msg["STEERING_CONTROL"].sigs:
-      set_me |= arm_bits
-    else:
-      values["STEER_CONTROL_ARM"] = (arm_bits >> 2) & 0x3
-      values["STEER_CONTROL_ARM_B6"] = (arm_bits >> 6) & 0x1
-  if set_me:
-    values["SET_ME_X00"] = set_me
 
   if tja_control:
     values["STEER_DOWN_TO_ZERO"] = lkas_active

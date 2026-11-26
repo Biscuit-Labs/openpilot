@@ -1,14 +1,31 @@
 """Protocol v3 on the openpilot side (meps/protocol.py; spec rwd-xray lab/PROTOCOL_V3_20261125.md): a build in V3_BUILDS
 (0x0E) gets angle frames marked in byte 2 (bits 3:2 = 3, request bit 0, bit 6 DRIVE / YIELD), byte 3 0, and STANDBY
-(0x0D, target 0) while not steering. Builds 0x0B-0x0D keep the v2 frames."""
+(0x0D, target 0) while not steering. v3 is the only protocol: the v2 builds 0x0B-0x0D fault "unknown_build" and get
+only STANDBY frames, which they ignore (request 0)."""
+import dataclasses
+
 import pytest
 
 from opendbc.car.honda.meps import protocol as P
+from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
 from opendbc.car.honda.tests import test_clarity_angle_mode as T
-from opendbc.car.honda.tests.test_eps_cal_status import v4
-from opendbc.car.honda.tests.test_meps_v2 import angle_on, start  # noqa: F401  (fixture)
+from opendbc.car.honda.tests.test_eps_cal_status import Feed, v4
 
-assert angle_on
+
+@pytest.fixture(autouse=True)
+def angle_on():
+  T.ANGLE[0] = True
+  yield
+  T.ANGLE[0] = False
+
+
+def start(status=None, **settings):
+  ci = T.clarity()
+  if settings:
+    ci.CC.modified_eps_settings = type("S", (), {"current": lambda self: dataclasses.replace(DEFAULT_SETTINGS, **settings)})()
+  f = Feed(ci)
+  f.run(status or [v4(counter=k % 4) for k in range(8)])
+  return ci, f
 
 
 def start_v3(**kw):
@@ -28,8 +45,9 @@ def test_codec():
   assert P.v3_byte2(True) == 0x4C and P.v3_byte2(False) == 0x0C and P.V3_STANDBY == 0x0D
   assert P.is_v3_angle(0x4C) and P.is_v3_angle(0x0C)
   assert not any(P.is_v3_angle(b) for b in (0x0D, 0x4D, 0x8C, 0xCC, 0x1C, 0x2C, 0x0E, 0x08, 0x48, 0xC8, 0x00))
-  assert P.protocol_of(0x0E) == 3 and P.protocol_of(0x0D) == 2 and P.protocol_of(0x0F) is None
-  assert 0x0E in P.LINEAR_ANGLE_BUILDS and 0x0E in P.KNOWN_BUILDS
+  assert P.protocol_of(0x0E) == 3 and all(P.protocol_of(b) is None for b in (0x0B, 0x0C, 0x0D, 0x0F))
+  assert P.KNOWN_BUILDS == P.V3_BUILDS == {0x0E} == P.LINEAR_ANGLE_BUILDS
+  assert not hasattr(P, "byte3_v2") and not hasattr(P, "V2_BUILDS")
 
 
 def test_v3_idle_is_standby():
@@ -63,12 +81,24 @@ def test_v3_press_yields_and_follows_the_wheel_then_resumes_with_the_fade():
   assert abs(tr[10] - 80) < abs(tr[60] - 80)                             # gently first
 
 
-def test_v3_hold_off_drops_to_standby_during_a_press():
-  ci, _ = start_v3(angle_hold_override=False)
+def test_v3_yield_past_the_limit_waits_at_the_limit_and_keeps_yielding():
+  # panda's 3.6 m/s^2 angle is absolute: a press that takes the wheel past it at speed leaves the YIELD target at the
+  # limit, and the release keeps yielding until the wheel is back inside (DRIVE never pulls the wheel in to the clamp)
+  from opendbc.car.honda import clarity_angle_mode as cam
+  ci, _ = start_v3()
+  lim = cam.std_angle_limit(20.0, True)
   for _ in range(100):
     T.e4(ci, True, 5.0, 0.0, v=20.0)
-  fr = [T.e4(ci, True, 5.0, -8.0, v=20.0, pressed=True)[1] for _ in range(80)][-1]
-  assert fr[2] == P.V3_STANDBY and fr[0:2] == bytes(2)
+  wheel, frames = 0.0, []
+  for _ in range(200):
+    wheel = min(wheel + 1.0, lim + 30.0)
+    frames.append(T.e4(ci, True, 5.0, wheel, v=20.0, pressed=True)[1])
+  assert all(f[2] == 0x0C for f in frames)
+  assert all(abs(target(f)) <= 10 * lim + 1 for f in frames) and abs(target(frames[-1])) >= 10 * lim - 1
+  rel = [T.e4(ci, True, 5.0, lim + 30.0, v=20.0)[1] for _ in range(50)]   # released, wheel still past the limit
+  assert all(f[2] == 0x0C for f in rel)
+  back = [T.e4(ci, True, 5.0, lim - 5.0, v=20.0)[1] for _ in range(5)]     # wheel back inside: DRIVE
+  assert back[-1][2] == 0x4C
 
 
 def test_v3_frames_never_carry_the_request_or_byte3():
@@ -81,11 +111,12 @@ def test_v3_frames_never_carry_the_request_or_byte3():
 
 
 @pytest.mark.parametrize("build", (0x0B, 0x0C, 0x0D))
-def test_v2_builds_keep_v2_frames(build):
+def test_v2_builds_get_only_standby(build):
   ci, _ = start([v4(build=build, steering=True, counter=k % 4) for k in range(8)])
-  assert ci.CS.eps_cal_status.protocol == 2
-  _, idle = T.e4(ci, False, 0.0, 0.0)
-  assert idle[3] == 0xF1 and idle[2] == 0
+  assert ci.CS.eps_cal_status.fault == "unknown_build" and ci.CS.eps_cal_status.protocol is None
+  for lat in (False, True, True):
+    _, fr = T.e4(ci, lat, 5.0, 0.0)
+    assert fr[0:2] == bytes(2) and fr[2] == P.V3_STANDBY and fr[3] == 0
 
 
 @pytest.mark.parametrize("dbc", ("acura_rdx_2020_can_generated", "honda_civic_hatchback_ex_2017_can_generated",
@@ -96,6 +127,5 @@ def test_v3_packer_byte2_on_bosch_and_nidec(dbc):
   can = type("C", (), {"lkas": 0})()
   pk = CANPacker(dbc)
   for b2, tg in ((0x4C, -1234), (0x0C, 4321), (0x0D, 0)):
-    _, dat, _ = hondacan.create_steering_control(pk, can, tg, True, False, eps_mode=0xF1, angle_payload=0x20, arm_bits=0x48,
-                                                 v3_byte2=b2)
+    _, dat, _ = hondacan.create_steering_control(pk, can, tg, True, False, v3_byte2=b2)
     assert dat[2] == b2 and dat[3] == 0 and int.from_bytes(dat[0:2], "big", signed=True) == tg

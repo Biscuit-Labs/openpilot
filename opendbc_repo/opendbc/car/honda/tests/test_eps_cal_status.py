@@ -1,6 +1,6 @@
-"""0x6A4 EPS_CAL_STATUS interlock (eps_cal_status.py), protocol v2 only: layout-4 frames (build 0x0B on). v1 frames
-(MM 0x02 layout 2, angle builds 0x04-0x0A layout 3) fault "unsupported_build". Angle-mode behaviour on layout 4 is in
-test_meps_v2.py and test_clarity_angle_mode.py."""
+"""0x6A4 EPS_CAL_STATUS interlock (eps_cal_status.py), protocol v3 only: layout-4 frames (build 0x0E on). v1 frames
+(MM 0x02 layout 2, angle builds 0x04-0x0A layout 3) fault "unsupported_build"; the v2 builds 0x0B-0x0D "unknown_build".
+Angle-mode behaviour on layout 4 is in test_meps_v3.py and test_clarity_angle_mode.py."""
 import pytest
 
 from opendbc.car.honda.eps_cal_status import STATUS_TIMEOUT_FRAMES
@@ -16,7 +16,7 @@ def honda_checksum(b, addr=ADDR):
   return (8 - s) & 0xF
 
 
-def v4(mode=1, steering=True, fault=False, clamp=False, lkas=2, build=0x0B, reason=0, gain=15, ref=0, out=0, counter=0):
+def v4(mode=1, steering=True, fault=False, clamp=False, lkas=2, build=0x0E, reason=0, gain=15, ref=0, out=0, counter=0):
   """A layout-4 status frame (meps/protocol.py)."""
   b = bytearray(8)
   b[0] = 0x80 | (0x40 if fault else 0) | (0x20 if steering else 0) | (0x10 if clamp else 0) | ((lkas & 3) << 2) | (mode & 3)
@@ -68,12 +68,20 @@ def test_v1_builds_are_unsupported_in_torque_mode(active, requested, build, runn
   assert ci.CS.eps_cal_status.build_id == build
 
 
-def test_torque_mode_on_a_v2_eps_is_not_built():
-  # v2 has no torque PTM mode: openpilot's PTM torque tune on the EPS's stock tables must not steer
+def test_torque_mode_on_an_angle_eps_is_not_built():
+  # an angle build has no torque PTM mode: openpilot's PTM torque tune on the EPS's stock tables must not steer
   ci = clarity(); f = Feed(ci)
   states = f.run([v4(mode=0, steering=False, reason=1, counter=k % 4) for k in range(10)])
   assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "mode_not_built"
-  assert ci.CC.eps_mode == 0
+
+
+@pytest.mark.parametrize("build", [0x0B, 0x0C, 0x0D])
+def test_v2_builds_are_unknown(build):
+  # protocol v2 is retired: a 0x0B-0x0D EPS faults and never steers until it is flashed to a v3 build
+  ci = clarity(); f = Feed(ci)
+  states = f.run([v4(build=build, counter=k % 4) for k in range(10)])
+  assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "unknown_build"
+  assert ci.CS.eps_cal_status.protocol is None
 
 
 def test_status_lost_after_timeout_then_recovers():
@@ -90,7 +98,6 @@ def test_no_status_frame_is_cleanptm_behaviour():
   ci = clarity(); f = Feed(ci)
   assert not any(s.steerFaultTemporary for s in f.run([None] * 200))
   assert ci.CS.eps_cal_status.enabled and not ci.CS.eps_cal_status.announced
-  assert ci.CC.eps_mode == 0                          # byte 3 = 0: CleanPTM ignores it, a v2 EPS would read MODE 0
 
 
 def test_bad_checksum_frames_are_ignored():
@@ -104,4 +111,3 @@ def test_stock_fw_clarity_and_other_cars_ignore_the_frame():
   ci = clarity(b'39990-TRW-A020\x00\x00'); f = Feed(ci)
   assert not ci.CS.eps_cal_status.enabled
   assert not any(s.steerFaultTemporary for s in f.run([v1(active=0, counter=k % 4) for k in range(20)]))
-  assert ci.CC.eps_mode == 0

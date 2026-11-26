@@ -1,8 +1,8 @@
-"""Ridgeline (T6Z-A110) and Pilot (TG7-A070) angle mode on the V850 linear-angle EPS build 0x0C (profiles 5 and 6).
+"""Ridgeline (T6Z-A110) and Pilot (TG7-A070) angle mode on the V850 linear-angle EPS build 0x0E, protocol v3 (profiles 5 and 6).
 
 Same harness as test_rdx_angle_mode.py on the Nidec side: CarInterface on the angle PTM image, carState from the 0x6A2 /
-0x6A4 frames the EPS would send, the real CarController and packer (Nidec STEERING_CONTROL, 5 bytes: the angle payload is
-byte 2 bit 5 via SET_ME_X00, MODE | AUTH is byte 3 via SET_ME_X00_2), and every 0xE4 through panda's own safety code
+0x6A4 frames the EPS would send, the real CarController and packer (Nidec STEERING_CONTROL, 5 bytes: the v3 angle marker is
+byte 2 via SET_ME_X00, byte 3 is always 0), and every 0xE4 through panda's own safety code
 (libsafety, hondaNidec with the angle bit and the car's profile). Rows 5 and 6 are each car's measured geometry (Pilot: one public route)."""
 import pytest
 
@@ -23,6 +23,7 @@ STOCK_FW = {CAR.HONDA_RIDGELINE: b'39990-T6Z-A110\x00\x00', CAR.HONDA_PILOT: b'3
 ROWS = {CAR.HONDA_RIDGELINE: 5, CAR.HONDA_PILOT: 6}
 CARS = tuple(ANGLE_FW)
 request = rdx_test.request
+DRIVE, YIELD = rdx_test.DRIVE, rdx_test.YIELD
 
 
 def interface(candidate, fw=None, angle=True):
@@ -34,7 +35,7 @@ def interface(candidate, fw=None, angle=True):
 
 class Car(rdx_test.Car):
   """test_rdx_angle_mode.Car on the Nidec platform DBC and panda's hondaNidec hooks."""
-  def __init__(self, ci, v=10.0, wheel=0.0, send_lin=True, build=0x0C):
+  def __init__(self, ci, v=10.0, wheel=0.0, send_lin=True, build=0x0E):
     self.ci, self.v, self.wheel, self.send_lin, self.build = ci, float(v), float(wheel), send_lin, build
     self.ref_latched = 1
     self.bus = rdx_test.CanBus(ci.CP)
@@ -61,9 +62,8 @@ def test_angle_image_selects_angle_mode_with_its_profile(candidate):
   assert ci.CP.maxLateralAccel == 3.0
   # the EPS steers to standstill in angle mode (its angle row's min speed is 0; the stock row keeps 20 kph)
   assert ci.CP.steerAtStandstill and ci.CP.minSteerSpeed == -1.0
-  assert ci.CC.angle_sender.profile is profile and ci.CC.angle_sender.linear and ci.CC.stock_arm   # Clarity arm/abort field (STOCK_ARM_IMAGES)
+  assert ci.CC.angle_sender.profile is profile and ci.CC.angle_sender.linear
   assert ci.CS.eps_cal_status.enabled and ci.CS.linear_angle.required
-  assert ci.CC.eps_mode == 0xF1
 
 
 @pytest.mark.parametrize("fw,stock", [(b'39990+TG7+A060\x00\x00', b'39990-TG7-A060\x00\x00')], ids=["A060"])
@@ -85,17 +85,15 @@ def test_stock_image_and_setting_off_keep_torque_mode(candidate, which, angle):
   ci = interface(candidate, STOCK_FW[candidate] if which == "stock" else None, angle)
   assert not ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE and ci.CP.steerControlType == structs.CarParams.SteerControlType.torque
   assert not ci.CP.safetyConfigs[-1].safetyParam & (HondaSafetyFlags.CLARITY_ANGLE | 0xE000)
-  assert ci.CC.angle_sender is None and ci.CC.eps_mode == 0
+  assert ci.CC.angle_sender is None
   assert not ci.CS.eps_cal_status.enabled and not ci.CS.linear_angle.enabled
 
 
 # --- the 0x6A2 latch ---
 
 @pytest.mark.parametrize("candidate", CARS)
-@pytest.mark.parametrize("build", [0x0C, 0x0D])
-def test_carstate_angle_is_the_linear_angle(candidate, build):
-  # 0x0D = 0x0C + the firmware lock taper and stall cap (same protocol, same 0x6A2)
-  car = Car(interface(candidate), wheel=-9.5, build=build)
+def test_carstate_angle_is_the_linear_angle(candidate):
+  car = Car(interface(candidate), wheel=-9.5)
   for _ in range(6):
     cs, *_ = car.step(False, 0.)
   assert car.ci.CS.linear_angle.latched and not cs.steerFaultTemporary and car.ci.CS.eps_cal_status.angle_ready
@@ -139,17 +137,16 @@ def test_stale_linear_angle_faults_and_drops_the_request(candidate):
 @pytest.mark.parametrize("candidate", CARS)
 @pytest.mark.parametrize("v", [3., 10., 20., 30., 40.])
 @pytest.mark.parametrize("sign", [1., -1.])
-@pytest.mark.parametrize("build", [0x0C, 0x0D])
-def test_sender_at_its_clamp_passes_panda(candidate, v, sign, build):
+def test_sender_at_its_clamp_passes_panda(candidate, v, sign):
   profile = ANGLE_PROFILES[candidate]
-  car = Car(interface(candidate), v=v, build=build)
+  car = Car(interface(candidate), v=v)
   desired = sign * 1.2 * vm_angle_limit(v, profile)
   for i in range(700):
     _, dat, ok, target = car.step(True, desired)
     assert ok, (v, i, target)
     car.wheel = target
-  # 5-byte Nidec frame: byte 2 = request | payload (the V850 reads bit 5 only on a v2 angle frame) | stock arm 2, byte 3 MODE 1 | AUTH 15
-  assert len(dat) == 5 and dat[2] == 0xA0 | cam.E4_ARM2 and dat[3] == 0xF1
+  # 5-byte Nidec frame: byte 2 = v3 DRIVE (0x4C), byte 3 = 0
+  assert len(dat) == 5 and dat[2] == DRIVE and dat[3] == 0
   assert abs(target) > 0.98 * vm_angle_limit(v, profile)
   assert abs(target) <= vm_angle_limit(max(v - 1., 1.), profile) + 0.1
 
@@ -157,17 +154,24 @@ def test_sender_at_its_clamp_passes_panda(candidate, v, sign, build):
 @pytest.mark.parametrize("candidate", CARS)
 @pytest.mark.parametrize("v", [2.2, 10., 20.])
 def test_sender_through_an_override_passes_panda(candidate, v):
+  # protocol v3: YIELD while pressed with the target following the wheel (inside panda's angle limit), DRIVE after the
+  # release with the target walking back to the plan
   profile = ANGLE_PROFILES[candidate]
   car = Car(interface(candidate), v=v)
   plan = 0.5 * vm_angle_limit(v, profile)
-  auth = []
+  wheel_max = 0.9 * vm_angle_limit(v, profile)
+  b2, tg = [], []
   for i in range(700):
     pressed = 150 <= i < 400
-    car.wheel = min(car.wheel + 3.5, 450.) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
+    car.wheel = min(car.wheel + 3.5, wheel_max) if pressed else car.wheel + 0.2 * (car.ci.CC.angle_sender.out_angle - car.wheel)
     _, dat, ok, target = car.step(True, plan, pressed=pressed, torque=3000. if pressed else 0.)
     assert ok, (v, i, target)
-    auth.append(dat[3] >> 4)
-  assert min(auth[160:400]) == 0 and auth[-1] == 15
+    if i > 20:
+      assert request(dat) and dat[2] in (DRIVE, YIELD), (i, hex(dat[2]))
+    b2.append(dat[2])
+    tg.append(target)
+  assert set(b2[21:150]) == {DRIVE} and set(b2[160:400]) == {YIELD} and set(b2[450:]) == {DRIVE}
+  assert 1.5 * plan < tg[399] <= wheel_max + 0.2
   assert target == pytest.approx(plan, abs=0.06)
 
 

@@ -110,16 +110,17 @@ static int honda_nidec_brake(const CANPacket_t *msg) {
   return SAFETY_MAX(brake, brake_hybrid);
 }
 
-// Clarity angle-mode EPS (safety param HONDA_PARAM_ANGLE, Nidec only). The modified EPS firmware reads 0xE4 bytes 0-1
-// as a steering-wheel angle target, in the units of its own STEERING_SENSORS (0x14A) STEER_ANGLE (0.1 deg, same sign),
-// when byte 2 bit 7 (request) and bit 5 (angle payload) are both set; byte 3 bits 7:4 cut the loop's authority
-// (15 = none; only reduces, not checked). A target of 0 steers to centre, so the torque rule "bytes 0-1 must be 0" does
-// not protect an angle car.
+// Angle-mode EPS (safety param HONDA_PARAM_ANGLE), protocol v3 (car/honda/meps/protocol.py, build 0x0E on). The
+// modified EPS firmware reads 0xE4 bytes 0-1 as a steering-wheel angle target, in the units of its own angle (0x14A
+// STEER_ANGLE, 0.1 deg, same sign; rack-linear on a linear-angle EPS), when byte 2 bits 3:2 = 3 with the request bit 0
+// (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero; byte 3 zero). A target of 0 steers to centre, so the torque rule "bytes
+// 0-1 must be 0" does not protect an angle car. Earlier protocols (request + payload bit) are not allowed.
 // Rules: the standard vehicle-model angle rule of the other angle brands (steer_angle_cmd_checks_vm: 3.6 m/s^2 lateral
 // accel, 3.6 m/s^3 lateral jerk, at speed - 1 m/s, last target reset to the measured angle after a violation or while
 // not steering), with the angle for a lateral acceleration taken from the EPS's own clamp table (angle_ref AMAX, which
 // matches the car: v x yaw rate / table accel = 1.02) instead of a bicycle model, plus Honda's frame format:
-//  - lateral not allowed, or request and payload not both set: bytes 0-1, request and payload must all be 0
+//  - lateral not allowed, or not an angle frame: bytes 0-1, the request and the payload bit must be 0 and the marker
+//    only as STANDBY (0x0D / 0x4D with a zero target); byte 3 always 0
 //  - steering needs a measured angle (0x14A, an RX check in this mode) no older than 50 ms
 //  - |target| <= the 3.6 m/s^2 angle: 0.9 x the EPS 4.0 m/s^2 table, extended as 1/v^2 below 5 and above 30 m/s,
 //    capped at 500 deg. No exemptions.
@@ -298,18 +299,17 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
   const int target = to_signed((msg->data[0] << 8) | msg->data[1], 16);
   const bool request = GET_BIT(msg, 23U);
   const bool payload = GET_BIT(msg, 21U);
-  // protocol v3 (car/honda/meps/protocol.py, build 0x0E on): byte 2 bits 3:2 = 3 with the request 0 marks an angle
-  // frame (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero, byte 3 zero); 0x0D / 0x4D with a zero target is STANDBY
+  // byte 2 bits 3:2 = 3 with the request 0 marks an angle frame (bit 6 DRIVE / YIELD; bits 5:4 and 1:0 zero);
+  // 0x0D / 0x4D with a zero target is STANDBY
   const uint8_t b2 = msg->data[2];
-  const bool v3_marker = (b2 & 0x0CU) == 0x0CU;
-  const bool v3_angle = ((b2 & 0xBFU) == 0x0CU) && (msg->data[3] == 0U);
-  const bool v3_standby = (((b2 & 0xBFU) == 0x0DU) && (target == 0)) && (msg->data[3] == 0U);
-  const bool steering = (request && payload) || v3_angle;
-  bool violation = false;
+  const bool marker = (b2 & 0x0CU) == 0x0CU;
+  const bool steering = (b2 & 0xBFU) == 0x0CU;
+  const bool standby = ((b2 & 0xBFU) == 0x0DU) && (target == 0);
+  bool violation = msg->data[3] != 0U;
 
   if (!lateral_controls_allowed() || !steering) {
-    violation = (target != 0) || request || payload;
-    violation |= v3_marker && !v3_standby;   // the v3 marker only as STANDBY when not steering
+    violation |= (target != 0) || request || payload;
+    violation |= marker && !standby;   // the marker only as STANDBY when not steering
   } else {
     // fudge the speed down 1 m/s: both limits only widen as speed falls
     const float speed = SAFETY_MAX(((float)vehicle_speed.min / VEHICLE_SPEED_FACTOR) - 1.0f, 1.0f);
@@ -332,7 +332,7 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
     // min/max window; openpilot's carState angle is 10-20 ms older than the newest 0x14A); otherwise of the last target
     const int hi = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.max, -angle_max, angle_max) : honda_angle_last;
     const int lo = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.min, -angle_max, angle_max) : honda_angle_last;
-    violation = !meas_fresh;
+    violation |= !meas_fresh;
     violation |= (honda_angle_profile != 0U) && !honda_angle_vm_valid();
     violation |= safety_max_limit_check(target, hi + step_can, lo - step_can);
     violation |= safety_max_limit_check(target, lim_can, -lim_can);

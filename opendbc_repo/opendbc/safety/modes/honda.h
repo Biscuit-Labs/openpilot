@@ -293,7 +293,13 @@ static void honda_angle_optional_rx(const CANPacket_t *msg) {
   }
 }
 
+// real-time rate limit: the standard angle brands' window (lateral.h rt_angle_rate_limit_check): at most
+// 100 Hz * 250 ms * 1.2 + 1 = 31 steering frames per 250 ms, so the target moves at most 31 x the per-frame step
+// (jerk/EPS jump) per window. openpilot sends 100 Hz: 25 per window.
 static bool honda_angle_tx_violation(const CANPacket_t *msg) {
+  static const AngleSteeringLimits RT_LIMITS = {
+    .frequency = 100U,
+  };
   static const float V[9] = {0., 5., 8., 10., 12., 15., 20., 25., 30.};
   static const float JUMP[9] = {40., 40., 31., 25., 19., 10., 10., 10., 10.};          // EPS jump threshold, 0.1 deg per frame
   const int target = to_signed((msg->data[0] << 8) | msg->data[1], 16);
@@ -310,6 +316,9 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
   if (!lateral_controls_allowed() || !steering) {
     violation |= (target != 0) || request || payload;
     violation |= marker && !standby;   // the marker only as STANDBY when not steering
+    // not steering: the real-time window starts over (as the torque check resets its window)
+    rt_angle_msgs = 0U;
+    ts_angle_check_last = microsecond_timer_get();
   } else {
     // fudge the speed down 1 m/s: both limits only widen as speed falls
     const float speed = SAFETY_MAX(((float)vehicle_speed.min / VEHICLE_SPEED_FACTOR) - 1.0f, 1.0f);
@@ -336,6 +345,7 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
     violation |= (honda_angle_profile != 0U) && !honda_angle_vm_valid();
     violation |= safety_max_limit_check(target, hi + step_can, lo - step_can);
     violation |= safety_max_limit_check(target, lim_can, -lim_can);
+    violation |= rt_angle_rate_limit_check(RT_LIMITS);   // always evaluated: it counts the frame
   }
   honda_angle_last = target;
   // not steering, or a violation: the next target must be within one step of the wheel, measured when it is checked

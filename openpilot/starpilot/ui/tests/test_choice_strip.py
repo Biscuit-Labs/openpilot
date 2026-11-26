@@ -4,7 +4,7 @@ from dataclasses import replace
 import unittest
 
 from openpilot.starpilot.ui.feature_settings_state import (
-  SYSTEM_PRESETS, FeatureInput, FeatureRow, FeatureSettingsState, FeatureUiAction,
+  SYSTEM_PRESETS, ChoiceStrip, FeatureInput, FeatureRow, FeatureSettingsState, FeatureUiAction,
   choice_strip_follow, choice_strip_initial, choice_strip_page,
   feature_row_top, value_buttons, value_editor_state, value_request,
 )
@@ -176,6 +176,61 @@ class ChoiceStripTests(unittest.TestCase):
       ("100.0", (1603.6666666666665, 356.0, 490.3333333333333, 200.0), True),
       ("+", (1894.0, 110.0, 200.0, 200.0), True),
     ))
+
+
+class ChoiceStripTrackerTest(unittest.TestCase):
+  CHOICES = tuple(f"c{index}" for index in range(15))
+
+  def shown(self, strip, value, area="feature", key="choice"):
+    row = FeatureRow(key, "Choice", value, choices=self.CHOICES, available=True)
+    state = strip.window(area, value_editor_state(FeatureSettingsState(rows=(row,)), key))
+    return state, state.rows[0]
+
+  def test_open_places_the_window_and_arrows_move_it_without_touching_the_value(self):
+    strip = ChoiceStrip()
+    state, row = self.shown(strip, "c7")
+    self.assertEqual(state.choice_offset, 6)
+    action = tap(state, named(state, row, ">")[1])
+    self.assertEqual(action, FeatureUiAction("page", row, 1))
+    strip.page(action)
+    state, row = self.shown(strip, "c7")
+    self.assertEqual((state.choice_offset, row.value), (9, "c7"))
+    strip.page(FeatureUiAction("page", row, 1))
+    strip.page(FeatureUiAction("page", row, 1))
+    self.assertEqual(self.shown(strip, "c7")[0].choice_offset, 12)
+    strip.page(FeatureUiAction("page", row, -1))
+    self.assertEqual(self.shown(strip, "c7")[0].choice_offset, 9)
+
+  def test_window_follows_a_changed_value_only_as_far_as_needed(self):
+    strip = ChoiceStrip()
+    self.assertEqual(self.shown(strip, "c7")[0].choice_offset, 6)
+    self.assertEqual(self.shown(strip, "c8")[0].choice_offset, 6)
+    self.assertEqual(self.shown(strip, "c9")[0].choice_offset, 7)
+    self.assertEqual(self.shown(strip, "c5")[0].choice_offset, 5)
+
+  def test_closing_the_editor_forgets_a_paged_window(self):
+    strip = ChoiceStrip()
+    state, row = self.shown(strip, "c7")
+    strip.page(FeatureUiAction("page", row, -1))
+    self.assertEqual(self.shown(strip, "c7")[0].choice_offset, 3)
+    overview = FeatureSettingsState(rows=(row, replace(row, key="other")))
+    self.assertIs(strip.window("feature", overview), overview)
+    self.assertEqual(self.shown(strip, "c7")[0].choice_offset, 6)
+
+  def test_another_row_or_area_gets_its_own_window(self):
+    strip = ChoiceStrip()
+    state, row = self.shown(strip, "c7")
+    strip.page(FeatureUiAction("page", row, 1))
+    self.assertEqual(self.shown(strip, "c1", area="sounds", key="other")[0].choice_offset, 0)
+    self.assertEqual(self.shown(strip, "c7")[0].choice_offset, 9)
+    self.assertEqual(self.shown(strip, "c1", key="other")[0].choice_offset, 0)
+
+  def test_rows_that_do_not_page_stay_at_zero(self):
+    strip = ChoiceStrip()
+    row = FeatureRow("three", "Three", "b", choices=("a", "b", "c"), available=True)
+    state = strip.window("feature", value_editor_state(FeatureSettingsState(rows=(row,)), "three"))
+    strip.page(FeatureUiAction("page", state.rows[0], 1))
+    self.assertEqual(strip.window("feature", state).choice_offset, 0)
 
 
 if __name__ == "__main__":

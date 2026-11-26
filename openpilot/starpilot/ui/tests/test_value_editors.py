@@ -22,7 +22,7 @@ from openpilot.starpilot.ui.feature_settings_state import (
 from openpilot.starpilot.ui.pip_owner import PiPOwner
 from openpilot.starpilot.ui.presentation import Profile
 from openpilot.starpilot.ui.settings_state import Destination
-from openpilot.starpilot.ui.shell import ShellMode
+from openpilot.starpilot.ui.shell import ShellMode, ShellRequest
 from openpilot.starpilot.ui.tests.test_feature_settings_visuals import fake_fonts
 from openpilot.system.ui.widgets import DialogResult
 
@@ -105,6 +105,33 @@ class ValueEditorTests(unittest.TestCase):
         self.assertEqual(request.value, choice)
         current = replace(current, value=choice)
       self.assertIsNone(value_request(replace(editor, rows=(current,)), FeatureUiAction("change", current, 1)))
+
+  def test_paged_choices_resolve_against_the_window_on_screen(self):
+    choices = tuple(f"Choice {i}" for i in range(15))
+    row = FeatureRow("choice", "Choice", choices[7], b"saved", choices=choices, available=True)
+    self.session.feature_owner = Mock(snapshot=Mock(return_value=FeatureSettingsState(page=FeaturePage.WHEEL, rows=(row,))))
+    self.session.feature_request = Mock()
+    self.open_feature("choice")
+
+    def emit(action):
+      self.session._emit(ShellRequest("features", action))
+
+    def shown():
+      state = self.session.choice_strip.window("feature", self.session.feature_snapshot())
+      return state, {button[0]: button[1] for button in value_buttons(state, state.rows[0], feature_row_top(state))}
+
+    state, bounds = shown()
+    self.assertEqual((state.choice_offset, tuple(bounds)), (6, ("-", "<", *choices[6:9], ">", "+")))
+    self.tap(state, bounds[">"], emit)
+    state, bounds = shown()
+    self.assertEqual((state.choice_offset, tuple(bounds)), (9, ("-", "<", *choices[9:12], ">", "+")))
+    self.session.feature_request.assert_not_called()
+    self.tap(state, bounds[choices[10]], emit)
+    self.assertEqual(self.session.feature_request.call_args.args[0].value, choices[10])
+    self.session._feature_ui(FeatureUiAction("back"))
+    self.assertFalse(self.session.feature_snapshot().editor)
+    self.open_feature("choice")
+    self.assertEqual(shown()[0].choice_offset, 6)
 
   def test_long_choices_and_precise_numbers_fit_the_existing_editor(self):
     from openpilot.starpilot.ui.raylib import rl

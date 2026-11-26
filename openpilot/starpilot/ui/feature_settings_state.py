@@ -179,6 +179,31 @@ def choice_strip_follow(row: FeatureRow, offset: int) -> int:
   return choice_strip_page(row, min(max(offset, values.index(row.value) - 2), values.index(row.value)))
 
 
+class ChoiceStrip:
+  """Choice window of each area's open editor: placed on open, moved by its arrows, kept on the value."""
+
+  def __init__(self):
+    self._open: dict[str, tuple[str, str, int]] = {}
+
+  def window(self, area: str, state: FeatureSettingsState) -> FeatureSettingsState:
+    row = state.rows[0] if state.editor and len(state.rows) == 1 else None
+    if row is None:
+      self._open.pop(area, None)
+      return state
+    key, value, offset = self._open.get(area, ("", "", 0))
+    if area not in self._open or key != row.key:
+      offset = choice_strip_initial(row)
+    elif value != row.value:
+      offset = choice_strip_follow(row, offset)
+    self._open[area] = (row.key, row.value, offset)
+    return replace(state, choice_offset=offset)
+
+  def page(self, action: "FeatureUiAction") -> None:
+    for area, (key, value, offset) in tuple(self._open.items()):
+      if action.row is not None and key == action.row.key:
+        self._open[area] = (key, value, choice_strip_page(action.row, offset + 3 * action.direction))
+
+
 def value_buttons(state: FeatureSettingsState, row: FeatureRow, y: float = 0) -> tuple[tuple[str, tuple[float, float, float, float], bool], ...]:
   """Shared value-editor geometry; limits and choices come from the saved row."""
   if not state.editor or len(state.rows) != 1 or not row.presets or row.repair_value:

@@ -1,0 +1,293 @@
+import Foundation
+import CryptoKit
+import CoreBluetooth
+
+/// The app opens comma’s pairing window over verified LAN before claiming a key.
+struct ClaimResult: Equatable {
+    let key: String
+    let id: String?
+    let adapterAddress: String
+    let adapterName: String
+}
+
+/// Byte layout: galaxy_bluetooth/README.md, "Pairing a phone". The phone sends a P-256 public key and gets its own
+/// key back, sealed under an ECDH-derived key, so nothing a nearby listener can read ever contains the key.
+enum ClaimCrypto {
+    static let requestMagic = Data("GCL1".utf8)
+    static let replyMagic = Data("GCR1".utf8)
+    static let info = Data("galaxy-claim-v1".utf8)
+    static let aad = Data("galaxy-claim-v1/reply".utf8)
+    static let point = 65
+
+    static func request(publicKey: P256.KeyAgreement.PublicKey, name: String) -> Data {
+        requestMagic + publicKey.x963Representation + Data(String(name.prefix(40)).utf8)
+    }
+
+    static func derive(_ privateKey: P256.KeyAgreement.PrivateKey, peer: Data, challenge: Data) throws -> SymmetricKey {
+        let secret = try privateKey.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: peer))
+        return secret.hkdfDerivedSymmetricKey(using: SHA256.self, salt: challenge, sharedInfo: info, outputByteCount: 32)
+    }
+
+    static func open(_ reply: Data, privateKey: P256.KeyAgreement.PrivateKey, challenge: Data) throws -> ClaimResult {
+        let reply = Data(reply)
+        guard reply.count > 4 + point + 12 + 16, reply.prefix(4) == replyMagic else {
+            throw BridgeError.message("comma sent an unexpected reply.")
+        }
+        let key = try derive(privateKey, peer: reply.subdata(in: 4..<(4 + point)), challenge: challenge)
+        let nonce = try AES.GCM.Nonce(data: reply.subdata(in: (4 + point)..<(4 + point + 12)))
+        let rest = reply.dropFirst(4 + point + 12)
+        let box = try AES.GCM.SealedBox(nonce: nonce, ciphertext: rest.dropLast(16), tag: rest.suffix(16))
+        return try parse(try AES.GCM.open(box, using: key, authenticating: aad))
+    }
+
+    static func parse(_ json: Data) throws -> ClaimResult {
+        guard let value = try JSONSerialization.jsonObject(with: json) as? [String: Any],
+              let key = value["key"] as? String, key.utf8.count == 64,
+              key.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else {
+            throw BridgeError.message("comma sent an unexpected pairing key.")
+        }
+        let address = (value["adapterAddress"] as? String) ?? ""
+        return ClaimResult(key: key.lowercased(), id: PairingCode.validID(value["id"] as? String),
+                           adapterAddress: address.range(of: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$", options: .regularExpression) != nil ? address.uppercased() : "",
+                           adapterName: String(((value["adapterName"] as? String) ?? "").prefix(80)))
+    }
+}
+
+/// A one-shot Bluetooth connection that asks the comma with its pairing window open for a key.
+/// It is separate from `BluetoothTransport` so the normal encrypted connection code is untouched.
+@MainActor
+final class ClaimTransport: NSObject, @preconcurrency CBCentralManagerDelegate, @preconcurrency CBPeripheralDelegate {
+    struct Outcome {
+        let result: ClaimResult
+        let deviceID: UUID
+    }
+
+    var onEvent: ((String) -> Void)?
+    private var central: CBCentralManager?
+    private var peripheral: CBPeripheral?
+    private var rx: CBCharacteristic?
+    private var tx: CBCharacteristic?
+    private var continuation: CheckedContinuation<Outcome, Error>?
+    private var privateKey = P256.KeyAgreement.PrivateKey()
+    private var name = ""
+    private var expectedAdapterAddress: String?
+    private var challenge = Data()
+    private var outgoing: [Data] = []
+    private var writeIndex = 0
+    private var assembler = FrameAssembler()
+    private var claimed: ClaimResult?
+    private var handingOff = false
+    private var timeout: Task<Void, Never>?
+    private var attempt = 0
+    private var attemptStarted = ProcessInfo.processInfo.systemUptime
+    private var stage = "idle"
+    private var pendingReads = 0
+    private var receivedPackets = 0
+    private func trace(_ message: String) {
+        let elapsed = String(format: "%.3f", ProcessInfo.processInfo.systemUptime - attemptStarted)
+        onEvent?("Pairing attempt \(attempt) +\(elapsed)s [\(stage)]: \(message)")
+    }
+    private func enter(_ value: String) { stage = value; trace("started") }
+
+
+    func claim(name: String, expectedAdapterAddress: String? = nil) async throws -> Outcome {
+        guard continuation == nil else { throw BridgeError.message("Pairing is already in progress.") }
+        attempt += 1; attemptStarted = ProcessInfo.processInfo.systemUptime
+        stage = "initializing"; pendingReads = 0; receivedPackets = 0
+        self.name = name
+        self.expectedAdapterAddress = expectedAdapterAddress?.uppercased()
+        challenge = Data()
+        outgoing = []
+        writeIndex = 0
+        assembler = FrameAssembler()
+        claimed = nil
+        handingOff = false
+        onEvent?("Phone pairing started")
+        trace("deadline=30s")
+        privateKey = P256.KeyAgreement.PrivateKey()
+        return try await withCheckedThrowingContinuation { continuation in
+            self.continuation = continuation
+            central = CBCentralManager(delegate: self, queue: .main)
+            timeout = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
+                guard !Task.isCancelled else { return }
+                self?.fail("Comma didn’t respond. Keep your iPhone nearby and reconnect to comma over Local Wi-Fi.\nThen try Bluetooth setup again in this app.")
+            }
+        }
+    }
+
+    func cancel() {
+        guard continuation != nil else { return }
+        onEvent?("Phone pairing cancelled")
+        finish(.failure(CancellationError()))
+    }
+
+    private func failBluetooth(_ error: Error, stage: String) {
+        let failure = error as NSError
+        onEvent?("Pairing \(stage) failed: domain=\(failure.domain), code=\(failure.code)")
+        fail(error.localizedDescription)
+    }
+
+    private func fail(_ message: String) {
+        trace("failed; sent=\(writeIndex)/\(outgoing.count); received=\(receivedPackets); pending reads=\(pendingReads)")
+        onEvent?("Phone pairing failed: " + message)
+        finish(.failure(BridgeError.message(message)))
+    }
+
+    private func finish(_ result: Result<Outcome, Error>) {
+        guard let continuation else { return }
+        self.continuation = nil
+        timeout?.cancel()
+        central?.stopScan()
+        if let peripheral, peripheral.state != .disconnected { central?.cancelPeripheralConnection(peripheral) }
+        peripheral = nil; rx = nil; tx = nil; central = nil
+        continuation.resume(with: result)
+    }
+
+    func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        guard central === self.central, continuation != nil else { return }
+        trace("Bluetooth state=\(central.state)")
+        switch central.state {
+        case .poweredOn:
+            guard peripheral == nil else { return }
+            let connected = central.retrieveConnectedPeripherals(withServices: [CBUUID(string: Wire.service)])
+            trace("already-connected service candidates=\(connected.count)")
+            if connected.count > 1 {
+                fail("More than one comma is connected over Bluetooth. Disconnect the other comma in iPhone Bluetooth settings, then retry setup for your selected comma.")
+            } else if let candidate = connected.first {
+                connect(candidate, using: central)
+            } else {
+                enter("scanning")
+                central.scanForPeripherals(withServices: [CBUUID(string: Wire.service)], options: nil)
+            }
+        case .unauthorized: fail("Allow Bluetooth access in iPhone Settings.")
+        case .poweredOff: fail("Turn on Bluetooth to pair with comma.")
+        case .unknown, .resetting: break
+        default: fail("Bluetooth is unavailable.")
+        }
+    }
+
+    func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
+                        advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        guard central === self.central, continuation != nil, self.peripheral == nil else { return }
+        trace("advertisement RSSI=\(RSSI.intValue)")
+        connect(peripheral, using: central)
+    }
+
+    private func connect(_ peripheral: CBPeripheral, using central: CBCentralManager) {
+        enter("connecting")
+        onEvent?("Phone pairing found comma; connecting")
+        central.stopScan()
+        self.peripheral = peripheral
+        peripheral.delegate = self
+        central.connect(peripheral, options: nil)
+    }
+
+    func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        guard central === self.central, peripheral == self.peripheral else { return }
+        enter("service discovery")
+        onEvent?("Phone pairing connected; discovering service")
+        peripheral.discoverServices([CBUUID(string: Wire.service)])
+    }
+
+    func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
+        guard central === self.central, peripheral == self.peripheral else { return }
+        if let error { failBluetooth(error, stage: "connect") }
+        else { fail("Could not connect to comma.") }
+    }
+
+    func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
+        guard central === self.central, peripheral == self.peripheral, continuation != nil else { return }
+        if handingOff, let claimed {
+            onEvent?("Phone pairing complete; starting encrypted connection")
+            finish(.success(Outcome(result: claimed, deviceID: peripheral.identifier)))
+        } else {
+            if let error { failBluetooth(error, stage: "disconnect") }
+            else { fail("comma disconnected.") }
+        }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        guard peripheral == self.peripheral else { return }
+        if let error { failBluetooth(error, stage: "service discovery"); return }
+        guard error == nil, let service = peripheral.services?.first(where: { $0.uuid == CBUUID(string: Wire.service) }) else {
+            fail("Galaxy Bluetooth service was not found."); return
+        }
+        enter("characteristic discovery")
+        peripheral.discoverCharacteristics([CBUUID(string: Wire.rx), CBUUID(string: Wire.tx), CBUUID(string: Wire.info)], for: service)
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        guard peripheral == self.peripheral else { return }
+        if let error { failBluetooth(error, stage: "characteristic discovery"); return }
+        rx = service.characteristics?.first { $0.uuid == CBUUID(string: Wire.rx) }
+        tx = service.characteristics?.first { $0.uuid == CBUUID(string: Wire.tx) }
+        guard error == nil, rx != nil, tx != nil,
+              let info = service.characteristics?.first(where: { $0.uuid == CBUUID(string: Wire.info) }) else {
+            fail("The comma bridge has incompatible Bluetooth characteristics."); return
+        }
+        enter("challenge read")
+        peripheral.readValue(for: info)
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard peripheral == self.peripheral, characteristic.uuid == CBUUID(string: Wire.rx) else { return }
+        if let error { failBluetooth(error, stage: "write"); return }
+        if claimed != nil {
+            // Release this connection before the normal transport connects to the same comma.
+            enter("handoff")
+            handingOff = true
+            onEvent?("Phone pairing key received; closing setup connection")
+            central?.cancelPeripheralConnection(peripheral)
+            return
+        }
+        writeIndex += 1
+        if writeIndex < outgoing.count, let rx { peripheral.writeValue(outgoing[writeIndex], for: rx, type: .withResponse) }
+        else if let tx { enter("claim reply"); peripheral.readValue(for: tx) }
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
+        guard peripheral == self.peripheral else { return }
+        if let error { failBluetooth(error, stage: "read"); return }
+        guard let data = characteristic.value else { fail("Empty Bluetooth response."); return }
+        if characteristic.uuid == CBUUID(string: Wire.info) {
+            guard data.count == 17, data.first == 1, let rx else { fail("Unsupported bridge protocol."); return }
+            enter("claim write")
+            challenge = Data(data.dropFirst())
+            let body = ClaimCrypto.request(publicKey: privateKey.publicKey, name: name)
+            outgoing = Wire.packets(Wire.uint32(UInt32(body.count)) + body,
+                                    size: min(180, peripheral.maximumWriteValueLength(for: .withoutResponse)))
+            writeIndex = 0
+            assembler = FrameAssembler()
+            peripheral.writeValue(outgoing[0], for: rx, type: .withResponse)
+            return
+        }
+        guard characteristic.uuid == CBUUID(string: Wire.tx), let tx, let rx else { return }
+        if data == Data([0]) {
+            pendingReads += 1
+            if pendingReads == 1 { trace("comma reply pending") }
+            // Comma is still working on its answer.
+            Task { @MainActor [weak self, weak peripheral] in
+                try? await Task.sleep(nanoseconds: 75_000_000)
+                guard let self, let peripheral, peripheral == self.peripheral, self.continuation != nil else { return }
+                peripheral.readValue(for: tx)
+            }
+            return
+        }
+        receivedPackets += 1
+        do {
+            if let reply = try assembler.append(data) {
+                trace("reply complete; packets=\(receivedPackets); pending reads=\(pendingReads)")
+                let result = try ClaimCrypto.open(reply, privateKey: privateKey, challenge: challenge)
+                if let expectedAdapterAddress, result.adapterAddress != expectedAdapterAddress {
+                    fail("This Bluetooth reply came from a different comma than the one selected on Local Wi-Fi. No pairing was saved. Disconnect the other comma and retry.")
+                    return
+                }
+                claimed = result
+                peripheral.writeValue(Data([2]) + data.subdata(in: 1..<5), for: rx, type: .withResponse)
+            } else {
+                peripheral.readValue(for: tx)
+            }
+        } catch { fail("Could not read comma’s pairing reply: \(error.localizedDescription)") }
+    }
+}

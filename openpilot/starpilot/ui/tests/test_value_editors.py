@@ -117,7 +117,7 @@ class ValueEditorTests(unittest.TestCase):
       self.session._emit(ShellRequest("features", action))
 
     def shown():
-      state = self.session.choice_strip.window("feature", self.session.feature_snapshot())
+      state = runtime_app.choice_strip(self.session).window("feature", self.session.feature_snapshot())
       return state, {button[0]: button[1] for button in value_buttons(state, state.rows[0], feature_row_top(state))}
 
     state, bounds = shown()

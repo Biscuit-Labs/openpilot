@@ -38,7 +38,7 @@ RETIRED_HONDA_EPS_KEYS = (
 
 HONDA_EPS_PRESERVED_KEYS = frozenset({
   "HondaEpsAngleRateLimit", "HondaOverrideFadeUpSecs",
-  "HondaOverrideStartTorque", "HondaOverrideEndTorque",
+  "HondaOverrideStartTorque", "HondaOverrideEndTorque", "HondaGradedOverride",
   "HondaMinSteerSpeed", "HondaOverrideFadeDownSecs", "HondaOverrideTorqueScale",
   "HondaDriverAssistDuringOverride",
   "HondaClarityAngleMode", "HondaAngleDefaultsReset",

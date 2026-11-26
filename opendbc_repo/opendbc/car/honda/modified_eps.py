@@ -22,6 +22,7 @@ STOCK_STEER_THRESHOLD = 1200
 @dataclass(frozen=True)
 class ModifiedEpsSettings:
   override_start_torque: int = 1560      # HondaOverrideStartTorque: driver torque that starts a press (stock units, 1200 = stock)
+  graded_override: bool = False         # HondaGradedOverride, angle mode: soften the loop between 0.8 x Start Torque and Start Torque (opt-in)
   override_end_torque: int = 936         # HondaOverrideEndTorque: the press ends once torque stays under this for RELEASE_HOLD_S
   min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this (0 = no speed gate)
   fade_down_s: float = 0.0               # HondaOverrideFadeDownSecs, soft cut on a press, request held while it eases out (0 = cut at once)

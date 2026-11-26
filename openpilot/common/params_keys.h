@@ -412,6 +412,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NrdrClarityAngleLookaheadMs", {PERSISTENT, INT, "0"}},  // Steering Prediction Time (nrdr 25f309ef): Clarity angle mode, absolute lateral horizon 5-400 ms step 5 for a timed action head; 0 = previous timing; read at modeld start (offroad)
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched
     // Honda modified-EPS steering in the car controller and car state (opendbc/car/honda/modified_eps.py)
+    {"HondaGradedOverride", {PERSISTENT, BOOL, "0"}},  // angle mode, opt-in: soften the loop between 0.8 x Start Torque and Start Torque; live
     {"HondaOverrideStartTorque", {PERSISTENT, INT, "1560"}},  // driver torque that starts steeringPressed on a modified EPS (stock units, 1200 = stock); angle mode x1.28 from 45 deg
     {"HondaOverrideEndTorque", {PERSISTENT, INT, "936"}},  // steeringPressed ends once torque stays under this for 0.1 s; angle mode x1.28 from 45 deg
     {"HondaMinSteerSpeed", {PERSISTENT, INT, "1"}},  // mph; no steering torque below this

@@ -129,3 +129,27 @@ def test_v3_packer_byte2_on_bosch_and_nidec(dbc):
   for b2, tg in ((0x4C, -1234), (0x0C, 4321), (0x0D, 0)):
     _, dat, _ = hondacan.create_steering_control(pk, can, tg, True, False, v3_byte2=b2)
     assert dat[2] == b2 and dat[3] == 0 and int.from_bytes(dat[0:2], "big", signed=True) == tg
+
+
+def test_graded_authority_softens_between_soft_and_start():
+  from opendbc.car.honda.clarity_angle_mode import GRADED_SOFT_FRACTION, GradedAuthority
+  g = GradedAuthority()
+  assert g.update(False, 1500.0, 1560.0) == 1.0                         # off: full
+  for _ in range(200):
+    w = g.update(True, 1000.0, 1560.0)                                  # below 0.8 x Start: full
+  assert w == 1.0
+  mid = (GRADED_SOFT_FRACTION + 1.0) / 2 * 1560.0
+  ws = [g.update(True, mid, 1560.0) for _ in range(200)]
+  assert ws[0] == 1.0 - 0.014 and abs(ws[-1] - 0.5) < 1e-6               # falls at most 0.014 per frame to the halfway w
+  up = [g.update(True, 0.0, 1560.0) for _ in range(100)]
+  assert abs(up[0] - 0.508) < 1e-6 and up[-1] == 1.0                     # recovers at 0.008 per frame
+
+
+def test_graded_override_off_by_default_changes_nothing():
+  # the setting off (default): frames are identical to the ungraded sender, whatever the driver's torque
+  ci_a, _ = start_v3()
+  ci_b, _ = start_v3(graded_override=False)
+  for k in range(150):
+    fa = T.e4(ci_a, True, 5.0, 0.0, v=20.0)[1]
+    fb = T.e4(ci_b, True, 5.0, 0.0, v=20.0)[1]
+    assert fa == fb, k

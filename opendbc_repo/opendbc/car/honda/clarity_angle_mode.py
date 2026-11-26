@@ -185,7 +185,7 @@ class AngleModeSender:
 
   def update(self, lat_active: bool, desired_deg: float, measured_deg: float, v_ego: float,
              angle_ready: bool, measured_rate_deg_s: float = 0.0, engage_s: float = ENGAGE_S,
-             rate_limit_deg_s: float = 0.0, effort_fade: bool = True) -> tuple[int, bool]:
+             rate_limit_deg_s: float = 0.0, effort_fade: bool = True, authority: float = 1.0) -> tuple[int, bool]:
     active = bool(lat_active and angle_ready)
     if active and not self.sent_active and abs(float(measured_deg)) > std_angle_limit(v_ego, self.linear, self.profile):
       # no engage while the wheel is beyond panda's 3.6 m/s^2 angle: the first target must be within one step of the
@@ -225,11 +225,13 @@ class AngleModeSender:
     # scales its effort by w. w eases 0 -> 1 (smoothstep) over engage_s after the request rises, so the loop takes the
     # wheel over gently instead of pulling it onto the trajectory at full stiffness. The sent angle still moves at most
     # the EPS's per-frame jump limit.
-    out = self.apply_angle
+    # authority (graded override, GradedAuthority): the same lever, driven by the driver's torque; 1 = full
+    w = 1.0
     if effort_fade and engage_s > 0.0:
       x = min(1.0, (self.active_frames + 1) * DT_CTRL / engage_s)
       w = x * x * (3.0 - 2.0 * x)
-      out = float(measured_deg) + w * (self.apply_angle - float(measured_deg))
+    w *= float(np.clip(authority, 0.0, 1.0))
+    out = float(measured_deg) + w * (self.apply_angle - float(measured_deg))
     if not self.sent_active:
       self.out_angle = float(measured_deg)   # panda: the first target within one step of the measured angle
     std_lim = std_angle_limit(v_ego, self.linear, self.profile)
@@ -263,3 +265,28 @@ def beyond_limit(sender: "AngleModeSender", measured_deg: float, v_ego: float) -
   DRIVE never resumes with the loop pulling the wheel in to a clamped target (the engage waits the same way)."""
   return abs(float(measured_deg)) > std_angle_limit(v_ego, sender.linear, sender.profile)
 
+
+
+# Graded override (opt-in, ModifiedEpsSettings.graded_override; HKG CAN-FD's torque-reduction gain): between
+# GRADED_SOFT_FRACTION of the effective Override Start Torque and the Start Torque itself, the loop's effort (the target's
+# error from the wheel, AngleModeSender.update authority) falls from full to zero as the driver's torque rises; at Start
+# Torque the frames YIELD as before (the hard tier). Down fast, up slower (-0.014 / +0.008 per frame; HKG -0.014 / +0.004), so the
+# EPS's own push, which the column torque sensor also reads, cannot pump it.
+# Emulator 11-26 (rwd-xray clarity/CLARITY_0x0E_YIELD_TRACK_20261126/GRADED_REPORT.md): soft 0.8 keeps resting hands (CR-V
+# p99 1352 at Start 1560) at full tracking; +0.008 halves the settle after a nudge with no pumping.
+GRADED_SOFT_FRACTION = 0.8
+GRADED_DOWN, GRADED_UP = 0.014, 0.008   # per 10 ms frame
+
+
+class GradedAuthority:
+  def __init__(self):
+    self.w = 1.0
+
+  def update(self, enabled: bool, steering_torque: float, start_torque: float) -> float:
+    if not enabled or start_torque <= 0.0:
+      self.w = 1.0
+      return self.w
+    soft = GRADED_SOFT_FRACTION * start_torque
+    target = float(np.interp(abs(float(steering_torque)), [soft, start_torque], [1.0, 0.0]))
+    self.w = float(np.clip(target, self.w - GRADED_DOWN, self.w + GRADED_UP))
+    return self.w

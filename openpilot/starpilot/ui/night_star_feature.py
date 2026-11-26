@@ -13,6 +13,7 @@ from openpilot.starpilot.saved_source import read_saved
 from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 SEATBELT_KEY = "DisableSeatbeltCheck"
+GRADED_KEY = "HondaGradedOverride"   # angle mode only, live with the EPS rows
 ANGLE_MODE_KEY = "HondaClarityAngleMode"
 LOOKAHEAD_KEY = "NrdrClarityAngleLookaheadMs"   # nrdr's name and semantics (selfdrive/modeld/clarity_lookahead.py)
 OFFROAD_ONLY = frozenset((LOOKAHEAD_KEY,))
@@ -36,6 +37,10 @@ BOOL_ROWS = {
                    ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +
                     "(39990+XXX+YYY, '+' in the part number); a torque PTM image keeps torque mode. On a Clarity with any " +
                     'other EPS firmware steering stays unavailable, so turn this off. Applies at the next start.')),
+  GRADED_KEY: ("Graded Override",
+               ("Angle mode: between 80 % of Override Start Torque and the Start Torque, openpilot steers more gently as "
+                "your torque rises instead of keeping full strength until it lets go; at the Start Torque it lets go as "
+                "before. Off by default.")),
   SEATBELT_KEY: ("Disable Seatbelt Check", "Allow engaging and staying engaged with the driver's seatbelt unlatched."),
 }
 # key -> (label, reason, minimum, maximum, step, unit, integer)
@@ -112,6 +117,8 @@ class NightStarFeature:
       from opendbc.car.honda.values import HondaFlags
       angle = bool(flags & int(HondaFlags.CLARITY_ANGLE_MODE))
       keys.extend(k for k in EPS_KEYS if not (angle and k in TORQUE_ONLY_KEYS))
+      if angle:
+        keys.append(GRADED_KEY)
       # read once at car start (starpilot/car/honda/clarity_angle_mode.py): the Clarity on any modified image (its interlock
       # finds the build), a profile car only while it runs its angle image (angle mode on; with it off the branch above)
       if fingerprint == CLARITY or flags & int(HondaFlags.CLARITY_ANGLE_MODE):

@@ -27,6 +27,9 @@ class TestModifiedEpsPreferences(unittest.TestCase):
     self.assertEqual(settings.min_steer_speed_mph, 0)
     self.assertAlmostEqual(settings.fade_up_s, 0.8)
     self.assertEqual(settings.torque_scale, 1.0)
+    self.assertFalse(settings.graded_override)
+    self.params.put_bool("HondaGradedOverride", True, block=True)
+    self.assertTrue(read_settings(self.params).graded_override)
 
   def test_refreshes_once_a_second(self):
     now = [0]

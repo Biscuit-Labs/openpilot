@@ -988,7 +988,7 @@ class StarShellSession:
         self.selected = Destination.STAR
         self.display_scroll = 0
       self.input.cancel()
-    elif action.kind == "open" and not state.editor and action.row in state.rows:
+    elif action.kind == "open" and not state.editor and action.row is not None and action.row in state.rows:
       if action.row.key == DISPLAY_MASTER and action.row.page == "display":
         self.display_page = "display"
         self.display_scroll = 0
@@ -1022,11 +1022,12 @@ class StarShellSession:
           from openpilot.system.ui.widgets.confirm_dialog import ConfirmDialog
           from openpilot.system.ui.widgets import DialogResult
           epoch = getattr(self, "_power_request_epoch", 0)
+          row = action.row
           def confirmed(result: DialogResult) -> None:
             if (result == DialogResult.CONFIRM and self._mode == ShellMode.SETTINGS and
                 self.selected == Destination.SYSTEM and getattr(self, "display_page", "system") == "system" and
                 epoch == getattr(self, "_power_request_epoch", 0)):
-              self.display_choice_offset = choice_strip_follow(replace(action.row, value=request.value), getattr(self, "display_choice_offset", 0))
+              self.display_choice_offset = choice_strip_follow(replace(row, value=request.value), getattr(self, "display_choice_offset", 0))
               self.power_request(replace(request, confirmation=True))
           gui_app.push_widget(ConfirmDialog(confirm_question(request), "Save", callback=confirmed))
         else:
@@ -1138,7 +1139,8 @@ class StarShellSession:
         self.selected = Destination.STAR
         self.sounds_scroll = 0
       self.input.cancel()
-    elif action.kind == "open" and state.page == "sounds:overview" and action.row in state.rows and action.row.available:
+    elif (action.kind == "open" and state.page == "sounds:overview" and action.row is not None and action.row in state.rows and
+          action.row.available):
       self.sounds_edit_key = action.row.key
       self.sounds_choice_offset = choice_strip_initial(action.row)
       self.input.cancel()
@@ -1174,7 +1176,7 @@ class StarShellSession:
       self.feature_scroll = feature_scroll(self.feature_scroll, action.direction, len(state.rows))
     elif action.kind == "page" and state.editor and action.row is not None and action.row in state.rows:
       self.feature_choice_offset = choice_strip_page(action.row, getattr(self, "feature_choice_offset", 0) + 3 * action.direction)
-    elif action.kind == "open" and not state.editor and action.row in state.rows and action.row.page:
+    elif action.kind == "open" and not state.editor and action.row is not None and action.row in state.rows and action.row.page:
       self._lane_change_request_epoch = getattr(self, "_lane_change_request_epoch", 0) + 1
       if action.row.presets:
         if not action.row.available:

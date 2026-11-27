@@ -92,11 +92,26 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertTrue(self.params.get_bool('DisableSeatbeltCheck'))
 
   def test_off_grid_saved_rate_limit_steps_from_where_it_is(self):
-    self.params.put('HondaEpsAngleRateLimit', 219, block=True)
+    self.params.put('HondaEpsAngleRateLimit', 119, block=True)
     row = next(row for row in self.page()['rows'] if row['label'] == 'Steering Angle Rate Limit')
-    self.assertEqual(row['value'], '219')
-    self.assertTrue(self.set('Steering Angle Rate Limit', direction=1))   # the Clarity saved 219, off the 10 grid
-    self.assertEqual(self.params.get('HondaEpsAngleRateLimit'), 229)
+    self.assertEqual(row['value'], '119')
+    self.assertTrue(self.set('Steering Angle Rate Limit', direction=1))   # the Clarity saved 119, off the 10 grid
+    self.assertEqual(self.params.get('HondaEpsAngleRateLimit'), 129)
+
+  def test_the_rate_limit_stops_at_the_eps_slew_limit(self):
+    # the Clarity EPS's own reference slew limit is about 170 deg/s: nothing above it is offered
+    row = next(row for row in self.page()['rows'] if row['label'] == 'Steering Angle Rate Limit')
+    self.assertEqual((row['minimum'], row['maximum']), (0.0, 170.0))
+    with self.assertRaises(SettingsChanged):
+      self.set('Steering Angle Rate Limit', '180')
+    self.assertTrue(self.set('Steering Angle Rate Limit', '170'))
+    self.assertEqual(self.params.get('HondaEpsAngleRateLimit'), 170)
+
+  def test_an_old_saved_rate_limit_above_the_ceiling_reads_as_the_ceiling(self):
+    self.params.put('HondaEpsAngleRateLimit', 1000, block=True)
+    row = next(row for row in self.page()['rows'] if row['label'] == 'Steering Angle Rate Limit')
+    self.assertEqual(row['value'], '170')
+    self.assertTrue(row['available'])
 
   def test_clarity_has_angle_mode_on_by_default(self):
     row = next(row for row in self.page()['rows'] if row['label'] == 'Angle Mode')

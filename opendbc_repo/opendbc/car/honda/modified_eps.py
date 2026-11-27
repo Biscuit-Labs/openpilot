@@ -17,6 +17,9 @@ from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda.values import HondaFlags, STEER_THRESHOLD
 
 STOCK_STEER_THRESHOLD = 1200
+# Steering Angle Rate Limit ceiling (HondaEpsAngleRateLimit, deg/s): the Clarity EPS's own reference slew limit is about 170
+# deg/s, so a higher cap changes nothing; a saved value above it is clamped when read (starpilot/car/honda/modified_eps.py)
+ANGLE_RATE_LIMIT_MAX_DEG_S = 170.0
 
 
 @dataclass(frozen=True)

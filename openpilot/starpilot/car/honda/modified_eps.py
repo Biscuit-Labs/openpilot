@@ -2,7 +2,7 @@
 import math
 import time
 
-from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS, ModifiedEpsSettings
+from opendbc.car.honda.modified_eps import ANGLE_RATE_LIMIT_MAX_DEG_S, DEFAULT_SETTINGS, ModifiedEpsSettings
 
 REFRESH_NS = 1_000_000_000
 
@@ -33,7 +33,8 @@ def read_settings(params) -> ModifiedEpsSettings:
     fade_up_s=_number(params, "HondaOverrideFadeUpSecs", d.fade_up_s, 0.0, 10.0),
     torque_scale=_number(params, "HondaOverrideTorqueScale", d.torque_scale * 100.0, 0.0, 100.0) / 100.0,
     assist_during_override=_flag(params, "HondaDriverAssistDuringOverride", d.assist_during_override),
-    angle_rate_limit_deg_s=_number(params, "HondaEpsAngleRateLimit", d.angle_rate_limit_deg_s, 0.0, 2000.0),
+    angle_rate_limit_deg_s=min(_number(params, "HondaEpsAngleRateLimit", d.angle_rate_limit_deg_s, 0.0, ANGLE_RATE_LIMIT_MAX_DEG_S),
+                               ANGLE_RATE_LIMIT_MAX_DEG_S),
   )
 
 

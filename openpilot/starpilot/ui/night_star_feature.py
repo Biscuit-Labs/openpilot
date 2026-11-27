@@ -16,6 +16,7 @@ SEATBELT_KEY = "DisableSeatbeltCheck"
 ANGLE_MODE_KEY = "HondaClarityAngleMode"
 LOOKAHEAD_KEY = "NrdrClarityAngleLookaheadMs"   # nrdr's name and semantics (selfdrive/modeld/clarity_lookahead.py)
 OFFROAD_ONLY = frozenset((LOOKAHEAD_KEY,))
+CLAMP_ON_READ = frozenset(("HondaEpsAngleRateLimit",))   # a saved value above the maximum is read as the maximum
 CLARITY = "HONDA_CLARITY"
 
 
@@ -42,8 +43,10 @@ BOOL_ROWS = {
 }
 # key -> (label, reason, minimum, maximum, step, unit, integer)
 NUMBER_ROWS = {
-  "HondaEpsAngleRateLimit": ("Steering Angle Rate Limit", "Ceiling on how fast the desired wheel angle may move. 0 turns it off.",
-                             0.0, 1000.0, 10.0, "deg/s", True),
+  "HondaEpsAngleRateLimit": ("Steering Angle Rate Limit",
+                             ("Ceiling on how fast the desired wheel angle may move. 0 turns it off. " +
+                              "The EPS's own limit is about 170 deg/s, so nothing above that is offered."),
+                             0.0, 170.0, 10.0, "deg/s", True),
   "HondaOverrideStartTorque": ("Override Start Torque",
                                ("Driver torque that starts an override (1200 = stock; a modified EPS needs more). Angle mode: " +
                                 "the straight-road value, rising to 1.28 x in sharp turns (from 45 deg)."),
@@ -151,6 +154,8 @@ class NightStarFeature:
     label, reason, low, high, step, unit, integer = NUMBER_ROWS[key]
     try:
       number = float(raw.decode() if raw is not None else self._default(key))
+      if key in CLAMP_ON_READ and math.isfinite(number):
+        number = min(number, high)   # the car side clamps the same way: a saved 1000 reads as the ceiling
       valid = readable and math.isfinite(number) and low <= number <= high
     except (ValueError, UnicodeDecodeError):
       number, valid = 0.0, False

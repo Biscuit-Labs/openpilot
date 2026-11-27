@@ -1,8 +1,9 @@
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
 
-from opendbc.car.honda.modified_eps import DEFAULT_SETTINGS
+from opendbc.car.honda.modified_eps import ANGLE_RATE_LIMIT_MAX_DEG_S, DEFAULT_SETTINGS
 from openpilot.common.params import Params
 from openpilot.starpilot.car.honda.modified_eps import REFRESH_NS, ModifiedEpsPreferences, read_settings
 
@@ -14,7 +15,13 @@ class TestModifiedEpsPreferences(unittest.TestCase):
     self.params = Params(str(Path(self.temporary.name) / 'params'))
 
   def test_unset_reads_the_registry_defaults(self):
-    self.assertEqual(read_settings(self.params), DEFAULT_SETTINGS)
+    # except the Steering Angle Rate Limit: its registry default (300) is above the 170 deg/s ceiling, so it reads clamped
+    self.assertEqual(read_settings(self.params), dataclasses.replace(DEFAULT_SETTINGS, angle_rate_limit_deg_s=ANGLE_RATE_LIMIT_MAX_DEG_S))
+
+  def test_saved_angle_rate_limit_is_clamped_to_the_eps_slew_limit(self):
+    for saved, expected in ((1000, 170.0), (171, 170.0), (170, 170.0), (100, 100.0), (0, 0.0)):
+      self.params.put("HondaEpsAngleRateLimit", saved, block=True)
+      self.assertEqual(read_settings(self.params).angle_rate_limit_deg_s, expected, saved)
 
   def test_saved_values_are_read_and_clamped(self):
     self.params.put("HondaOverrideStartTorque", 1840, block=True)

@@ -75,6 +75,12 @@ def test_torque_mode_on_an_angle_eps_is_not_built():
   assert states[-1].steerFaultTemporary and ci.CS.eps_cal_status.fault == "mode_not_built"
 
 
+def test_0x0F_is_a_known_v3_build():
+  ci = clarity(); f = Feed(ci)
+  f.run([v4(build=0x0F, counter=k % 4) for k in range(10)])
+  assert ci.CS.eps_cal_status.fault != "unknown_build" and ci.CS.eps_cal_status.build_id == 0x0F and ci.CS.eps_cal_status.protocol == 3
+
+
 @pytest.mark.parametrize("build", [0x0B, 0x0C, 0x0D])
 def test_v2_builds_are_unknown(build):
   # protocol v2 is retired: a 0x0B-0x0D EPS faults and never steers until it is flashed to a v3 build

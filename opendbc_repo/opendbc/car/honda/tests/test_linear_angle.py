@@ -39,9 +39,10 @@ def drive(ci, n, build=0x0E, lin=None, start=0, t0=1_000_000_000):
   return cs
 
 
-def test_0x0E_steers_in_the_linear_angle(angle_on):
+@pytest.mark.parametrize("build", [0x0E, 0x0F])
+def test_0x0E_steers_in_the_linear_angle(angle_on, build):
   ci = T.clarity()
-  cs = drive(ci, 20, lin=120.0)
+  cs = drive(ci, 20, build=build, lin=120.0)
   assert ci.CS.linear_angle.latched and not cs.steerFaultTemporary
   assert cs.steeringAngleDeg == pytest.approx(120.0, abs=0.05)          # the rack-linear angle, not 0x14A
   assert ci.CS.linear_angle.published_deg == pytest.approx(111.6, abs=0.05)
@@ -55,9 +56,10 @@ def test_v2_build_0x0B_never_steers(angle_on):
   assert cs.steeringAngleDeg == ci.CS.published_angle_deg                 # the 0x14A angle, as before
 
 
-def test_0x0E_without_0x6A2_never_steers(angle_on):
+@pytest.mark.parametrize("build", [0x0E, 0x0F])
+def test_0x0E_without_0x6A2_never_steers(angle_on, build):
   ci = T.clarity()
-  cs = drive(ci, 20, build=0x0E, lin=None)
+  cs = drive(ci, 20, build=build, lin=None)
   assert cs.steerFaultTemporary and not ci.CS.linear_angle.latched
 
 

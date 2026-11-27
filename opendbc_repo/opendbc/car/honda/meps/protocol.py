@@ -16,10 +16,19 @@ Spec: rwd-xray lab/PROTOCOL_V3_20261125.md.
 """
 from enum import IntEnum
 
-V3_BUILDS = {0x0E}  # build IDs that speak protocol v3 (0x6A4 layout 4); any other layout-4 build never steers
+V3_BUILDS = {0x0E, 0x0F}  # build IDs that speak protocol v3 (0x6A4 layout 4); any other layout-4 build never steers
 KNOWN_BUILDS = V3_BUILDS
 MODE_ANGLE = 1      # 0x6A4 active MODE: 0 stock tables, 1 angle tables
-LINEAR_ANGLE_BUILDS = {0x0E}  # builds that send 0x6A2 EPS_LINEAR_ANGLE (100 Hz): the rack-linear angle next to the published one
+LINEAR_ANGLE_BUILDS = {0x0E, 0x0F}  # builds that send 0x6A2 EPS_LINEAR_ANGLE (100 Hz): the rack-linear angle next to the published one
+
+# builds whose EPS skips the jump check on YIELD frames and pins its reference to the measured wheel (0x0F = 0x0E + that rule):
+# openpilot sends the wheel as the YIELD target every frame. 0x0E jump-checks YIELD frames, so a target that is not within the
+# EPS jump of the last one faults there: it keeps the step-limited follow.
+YIELD_TRACKS_WHEEL_BUILDS = {0x0F}
+
+
+def yield_tracks_wheel(build_id: int) -> bool:
+  return build_id in YIELD_TRACKS_WHEEL_BUILDS
 
 
 class Reason(IntEnum):

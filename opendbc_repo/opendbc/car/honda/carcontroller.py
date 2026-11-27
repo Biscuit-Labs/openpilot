@@ -244,7 +244,9 @@ class CarController(CarControllerBase):
         self.angle_sender.linear = CS.linear_angle.latched or self.angle_sender.profile is not None
         pressed = bool(meps_pressed or CS.out.steeringPressed)
         # a release with the wheel past panda's 3.6 m/s^2 angle keeps yielding until the wheel is back inside
-        held = self.angle_yield and self.angle_sender.sent_active and beyond_limit(self.angle_sender, CS.out.steeringAngleDeg, CS.out.vEgo)
+        # (builds that track the wheel on YIELD send STANDBY past the limit instead: sender_follow)
+        held = (self.angle_yield and self.angle_sender.sent_active and not meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id)
+                and beyond_limit(self.angle_sender, CS.out.steeringAngleDeg, CS.out.vEgo))
         self.angle_yield = pressed or held
         if self.angle_yield:
           self.graded.w = 1.0   # graded override: the resume after a YIELD is the effort fade's, from full authority
@@ -297,7 +299,7 @@ class CarController(CarControllerBase):
       self.angle_sender.linear = CS.linear_angle.latched or self.angle_sender.profile is not None
       if lkas_active and angle_ready and self.angle_yield and self.angle_sender.sent_active:
         self.apply_angle_raw, sent = sender_follow(self.angle_sender, CS.out.steeringAngleDeg, CS.out.steeringRateDeg,
-                                                   CS.out.vEgo), True
+                                                   CS.out.vEgo, meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id))
       else:
         authority = self.graded.update(settings.graded_override and lkas_active, CS.out.steeringTorque,
                                        getattr(CS, "press_start_eff", 0.0))

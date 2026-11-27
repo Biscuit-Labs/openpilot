@@ -1,5 +1,5 @@
 """Protocol v3 on the openpilot side (meps/protocol.py; spec rwd-xray lab/PROTOCOL_V3_20261125.md): a build in V3_BUILDS
-(0x0E) gets angle frames marked in byte 2 (bits 3:2 = 3, request bit 0, bit 6 DRIVE / YIELD), byte 3 0, and STANDBY
+(0x0E, 0x0F) gets angle frames marked in byte 2 (bits 3:2 = 3, request bit 0, bit 6 DRIVE / YIELD), byte 3 0, and STANDBY
 (0x0D, target 0) while not steering. v3 is the only protocol: the v2 builds 0x0B-0x0D fault "unknown_build" and get
 only STANDBY frames, which they ignore (request 0)."""
 import dataclasses
@@ -28,9 +28,9 @@ def start(status=None, **settings):
   return ci, f
 
 
-def start_v3(**kw):
+def start_v3(build=0x0E, **kw):
   from opendbc.car.honda.tests.test_linear_angle import lin_frame
-  ci, f = start([v4(build=0x0E, steering=True, counter=k % 4) for k in range(8)], **kw)
+  ci, f = start([v4(build=build, steering=True, counter=k % 4) for k in range(8)], **kw)
   for k in range(4):
     ci.update([(f.t + (k + 1) * 10_000_000, [(0x6A2, lin_frame(0.0, 0.0, k), 0)])])
   assert ci.CS.linear_angle.steer_ok and ci.CS.eps_cal_status.protocol == 3
@@ -45,8 +45,10 @@ def test_codec():
   assert P.v3_byte2(True) == 0x4C and P.v3_byte2(False) == 0x0C and P.V3_STANDBY == 0x0D
   assert P.is_v3_angle(0x4C) and P.is_v3_angle(0x0C)
   assert not any(P.is_v3_angle(b) for b in (0x0D, 0x4D, 0x8C, 0xCC, 0x1C, 0x2C, 0x0E, 0x08, 0x48, 0xC8, 0x00))
-  assert P.protocol_of(0x0E) == 3 and all(P.protocol_of(b) is None for b in (0x0B, 0x0C, 0x0D, 0x0F))
-  assert P.KNOWN_BUILDS == P.V3_BUILDS == {0x0E} == P.LINEAR_ANGLE_BUILDS
+  assert P.protocol_of(0x0E) == 3 and P.protocol_of(0x0F) == 3 and all(P.protocol_of(b) is None for b in (0x0B, 0x0C, 0x0D, 0x10))
+  assert P.KNOWN_BUILDS == P.V3_BUILDS == {0x0E, 0x0F} == P.LINEAR_ANGLE_BUILDS
+  assert P.YIELD_TRACKS_WHEEL_BUILDS == {0x0F} and P.yield_tracks_wheel(0x0F) and not P.yield_tracks_wheel(0x0E)
+  assert not P.yield_tracks_wheel(-1)
   assert not hasattr(P, "byte3_v2") and not hasattr(P, "V2_BUILDS")
 
 
@@ -65,7 +67,7 @@ def test_v3_engage_drive_frames():
 
 
 def test_v3_press_yields_and_follows_the_wheel_then_resumes_with_the_fade():
-  ci, _ = start_v3()
+  ci, _ = start_v3(0x0E)
   for _ in range(200):
     T.e4(ci, True, 5.0, 0.0, v=20.0)
   press = [T.e4(ci, True, 5.0, -8.0, v=20.0, pressed=True)[1] for _ in range(80)]
@@ -81,11 +83,11 @@ def test_v3_press_yields_and_follows_the_wheel_then_resumes_with_the_fade():
   assert abs(tr[10] - 80) < abs(tr[60] - 80)                             # gently first
 
 
-def test_v3_yield_past_the_limit_waits_at_the_limit_and_keeps_yielding():
+def test_v3_0x0E_yield_past_the_limit_waits_at_the_limit_and_keeps_yielding():
   # panda's 3.6 m/s^2 angle is absolute: a press that takes the wheel past it at speed leaves the YIELD target at the
   # limit, and the release keeps yielding until the wheel is back inside (DRIVE never pulls the wheel in to the clamp)
   from opendbc.car.honda import clarity_angle_mode as cam
-  ci, _ = start_v3()
+  ci, _ = start_v3(0x0E)
   lim = cam.std_angle_limit(20.0, True)
   for _ in range(100):
     T.e4(ci, True, 5.0, 0.0, v=20.0)
@@ -99,6 +101,38 @@ def test_v3_yield_past_the_limit_waits_at_the_limit_and_keeps_yielding():
   assert all(f[2] == 0x0C for f in rel)
   back = [T.e4(ci, True, 5.0, lim - 5.0, v=20.0)[1] for _ in range(5)]     # wheel back inside: DRIVE
   assert back[-1][2] == 0x4C
+
+
+def test_v3_0x0F_press_yields_with_the_target_at_the_wheel_every_frame():
+  # builds >= 0x0F (the EPS skips the jump check on YIELD and pins its reference to the wheel): YIELD target = wheel
+  ci, _ = start_v3(0x0F)
+  for _ in range(200):
+    T.e4(ci, True, 5.0, 0.0, v=20.0)
+  press = [T.e4(ci, True, 5.0, w, v=20.0, pressed=True)[1] for w in [-0.2 * k for k in range(1, 101)]]   # fast: 20 deg/s
+  assert all(f[2] == 0x0C and f[3] == 0 for f in press)
+  assert [target(f) for f in press] == [2 * k for k in range(1, 101)]    # raw = -10 x deg: exactly the wheel, no step limit
+  rel = [T.e4(ci, True, 5.0, -20.0, v=20.0)[1] for _ in range(300)]
+  assert all(f[2] == 0x4C for f in rel)                                  # DRIVE again at once
+  tr = [target(f) for f in rel]
+  assert abs(tr[0] - 200) <= 2 and tr[-1] == -50                         # from the wheel, then to the plan
+  assert abs(tr[10] - 200) < abs(tr[60] - 200)
+
+
+def test_v3_0x0F_yield_past_the_limit_is_standby_until_the_wheel_is_back_inside():
+  from opendbc.car.honda import clarity_angle_mode as cam
+  ci, _ = start_v3(0x0F)
+  lim = cam.std_angle_limit(20.0, True)
+  for _ in range(100):
+    T.e4(ci, True, 5.0, 0.0, v=20.0)
+  inside = [T.e4(ci, True, 5.0, w, v=20.0, pressed=True)[1] for w in (lim - 6.0, lim - 4.0)]
+  assert all(f[2] == 0x0C and abs(target(f)) == round(10 * (lim - d)) for f, d in zip(inside, (6.0, 4.0), strict=True))
+  over = [T.e4(ci, True, 5.0, lim + 20.0, v=20.0, pressed=True)[1] for _ in range(20)]   # pressed, wheel past the limit
+  assert all(f[2] == P.V3_STANDBY and f[0:2] == bytes(2) and f[3] == 0 for f in over)
+  rel = [T.e4(ci, True, 5.0, lim + 20.0, v=20.0)[1] for _ in range(50)]  # released, still past: STANDBY, no held YIELD
+  assert all(f[2] == P.V3_STANDBY and f[0:2] == bytes(2) for f in rel)
+  back = [T.e4(ci, True, 5.0, lim - 5.0, v=20.0)[1] for _ in range(300)]  # back inside: engage from the wheel
+  assert all(f[2] == 0x4C for f in back[2:]) and abs(target(back[2]) + round(10 * (lim - 5.0))) <= 40   # from the wheel (raw = -10 deg)
+  assert target(back[-1]) == -50
 
 
 def test_v3_frames_never_carry_the_request_or_byte3():

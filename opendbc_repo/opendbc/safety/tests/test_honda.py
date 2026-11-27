@@ -483,7 +483,9 @@ class _HondaAngleStandardTests:
           self.assertTrue(self._tx(self._v3_msg(last + step, b2)), (v, last))
           self._start(0, v)
           self.assertTrue(self._tx(self._v3_msg(last, b2)), (v, last))
-          self.assertFalse(self._tx(self._v3_msg(last + step + 1, b2)), (v, last))
+          # a YIELD frame also passes within one step of the wheel (at 0 here): that case is the new wheel path
+          over = last + step + 1
+          self.assertEqual(b2 == 0x0C and abs(over) <= step, self._tx(self._v3_msg(over, b2)), (v, last))
 
   def test_angle_violation_blocked_until_reset(self):
     # test_angle_violation: after a violation the target is measured from the wheel again; the same target stays blocked
@@ -749,30 +751,84 @@ class TestHondaNidecClarityAngleSafety(_HondaAngleStandardTests, TestHondaNidecH
         self.assertGreater(abs(raw), 0.98 * self._alim(v) * 10, v)   # it reached the clamp
 
   def test_sender_through_an_override_passes(self):
-    # YIELD while the driver turns the wheel away at 350 deg/s (the target follows the wheel, step-limited, and waits at
-    # the 3.6 m/s^2 angle), YIELD held after the release until the wheel is back inside (CarController, beyond_limit),
+    # 0x0E follower: YIELD while the driver turns the wheel away at 350 deg/s (the target follows the wheel, step-limited, and
+    # waits at the 3.6 m/s^2 angle), YIELD held after the release until the wheel is back inside (CarController, beyond_limit),
     # then DRIVE from the wheel back to the plan: panda passes every frame
+    # 0x0F follower (tracks_wheel): the target IS the wheel, STANDBY past the limit until the wheel is back inside, then the
+    # engage from the wheel; every frame passes too
     from opendbc.car.honda import clarity_angle_mode as cam
-    for v in (2.2, 10., 20.):
-      self._start(0, v)
-      sender, wheel, plan, yielding = self._sender(), 0., 0.5 * self._alim(v), False
-      for i in range(1000):
-        pressed = 100 <= i < 400
-        yielding = pressed or (yielding and cam.beyond_limit(sender, wheel, v))
-        if pressed:
-          wheel = min(wheel + 3.5, 450.)                  # the driver turns away
-        elif yielding:
-          wheel *= 0.98                                   # released past the limit: the driver unwinds
-        else:
-          wheel += 0.2 * (sender.out_angle - wheel)       # the wheel follows the target
-        self._set_meas(int(-10 * wheel))
-        if yielding:
-          raw, req = cam.sender_follow(sender, wheel, 0., v), True
-        else:
-          raw, req = sender.update(True, plan, wheel, v, True, 0., 1.25)
-        _advance(self)
-        self.assertTrue(self._tx(self._sender_msg(raw, req, drive=not yielding)), (v, i, raw, wheel))
-      self.assertAlmostEqual(raw / -10., plan, delta=0.06)   # back on the plan after the release
+    for tracks in (False, True):
+      for v in (2.2, 10., 20.):
+        self._start(0, v)
+        sender, wheel, plan, yielding = self._sender(), 0., 0.5 * self._alim(v), False
+        for i in range(1000):
+          pressed = 100 <= i < 400
+          held = yielding and not tracks and cam.beyond_limit(sender, wheel, v)
+          yielding = pressed or held
+          if pressed:
+            wheel = min(wheel + 3.5, 450.)                  # the driver turns away
+          elif yielding or (tracks and abs(wheel) > self._std(v)):
+            wheel *= 0.98                                   # released past the limit: the driver unwinds
+          else:
+            wheel += 0.2 * (sender.out_angle - wheel)       # the wheel follows the target
+          self._set_meas(int(-10 * wheel))
+          if yielding and sender.sent_active:
+            raw, req = cam.sender_follow(sender, wheel, 0., v, tracks)
+          else:
+            raw, req = sender.update(True, plan, wheel, v, True, 0., 1.25)
+          _advance(self)
+          self.assertTrue(self._tx(self._sender_msg(raw, req, drive=not yielding)), (tracks, v, i, raw, wheel))
+        self.assertAlmostEqual(raw / -10., plan, delta=0.06)   # back on the plan after the release
+
+  def test_yield_checked_against_wheel_or_last_target(self):
+    # YIELD: one step of the measured wheel (a 0x0F sender), or of the last target (a 0x0E sender); neither is blocked
+    v = 10.
+    step, lim = self._step(v), self._lim(v)
+    wheel = 20 * step                                          # the wheel is far from the last target
+    last = 0
+    for target, ok in ((wheel, True), (wheel + step, True), (wheel - step, True), (wheel + step + 1, False),
+                       (last + step, True), (last - step, True), (last + step + 1, False), (last - step - 1, False),
+                       (5 * step, False), (-10 * step, False)):
+      self._start(last, v)
+      self.assertTrue(self._tx(self._v3_msg(last, 0x4C)))      # engaged: the last target
+      self._set_meas(wheel)
+      self.assertEqual(ok, self._tx(self._v3_msg(target, 0x0C)), target)
+    # absolute limit: a YIELD target past it is blocked even when it is the wheel
+    self._start(lim, v)
+    self._set_meas(lim + 3 * step)
+    self.assertFalse(self._tx(self._v3_msg(lim + 3 * step, 0x0C)))
+
+  def test_yield_first_frame_is_from_the_wheel(self):
+    # no earlier target (just engaged, or after a violation): only the wheel counts, not the stale last target
+    v = 10.
+    step = self._step(v)
+    self._start(0, v)
+    self._set_meas(10 * step)
+    self.assertFalse(self._tx(self._v3_msg(0, 0x0C)))          # the old target is not the reference
+    self.assertTrue(self._tx(self._v3_msg(10 * step, 0x0C)))   # the wheel is (this frame violated: next starts from wheel)
+
+  def test_drive_after_yield_starts_from_the_wheel_or_the_last_target(self):
+    # 0x0F follower: the YIELD target was the wheel, the DRIVE starts from it (the wheel may have moved on a step meanwhile);
+    # 0x0E follower: the YIELD target stepped toward a far wheel, the DRIVE walks on from that target (as before this change)
+    v = 10.
+    step = self._step(v)
+    far = 20 * step
+    for follower, yield_target in (("0x0F", far), ("0x0E", step)):
+      for d, ok in ((0, True), (step, True), (-step, True), (step + 1, False), (-step - 1, False)):
+        self._start(0, v)
+        self.assertTrue(self._tx(self._v3_msg(0, 0x4C)))
+        self._set_meas(far)
+        self.assertTrue(self._tx(self._v3_msg(yield_target, 0x0C)), follower)
+        self.assertEqual(ok, self._tx(self._v3_msg(yield_target + d, 0x4C)), (follower, d))
+    # 0x0F: the wheel moved a step after the YIELD frame: the DRIVE from the new wheel window passes
+    self._start(0, v)
+    self.assertTrue(self._tx(self._v3_msg(0, 0x4C)))
+    self._set_meas(far)
+    self.assertTrue(self._tx(self._v3_msg(far, 0x0C)))
+    self._set_meas(far + step)
+    self.assertTrue(self._tx(self._v3_msg(far + 2 * step, 0x4C)))
+    # the DRIVE after that is the plain last-target rule again (not lenient)
+    self.assertFalse(self._tx(self._v3_msg(far + 5 * step, 0x4C)))
 
   def test_first_target_window_is_the_recent_wheel_samples(self):
     # from the wheel = within one step of any of the last 6 0x14A samples (the standard's inactive check window)

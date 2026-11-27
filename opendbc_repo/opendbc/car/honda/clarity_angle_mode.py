@@ -245,19 +245,31 @@ def _follow_step(sender, v_ego: float) -> float:
   return min(float(np.interp(v_ego, _V, ANGLE_STEP_DEG)), std_angle_step(v_ego, sender.linear, sender.profile))
 
 
-def sender_follow(sender: "AngleModeSender", measured_deg: float, measured_rate_deg_s: float, v_ego: float) -> int:
-  """Protocol v3 YIELD (meps/protocol.py): while the driver overrides, the loop has no authority and the sent target
-  follows the wheel, step-limited (the EPS jump limit and panda's step). The trajectory restarts from the wheel with the
-  engage fade, so on the release the target walks from the wheel to the plan over Override Fade Up (smoothstep effort
-  fade): rwd-xray clarity/CLARITY_ANGLE_MODE_20261117/hand/V3_ANGLE_RAMP_20261124.md."""
+def sender_follow(sender: "AngleModeSender", measured_deg: float, measured_rate_deg_s: float, v_ego: float,
+                  tracks_wheel: bool = False) -> tuple[int, bool]:
+  """Protocol v3 YIELD (meps/protocol.py): while the driver overrides, the loop has no authority. Returns (raw, steering).
+  The trajectory restarts from the wheel with the engage fade, so on the release the target walks from the wheel to the plan
+  over Override Fade Up (smoothstep effort fade): rwd-xray clarity/CLARITY_ANGLE_MODE_20261117/hand/V3_ANGLE_RAMP_20261124.md.
+  tracks_wheel (builds >= 0x0F, meps_protocol.YIELD_TRACKS_WHEEL_BUILDS: the EPS skips the jump check on YIELD and pins its
+  reference to the wheel): the sent target IS the wheel, every frame, as the other angle brands send while not steering (panda
+  checks a YIELD frame against the measured wheel, honda.h). Past panda's 3.6 m/s^2 angle the target cannot be both the wheel
+  and inside the limit, so the frame is STANDBY instead (steering False): the sender resets, and the next engage waits until
+  the wheel is back inside and starts from it (AngleModeSender.update).
+  Otherwise (0x0E, which jump-checks YIELD frames): the target follows the wheel step-limited (the EPS jump limit and
+  panda's step), waiting at panda's absolute limit past it (beyond_limit keeps the frames YIELD until the wheel is back inside)."""
   sender.apply_angle, sender.apply_rate, sender.active_frames = float(measured_deg), float(measured_rate_deg_s), 0
+  if tracks_wheel:
+    sender.out_angle = float(measured_deg)
+    if beyond_limit(sender, measured_deg, v_ego):
+      sender.sent_active = False
+      return 0, False
+    sender.sent_active = True
+    return angle_to_raw(sender.out_angle), True
   step = _follow_step(sender, v_ego)
-  # panda's 3.6 m/s^2 angle is absolute, YIELD frames included: past it the target waits at the limit (the loop has no
-  # authority, so the target only has to pass panda; beyond_limit keeps the frames YIELD until the wheel is back inside)
   std_lim = std_angle_limit(v_ego, sender.linear, sender.profile)
   sender.out_angle = float(np.clip(sender.out_angle + np.clip(float(measured_deg) - sender.out_angle, -step, step), -std_lim, std_lim))
   sender.sent_active = True
-  return angle_to_raw(sender.out_angle)
+  return angle_to_raw(sender.out_angle), True
 
 
 def beyond_limit(sender: "AngleModeSender", measured_deg: float, v_ego: float) -> bool:

@@ -152,6 +152,7 @@ static uint16_t honda_angle_profile = 0U;   // 0: Clarity rule; 1..7: a vehicle-
 static bool honda_angle_mode = false;
 static int honda_angle_last = 0;
 static bool honda_angle_from_wheel = true;   // the next target's step is measured from the wheel, not the last target
+static bool honda_angle_after_yield = false; // the last frame was a passed YIELD: the next target may start from the wheel or the last target
 static bool honda_angle_meas_seen = false;
 static uint32_t honda_angle_meas_ts = 0U;
 static bool honda_angle_linear = false;     // a valid 0x6A2 seen: target and measured angle are rack-linear
@@ -161,6 +162,7 @@ static void honda_angle_reset(bool enabled) {
   honda_angle_mode = enabled;
   honda_angle_last = 0;
   honda_angle_from_wheel = true;
+  honda_angle_after_yield = false;
   honda_angle_meas_seen = false;
   honda_angle_meas_ts = 0U;
   honda_angle_linear = false;
@@ -310,6 +312,10 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
   const uint8_t b2 = msg->data[2];
   const bool marker = (b2 & 0x0CU) == 0x0CU;
   const bool steering = (b2 & 0xBFU) == 0x0CU;
+  // YIELD (bit 6 clear): the loop has no authority. A build that pins its reference to the wheel (0x0F) sends the wheel, which
+  // is checked against the measured wheel; a build that jump-checks YIELD (0x0E) sends a step-limited follow of the wheel,
+  // checked against the last target. A YIELD frame passes on either; the absolute limit and freshness still apply.
+  const bool yielding = steering && ((b2 & 0x40U) == 0U);
   const bool standby = ((b2 & 0xBFU) == 0x0DU) && (target == 0);
   bool violation = msg->data[3] != 0U;
 
@@ -339,15 +345,29 @@ static bool honda_angle_tx_violation(const CANPacket_t *msg) {
     const int lim_can = (int)(lim + 1.0f);
     // from the wheel: within one step of the last 6 measured samples (the standard's inactive check uses the same
     // min/max window; openpilot's carState angle is 10-20 ms older than the newest 0x14A); otherwise of the last target
-    const int hi = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.max, -angle_max, angle_max) : honda_angle_last;
-    const int lo = honda_angle_from_wheel ? SAFETY_CLAMP(angle_meas.min, -angle_max, angle_max) : honda_angle_last;
+    const int whi = SAFETY_CLAMP(angle_meas.max, -angle_max, angle_max);
+    const int wlo = SAFETY_CLAMP(angle_meas.min, -angle_max, angle_max);
+    const bool near_wheel = !safety_max_limit_check(target, whi + step_can, wlo - step_can);
+    const bool near_last = !safety_max_limit_check(target, honda_angle_last + step_can, honda_angle_last - step_can);
+    // a violation or a frame that was not steering leaves only the wheel; after a passed YIELD the first target may start from
+    // the wheel (0x0F: the YIELD target was the wheel) or from the last target (0x0E follower), which panda already passed
+    const bool lenient = (yielding || honda_angle_after_yield) && !honda_angle_from_wheel;
+    bool in_step = near_last;
+    if (honda_angle_from_wheel) {
+      in_step = near_wheel;
+    } else if (lenient) {
+      in_step = near_wheel || near_last;
+    } else {
+      // the last target alone
+    }
     violation |= !meas_fresh;
     violation |= (honda_angle_profile != 0U) && !honda_angle_vm_valid();
-    violation |= safety_max_limit_check(target, hi + step_can, lo - step_can);
+    violation |= !in_step;
     violation |= safety_max_limit_check(target, lim_can, -lim_can);
     violation |= rt_angle_rate_limit_check(RT_LIMITS);   // always evaluated: it counts the frame
   }
   honda_angle_last = target;
+  honda_angle_after_yield = yielding && !violation && lateral_controls_allowed();
   // not steering, or a violation: the next target must be within one step of the wheel, measured when it is checked
   // (the standard resets the last target to the measured angle here; checking against the samples current at the next
   // frame follows a wheel that moves in between)

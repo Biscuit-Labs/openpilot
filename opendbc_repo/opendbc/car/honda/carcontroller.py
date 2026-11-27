@@ -6,7 +6,7 @@ from opendbc.car import Bus, DT_CTRL, rate_limit, make_tester_present_msg, struc
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.honda import hondacan
 from opendbc.car.honda.angle_profiles import angle_profile
-from opendbc.car.honda.clarity_angle_mode import AngleModeSender, GradedAuthority, angle_mode, beyond_limit, sender_follow
+from opendbc.car.honda.clarity_angle_mode import AngleModeSender, angle_mode, beyond_limit, sender_follow
 from opendbc.car.honda.meps import protocol as meps_protocol
 from opendbc.car.honda.accord_mvl_stock import AccordMvlStock, qualified as mvl_stock_qualified
 from opendbc.car.honda.bcan_blinker import BcanBlinker
@@ -148,7 +148,6 @@ class CarController(CarControllerBase):
     self.angle_sender = AngleModeSender(angle_profile(CP)) if angle_mode(CP) else None
     self.apply_angle_raw = 0
     self.angle_yield = False  # the driver overrides this frame (YIELD, target follows the wheel)
-    self.graded = GradedAuthority()   # opt-in graded override (clarity_angle_mode.GradedAuthority)
     self.modified_eps_settings = None
     # Clarity with an interceptor: the PCM stays in ACC while openpilot is engaged (honda/pcm_acc.py)
     self.keep_pcm_acc = pcm_acc.qualified(CP)
@@ -248,8 +247,6 @@ class CarController(CarControllerBase):
         held = (self.angle_yield and self.angle_sender.sent_active and not meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id)
                 and beyond_limit(self.angle_sender, CS.out.steeringAngleDeg, CS.out.vEgo))
         self.angle_yield = pressed or held
-        if self.angle_yield:
-          self.graded.w = 1.0   # graded override: the resume after a YIELD is the effort fade's, from full authority
         lkas_active = bool(CC.latActive and not below_min_steer_speed(CS.out.vEgo, mset.min_steer_speed_mph))
     else:
       limited_torque = rate_limit(torque_cmd, self.last_torque, -self.params.STEER_DELTA_DOWN * DT_CTRL,
@@ -301,12 +298,9 @@ class CarController(CarControllerBase):
         self.apply_angle_raw, sent = sender_follow(self.angle_sender, CS.out.steeringAngleDeg, CS.out.steeringRateDeg,
                                                    CS.out.vEgo, meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id))
       else:
-        authority = self.graded.update(settings.graded_override and lkas_active, CS.out.steeringTorque,
-                                       getattr(CS, "press_start_eff", 0.0))
         self.apply_angle_raw, sent = self.angle_sender.update(
           lkas_active, actuators.steeringAngleDeg, CS.out.steeringAngleDeg, CS.out.vEgo, angle_ready,
-          CS.out.steeringRateDeg, settings.fade_up_s, rate_limit_deg_s=settings.angle_rate_limit_deg_s,
-          authority=authority)
+          CS.out.steeringRateDeg, settings.fade_up_s, rate_limit_deg_s=settings.angle_rate_limit_deg_s)
       v3_byte2 = meps_protocol.v3_byte2(not self.angle_yield) if sent else meps_protocol.V3_STANDBY
       apply_torque = self.apply_angle_raw if sent else 0
       lkas_active = sent

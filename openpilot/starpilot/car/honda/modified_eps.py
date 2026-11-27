@@ -26,7 +26,6 @@ def _flag(params, key, fallback):
 def read_settings(params) -> ModifiedEpsSettings:
   d = DEFAULT_SETTINGS
   return ModifiedEpsSettings(
-    graded_override=_flag(params, "HondaGradedOverride", d.graded_override),
     override_start_torque=int(_number(params, "HondaOverrideStartTorque", d.override_start_torque, 0, 10000)),
     override_end_torque=int(_number(params, "HondaOverrideEndTorque", d.override_end_torque, 0, 10000)),
     min_steer_speed_mph=int(_number(params, "HondaMinSteerSpeed", d.min_steer_speed_mph, 0, 45)),

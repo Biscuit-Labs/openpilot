@@ -114,9 +114,8 @@ DESCRIPTIONS = {
   'EVTuning': 'Selects EV acceleration curves for inherited acceleration presets.',
   'TeslaAOLScreenTap': 'Lets a three-finger tap on a supported Tesla screen toggle Always On Lateral.',
   'TeslaAOLDisengageOnBrake': 'Disarms Tesla Always On Lateral when you press the brake, with either harness.',
-  'HondaEpsAngleRateLimit': 'Caps how fast the desired steering-wheel angle may move. 0 turns the cap off.',
-  'HondaGradedOverride': ('Angle mode: between 80 % of Override Start Torque and the Start Torque, openpilot steers more gently as your ' +
-                          'torque rises; at the Start Torque it lets go as before. Off by default.'),
+  'HondaEpsAngleRateLimit': ('Caps how fast the desired steering-wheel angle may move, up to 170 deg/s (the EPS\'s own reference slew limit; ' +
+                           'a higher saved value is treated as 170). 0 turns the cap off.'),
   'HondaOverrideStartTorque': ('Driver torque that starts a steering override on a modified EPS (1200 = stock). Angle mode: this is the ' +
                                'straight-road value; it rises in sharp turns to 1.28 x from 45 degrees of wheel angle.'),
   'HondaOverrideEndTorque': ('The override ends once your torque stays under this for 0.1 s (1200 = stock). Angle mode: rises in sharp ' +

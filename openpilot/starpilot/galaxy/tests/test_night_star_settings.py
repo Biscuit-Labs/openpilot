@@ -119,11 +119,6 @@ class TestNightStarSettings(unittest.TestCase):
     labels = self.labels()
     self.assertTrue({'Override Start Torque', 'Override End Torque', 'Override Fade Up'} <= set(labels))
     self.assertFalse({'Override Fade Down', 'Torque During Override', 'Assist During Override'} & set(labels))
-    self.assertIn('Graded Override', labels)                     # angle mode only, off by default
-    row = next(row for row in self.page()['rows'] if row['label'] == 'Graded Override')
-    self.assertEqual(row['value'], 'Off')
-    self.assertTrue(self.set('Graded Override', 'On'))
-    self.assertTrue(self.params.get_bool('HondaGradedOverride'))
     for car, fw in ((CAR.ACURA_RDX_3G, b'39990+TJB+A220\x00\x00'), (CAR.HONDA_FIT, b'39990+T5R+C030\x00\x00')):
       self.use(apply_angle_mode(vehicle(car, fw), False), parked=True)
       self.assertEqual(self.labels()[:1], ['Angle Mode'], car)
@@ -146,7 +141,6 @@ class TestNightStarSettings(unittest.TestCase):
     labels = self.labels()
     self.assertNotIn('Steering Angle Rate Limit', labels)
     self.assertIn('Override Start Torque', labels)
-    self.assertNotIn('Graded Override', labels)                  # torque mode: no graded row
     self.assertIn('Override Fade Up', labels)   # the car controller fades on every modified EPS, calibrated or not
 
   def test_other_cars_see_only_the_seatbelt_check(self):

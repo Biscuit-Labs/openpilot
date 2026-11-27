@@ -95,7 +95,7 @@ def migrate_override_threshold(params) -> list[str]:
 
 
 ANGLE_DEFAULTS_RESET_KEY = "HondaAngleDefaultsReset"
-# the override settings angle mode was tuned with (Override Fade Up 1.25 s, Fade Down 0.0 s, Override Start / End Torque
+# the override settings angle mode was tuned with (Override Fade Up 0.75 s, Fade Down 0.0 s, Override Start / End Torque
 # 1560 / 936): clearing a saved value brings back the registered default (params_keys.h)
 ANGLE_DEFAULT_KEYS = ("HondaOverrideFadeUpSecs", "HondaOverrideFadeDownSecs", OVERRIDE_START_KEY, OVERRIDE_END_KEY)
 

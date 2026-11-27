@@ -132,7 +132,9 @@ DESCRIPTIONS = {
                                   'learned delay. 0 keeps the previous timing. Only models with a timed action output use it. Applies at the next start.'),
   'HondaClarityAngleMode': ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +
                             "(39990+XXX+YYY, '+' in the part number); a torque PTM image keeps torque mode. On a Clarity with any " +
-                            'other EPS firmware steering stays unavailable, so turn this off. Applies at the next start.'),
+                            'other EPS firmware steering stays unavailable, so turn this off. ' +
+                            'Angle Mode OFF runs the EPS completely stock: stock tables and the stock torque tune, weaker than angle mode. ' +
+                            'Applies at the next start.'),
   'DisableSeatbeltCheck': "Allows engaging and staying engaged with the driver's seatbelt unlatched.",
   'RemoteStartBootsComma': 'Wakes comma during GM remote start.',
   'HKGRemoteStartBootsComma': 'Wakes comma during Hyundai, Kia or Genesis remote climate operation.',

@@ -26,7 +26,7 @@ class ModifiedEpsSettings:
   override_end_torque: int = 936         # HondaOverrideEndTorque: the press ends once torque stays under this for RELEASE_HOLD_S
   min_steer_speed_mph: int = 1           # HondaMinSteerSpeed, no torque below this (0 = no speed gate)
   fade_down_s: float = 0.0               # HondaOverrideFadeDownSecs, soft cut on a press, request held while it eases out (0 = cut at once)
-  fade_up_s: float = 1.25                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle mode: target walks wheel -> plan)
+  fade_up_s: float = 0.75                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle mode: target walks wheel -> plan)
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
   assist_during_override: bool = False   # HondaDriverAssistDuringOverride, keep LKAS active while pressed
   angle_rate_limit_deg_s: float = 300.0  # HondaEpsAngleRateLimit, Clarity angle mode: cap on the target's rate in CarController (0 = off)

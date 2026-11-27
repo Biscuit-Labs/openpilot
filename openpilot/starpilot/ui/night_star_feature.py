@@ -36,7 +36,9 @@ BOOL_ROWS = {
   ANGLE_MODE_KEY: ("Angle Mode",
                    ("Steers by wheel angle through the EPS's own angle loop. Needs an angle-mode EPS image " +
                     "(39990+XXX+YYY, '+' in the part number); a torque PTM image keeps torque mode. On a Clarity with any " +
-                    'other EPS firmware steering stays unavailable, so turn this off. Applies at the next start.')),
+                    'other EPS firmware steering stays unavailable, so turn this off. ' +
+                    'Angle Mode OFF runs the EPS completely stock: stock tables and the stock torque tune, weaker than angle mode. ' +
+                    'Applies at the next start.')),
   GRADED_KEY: ("Graded Override",
                ("Angle mode: between 80 % of Override Start Torque and the Start Torque, openpilot steers more gently as " +
                 "your torque rises instead of keeping full strength until it lets go; at the Start Torque it lets go as " +

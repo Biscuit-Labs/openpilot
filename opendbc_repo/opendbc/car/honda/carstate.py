@@ -59,6 +59,7 @@ class CarState(CarStateBase):
     self.modified_eps_settings = None
     self.steering_pressed_hysteresis = SteeringPressedHysteresis()
     self.press_start_eff = 0.0
+    self.press_start_scale = 1.0   # x the Start level of the press detector (CarController: the release backstop, angle builds >= 0x0F)
     self.yaw_rate = get_yaw_rate_calibration(CP.carFingerprint) if self.modified_eps else None
 
     self.brake_switch_prev = False
@@ -251,8 +252,10 @@ class CarState(CarStateBase):
       if self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE:   # the settings up to 5 deg, 1.28 x from 45 deg
         press_start = angle_mode_threshold(press_start, self.published_angle_deg)
         press_end = angle_mode_threshold(press_end, self.published_angle_deg)
-      ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, press_start, press_end)
       self.press_start_eff = press_start   # the effective Start Torque this frame (graded override, CarController)
+      if self.press_start_scale != 1.0:
+        press_start *= self.press_start_scale
+      ret.steeringPressed = self.steering_pressed_hysteresis.update(ret.steeringTorque, press_start, press_end)
     else:
       steer_threshold = STEER_THRESHOLD.get(self.CP.carFingerprint, 1200)
       ret.steeringPressed = abs(ret.steeringTorque) > steer_threshold

@@ -111,11 +111,11 @@ def test_v3_0x0F_press_yields_with_the_target_at_the_wheel_every_frame():
   press = [T.e4(ci, True, 5.0, w, v=20.0, pressed=True)[1] for w in [-0.2 * k for k in range(1, 101)]]   # fast: 20 deg/s
   assert all(f[2] == 0x0C and f[3] == 0 for f in press)
   assert [target(f) for f in press] == [2 * k for k in range(1, 101)]    # raw = -10 x deg: exactly the wheel, no step limit
-  rel = [T.e4(ci, True, 5.0, -20.0, v=20.0)[1] for _ in range(300)]
-  assert all(f[2] == 0x4C for f in rel)                                  # DRIVE again at once
+  rel = [T.e4(ci, True, 5.0, -20.0, v=20.0)[1] for _ in range(300)]      # rate 0: the release rate hold ends after 5 slow frames
+  assert all(f[2] == 0x0C for f in rel[:4]) and all(f[2] == 0x4C for f in rel[4:])
   tr = [target(f) for f in rel]
   assert abs(tr[0] - 200) <= 2 and tr[-1] == -50                         # from the wheel, then to the plan
-  assert abs(tr[10] - 200) < abs(tr[60] - 200)
+  assert abs(tr[14] - 200) < abs(tr[64] - 200)
 
 
 def _e4_rate(ci, lat, angle_des, measured, rate, v, pressed=False, t=[5_000_000_000]):
@@ -164,6 +164,88 @@ def test_v3_0x0F_yield_past_the_limit_is_standby_until_the_wheel_is_back_inside(
   back = [T.e4(ci, True, 5.0, lim - 5.0, v=20.0)[1] for _ in range(300)]  # back inside: engage from the wheel
   assert all(f[2] == 0x4C for f in back[2:]) and abs(target(back[2]) + round(10 * (lim - 5.0))) <= 40   # from the wheel (raw = -10 deg)
   assert target(back[-1]) == -50
+
+
+def _released(build, rates, wheel=40.0):
+  """Drive, press (200 deg/s), then release and feed `rates` (deg/s) frame by frame; returns (frames, scales) after the release."""
+  ci, _ = start_v3(build)
+  assert ci.CS.press_start_scale == 1.0
+  for _ in range(100):
+    _e4_rate(ci, True, 0.0, 0.0, 0.0, 8.0)
+  for _ in range(20):
+    _e4_rate(ci, True, 0.0, wheel, 200.0, 8.0, pressed=True)
+  assert ci.CS.press_start_scale == 1.0
+  frames, scales = [], []
+  for r in rates:
+    frames.append(_e4_rate(ci, True, 0.0, wheel, r, 8.0))
+    scales.append(ci.CS.press_start_scale)
+  return frames, scales
+
+
+def test_v3_0x0F_release_keeps_yield_until_the_wheel_rate_is_below_120_for_5_frames():
+  # route 0000012a: the stock inner damping brakes a wheel still unwinding fast at the first DRIVE frame
+  frames, _ = _released(0x0F, [200.0] * 10 + [50.0] * 8)
+  assert all(f[2] == 0x0C and f[3] == 0 for f in frames[:14])            # fast: YIELD; slow for 4 frames: still YIELD
+  assert all(target(f) == -400 for f in frames[:14])                     # the target stays on the wheel (raw = -10 x deg)
+  assert all(f[2] == 0x4C for f in frames[14:])                          # the 5th slow frame: DRIVE
+  # a slow spell shorter than 5 frames restarts the count
+  frames, _ = _released(0x0F, [200.0] * 3 + [50.0] * 4 + [200.0] * 3 + [50.0] * 8)
+  assert all(f[2] == 0x0C for f in frames[:14]) and all(f[2] == 0x4C for f in frames[14:])
+
+
+def test_v3_0x0F_release_rate_hold_is_capped_at_half_a_second():
+  frames, _ = _released(0x0F, [300.0] * 80)
+  assert all(f[2] == 0x0C for f in frames[:50]) and all(f[2] == 0x4C for f in frames[50:])
+
+
+def test_v3_0x0F_a_new_press_restarts_the_hold_and_the_rate_hold_ends_with_lkas():
+  ci, _ = start_v3(0x0F)
+  for _ in range(100):
+    _e4_rate(ci, True, 0.0, 0.0, 0.0, 8.0)
+  for _ in range(5):
+    _e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0, pressed=True)
+  assert [_e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0)[2] for _ in range(30)] == [0x0C] * 30
+  for _ in range(3):
+    assert _e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0, pressed=True)[2] == 0x0C
+  assert [_e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0)[2] for _ in range(50)] == [0x0C] * 50   # a full new 0.5 s from the new release
+  assert _e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0)[2] == 0x4C
+  # lateral control off ends it: the next engage is a plain engage
+  for _ in range(5):
+    _e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0, pressed=True)
+  _e4_rate(ci, True, 0.0, 40.0, 200.0, 8.0)
+  _e4_rate(ci, False, 0.0, 40.0, 200.0, 8.0)
+  assert ci.CC.release_hold is False
+
+
+def test_v3_0x0E_release_goes_drive_at_once_and_never_scales_the_start_level():
+  frames, scales = _released(0x0E, [200.0] * 10)
+  assert all(f[2] == 0x4C for f in frames)                               # unchanged: DRIVE on the first released frame
+  assert scales == [1.0] * 10
+
+
+def test_v3_0x0F_start_level_is_x1_5_for_200_ms_after_a_drive_onset_following_a_yield():
+  from opendbc.car.honda import carcontroller as C
+  assert (C.RELEASE_RATE_HOLD_DEG_S, C.RELEASE_RATE_HOLD_FRAMES, C.RELEASE_RATE_HOLD_MAX_FRAMES) == (120.0, 5, 50)
+  frames, scales = _released(0x0F, [10.0] * 40)                         # slow release: DRIVE on the 5th frame
+  onset = next(i for i, f in enumerate(frames) if f[2] == 0x4C)
+  assert onset == 4 and scales[:onset] == [1.0] * onset
+  assert scales[onset:onset + 20] == [1.5] * 20 and scales[onset + 20:] == [1.0] * (len(scales) - onset - 20)
+
+
+def test_v3_0x0F_engage_without_a_yield_does_not_scale_the_start_level():
+  ci, _ = start_v3(0x0F)
+  scales = []
+  for _ in range(100):
+    _e4_rate(ci, True, 0.0, 0.0, 0.0, 8.0)
+    scales.append(ci.CS.press_start_scale)
+  assert scales == [1.0] * 100
+
+
+def test_carstate_scales_only_the_press_start_level():
+  from opendbc.car.honda.modified_eps import SteeringPressedHysteresis
+  h = SteeringPressedHysteresis()
+  assert not h.update(1700.0, 1660.0 * 1.5, 1156.0)                      # the scaled Start: 1700 does not press
+  assert h.update(2600.0, 1660.0 * 1.5, 1156.0)
 
 
 def test_v3_frames_never_carry_the_request_or_byte3():

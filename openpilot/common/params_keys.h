@@ -406,7 +406,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
 
     // Honda modified-EPS controller (selfdrive/controls/lib/latcontrol_honda_eps.py)
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
-    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "1.25"}},  // s; Night Star page (angle mode: the target walks from the wheel to the plan)
+    {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.75"}},  // s; Night Star page (angle mode: the target walks from the wheel to the plan)
     {"HondaAngleDefaultsReset", {PERSISTENT, BOOL}},  // one-time clear of saved Fade Up / Fade Down / Override Threshold
     {"HondaClarityAngleMode", {PERSISTENT, BOOL, "1"}},  // Clarity on the angle-mode EPS build (0x04): steer by angle; read at car start
     {"NrdrClarityAngleLookaheadMs", {PERSISTENT, INT, "0"}},  // Steering Prediction Time (nrdr 25f309ef): Clarity angle mode, absolute lateral horizon 5-400 ms step 5 for a timed action head; 0 = previous timing; read at modeld start (offroad)

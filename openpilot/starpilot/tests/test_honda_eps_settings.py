@@ -99,7 +99,7 @@ if __name__ == "__main__":
     self.params.put('HondaOverrideStartTorque', 1600, block=True)
     self.assertEqual(sorted(reset_angle_defaults_once(self.params)),
                      ['HondaOverrideFadeDownSecs', 'HondaOverrideFadeUpSecs', 'HondaOverrideStartTorque'])
-    self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs', return_default=True), 1.25)
+    self.assertAlmostEqual(self.params.get('HondaOverrideFadeUpSecs', return_default=True), 0.75)
     self.assertAlmostEqual(self.params.get('HondaOverrideFadeDownSecs', return_default=True), 0.0)
     self.assertEqual(self.params.get('HondaOverrideStartTorque', return_default=True), 1560)
     self.params.put('HondaOverrideFadeUpSecs', 0.8, block=True)            # set after the reset: kept

@@ -31,7 +31,7 @@ class ModifiedEpsSettings:
   fade_up_s: float = 0.75                # HondaOverrideFadeUpSecs: time to bring steering back after a press (angle mode: target walks wheel -> plan)
   torque_scale: float = 0.0              # HondaOverrideTorqueScale / 100, torque kept while pressed
   assist_during_override: bool = False   # HondaDriverAssistDuringOverride, keep LKAS active while pressed
-  angle_rate_limit_deg_s: float = 300.0  # HondaEpsAngleRateLimit, Clarity angle mode: cap on the target's rate in CarController (0 = off)
+  angle_rate_limit_deg_s: float = 170.0  # HondaEpsAngleRateLimit, Clarity angle mode: cap on the target's rate in CarController (0 = off)
 
 
 DEFAULT_SETTINGS = ModifiedEpsSettings()

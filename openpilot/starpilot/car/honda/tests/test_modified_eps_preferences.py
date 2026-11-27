@@ -15,8 +15,9 @@ class TestModifiedEpsPreferences(unittest.TestCase):
     self.params = Params(str(Path(self.temporary.name) / 'params'))
 
   def test_unset_reads_the_registry_defaults(self):
-    # except the Steering Angle Rate Limit: its registry default (300) is above the 170 deg/s ceiling, so it reads clamped
-    self.assertEqual(read_settings(self.params), dataclasses.replace(DEFAULT_SETTINGS, angle_rate_limit_deg_s=ANGLE_RATE_LIMIT_MAX_DEG_S))
+    # the Steering Angle Rate Limit default is the 170 deg/s ceiling itself
+    self.assertEqual(read_settings(self.params), DEFAULT_SETTINGS)
+    self.assertEqual(DEFAULT_SETTINGS.angle_rate_limit_deg_s, ANGLE_RATE_LIMIT_MAX_DEG_S)
 
   def test_saved_angle_rate_limit_is_clamped_to_the_eps_slew_limit(self):
     for saved, expected in ((1000, 170.0), (171, 170.0), (170, 170.0), (100, 100.0), (0, 0.0)):

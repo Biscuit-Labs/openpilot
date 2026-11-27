@@ -48,20 +48,6 @@ def compute_gb_honda_nidec(accel, speed):
 # knot (320 <-> 3.3 m/s2) is that fit extrapolated (3.3-3.8 by speed), placed so -4.0 less wind_brake reaches the
 # ceiling up to ~75 mph.
 # The brake fraction (accel / 4.8, after wind_brake) is read as the brake's share of the decel in m/s2.
-# Release rate hold (angle builds that track the wheel on YIELD, meps_protocol.yield_tracks_wheel). Route 0000012a: at the first
-# DRIVE frame after a release with the wheel still unwinding fast, the EPS's stock inner rate damping brakes the wheel; the column
-# torque crosses Start and the press detector re-fires (12 flickers, all at 196-341 deg/s). The emulator replay (rwd-xray
-# clarity/CLARITY_0x0F_DRIVE2_20261127, yield_emu2.py / agg_A.txt) keeps YIELD after the release until |wheel rate| is below
-# RELEASE_RATE_HOLD_DEG_S for RELEASE_RATE_HOLD_FRAMES frames (capped RELEASE_RATE_HOLD_MAX_FRAMES after it): peak decel
-# 2745 -> 1067 deg/s^2, predicted re-presses 2/6 -> 0/6, wheel within 3 deg of the plan 1.15 -> 0.72 s.
-RELEASE_RATE_HOLD_DEG_S = 120.0
-RELEASE_RATE_HOLD_FRAMES = 5
-RELEASE_RATE_HOLD_MAX_FRAMES = 50    # 0.5 s
-# Start backstop: for PRESS_START_BOOST_FRAMES frames after a DRIVE onset that follows a YIELD the press detector's Start level is
-# multiplied by PRESS_START_BOOST (carstate reads CS.press_start_scale; one frame of lag): the car's own damping torque no longer re-fires it.
-PRESS_START_BOOST = 1.5
-PRESS_START_BOOST_FRAMES = 20        # 0.2 s
-
 HYBRID_DECEL_BP = [0.0, 0.3, 0.7, 1.0, 1.27, 1.5, 1.7, 1.85, 2.2, 2.55, 2.7, 3.3]
 HYBRID_COMMAND_V = [0.0, 8.0, 22.0, 38.0, 52.0, 95.0, 112.0, 130.0, 150.0, 170.0, 200.0, 320.0]
 HYBRID_BRAKE_MAX = 320
@@ -162,11 +148,6 @@ class CarController(CarControllerBase):
     self.angle_sender = AngleModeSender(angle_profile(CP)) if angle_mode(CP) else None
     self.apply_angle_raw = 0
     self.angle_yield = False  # the driver overrides this frame (YIELD, target follows the wheel)
-    self.release_pressed_prev = False
-    self.release_hold = False        # YIELD kept after a release until the wheel unwinds slowly (RELEASE_RATE_HOLD_*)
-    self.release_hold_frames = 0
-    self.release_slow_frames = 0
-    self.boost_frames = 0            # frames left of the Start backstop (PRESS_START_BOOST)
     self.graded = GradedAuthority()   # opt-in graded override (clarity_angle_mode.GradedAuthority)
     self.modified_eps_settings = None
     # Clarity with an interceptor: the PCM stays in ACC while openpilot is engaged (honda/pcm_acc.py)
@@ -266,33 +247,7 @@ class CarController(CarControllerBase):
         # (builds that track the wheel on YIELD send STANDBY past the limit instead: sender_follow)
         held = (self.angle_yield and self.angle_sender.sent_active and not meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id)
                 and beyond_limit(self.angle_sender, CS.out.steeringAngleDeg, CS.out.vEgo))
-        tracks = meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id)
-        if tracks:
-          # rate hold: a release keeps YIELD until |rate| < RELEASE_RATE_HOLD_DEG_S for RELEASE_RATE_HOLD_FRAMES frames (capped)
-          if pressed:
-            self.release_hold, self.release_hold_frames, self.release_slow_frames = False, 0, 0
-          else:
-            if self.release_pressed_prev:
-              self.release_hold, self.release_hold_frames, self.release_slow_frames = True, 0, 0
-            if self.release_hold:
-              self.release_hold_frames += 1
-              self.release_slow_frames = self.release_slow_frames + 1 if abs(CS.out.steeringRateDeg) < RELEASE_RATE_HOLD_DEG_S else 0
-              if (self.release_slow_frames >= RELEASE_RATE_HOLD_FRAMES or self.release_hold_frames > RELEASE_RATE_HOLD_MAX_FRAMES
-                  or not CC.latActive):
-                self.release_hold = False
-        else:
-          self.release_hold = False
-        self.release_pressed_prev = pressed
-        yield_prev = self.angle_yield
-        self.angle_yield = pressed or held or self.release_hold
-        if tracks:
-          if yield_prev and not self.angle_yield:
-            self.boost_frames = PRESS_START_BOOST_FRAMES
-          CS.press_start_scale = PRESS_START_BOOST if self.boost_frames > 0 else 1.0
-          self.boost_frames = max(0, self.boost_frames - 1)
-        else:
-          self.boost_frames = 0
-          CS.press_start_scale = 1.0
+        self.angle_yield = pressed or held
         if self.angle_yield:
           self.graded.w = 1.0   # graded override: the resume after a YIELD is the effort fade's, from full authority
         lkas_active = bool(CC.latActive and not below_min_steer_speed(CS.out.vEgo, mset.min_steer_speed_mph))

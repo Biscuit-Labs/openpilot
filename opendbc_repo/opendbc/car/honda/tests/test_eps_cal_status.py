@@ -117,3 +117,24 @@ def test_stock_fw_clarity_and_other_cars_ignore_the_frame():
   ci = clarity(b'39990-TRW-A020\x00\x00'); f = Feed(ci)
   assert not ci.CS.eps_cal_status.enabled
   assert not any(s.steerFaultTemporary for s in f.run([v1(active=0, counter=k % 4) for k in range(20)]))
+
+
+@pytest.mark.parametrize("frame,capable", [
+  (lambda k: v1(counter=k % 4), False),                          # layout 1 (v1 build): not angle-capable
+  (lambda k: v4(build=0x0D, counter=k % 4), False),              # v2 build: layout 4 but not in V3_BUILDS
+  (lambda k: v4(build=0x0E, counter=k % 4), True),
+  (lambda k: v4(build=0x10, mode=0, steering=False, reason=1, counter=k % 4), True),   # announces whatever the active mode
+], ids=["v1", "v2_0x0D", "v3_0x0E", "v3_0x10_stock_mode"])
+def test_angle_capable_only_for_a_v3_layout4_build(frame, capable):
+  ci = clarity()
+  f = Feed(ci)
+  assert not ci.CS.eps_cal_status.angle_capable
+  f.run([frame(k) for k in range(10)])
+  assert ci.CS.eps_cal_status.angle_capable is capable
+
+
+def test_no_status_frame_is_never_angle_capable():
+  ci = clarity()
+  f = Feed(ci)
+  f.run([None] * 200)
+  assert not ci.CS.eps_cal_status.angle_capable

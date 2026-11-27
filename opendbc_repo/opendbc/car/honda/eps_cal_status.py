@@ -20,7 +20,7 @@ angle_ready is True only when nothing faults; CarController sends angle payloads
 from opendbc.car.carlog import carlog
 from opendbc.car.honda.angle_profiles import angle_profile
 from opendbc.car.honda.clarity_angle_mode import angle_mode
-from opendbc.car.honda.meps.protocol import KNOWN_BUILDS, MODE_ANGLE, decode_layout4, is_layout4, protocol_of
+from opendbc.car.honda.meps.protocol import KNOWN_BUILDS, MODE_ANGLE, V3_BUILDS, decode_layout4, is_layout4, protocol_of
 from opendbc.car.honda.modified_eps import modified_eps
 from opendbc.car.honda.values import CAR
 
@@ -44,6 +44,7 @@ class EpsCalStatus:
     self.enabled = interlock_enabled(CP)
     self.angle = self.enabled and angle_mode(CP)   # angle mode chosen at startup
     self.announced = False      # a valid 0x6A4 seen since start: this EPS is switch-capable
+    self.angle_capable = False  # a valid layout-4 frame with a V3_BUILDS build seen since start: an angle-capable image
     self.frames_since = 0
     self.last_ts = 0
     self.active_mode = -1
@@ -86,6 +87,8 @@ class EpsCalStatus:
     s = decode_layout4(vl)
     self.build_id, self.active_mode = s["build"], s["mode"]
     self.reason, self.clamp = s["reason_name"], s["clamp"]
+    if self.build_id in V3_BUILDS:
+      self.angle_capable = True   # what starpilot/car/honda/clarity_angle_mode.py AngleAnnouncement saves (HondaAngleEpsAnnounced)
     if self.build_id not in KNOWN_BUILDS:
       return "unknown_build"
     if not self.angle:

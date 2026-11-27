@@ -70,7 +70,8 @@ def exercise_final_cp_publication_and_disabled_startup(identity, monkeypatch, fi
   expected = initial.to_dict()
   with OpenpilotPrefix():
     saved = Params()
-    for key, value in (("OpenpilotEnabledToggle", True), ("AlwaysOnLateral", False), ("AlphaLongitudinalEnabled", False), ("IsReleaseBranch", False)):
+    for key, value in (("OpenpilotEnabledToggle", True), ("AlwaysOnLateral", False), ("AlphaLongitudinalEnabled", False), ("IsReleaseBranch", False),
+                       ("HondaAngleEpsAnnounced", True)):   # the Clarity EPS announced an angle build: angle mode applies
       saved.put_bool(key, value, block=True)
     subscriber = messaging.sub_sock("carParams", timeout=100, conflate=True)
     card = ci = controls = None

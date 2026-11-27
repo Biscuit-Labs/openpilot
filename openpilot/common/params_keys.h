@@ -408,6 +408,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"HondaEpsAngleRateLimit", {PERSISTENT, INT, "300"}},  // deg/s ceiling on desired wheel-angle slew; 0 disables
     {"HondaOverrideFadeUpSecs", {PERSISTENT, FLOAT, "0.75"}},  // s; Night Star page (angle mode: the target walks from the wheel to the plan)
     {"HondaAngleDefaultsReset", {PERSISTENT, BOOL}},  // one-time clear of saved Fade Up / Fade Down / Override Threshold
+    {"HondaAngleEpsAnnounced", {PERSISTENT, BOOL, "0"}},  // written by card: the Clarity EPS announced an angle-capable build (0x6A4 layout 4, V3_BUILDS); gates the Angle Mode row and the flag
     {"HondaClarityAngleMode", {PERSISTENT, BOOL, "1"}},  // Clarity on the angle-mode EPS build (0x04): steer by angle; read at car start
     {"NrdrClarityAngleLookaheadMs", {PERSISTENT, INT, "0"}},  // Steering Prediction Time (nrdr 25f309ef): Clarity angle mode, absolute lateral horizon 5-400 ms step 5 for a timed action head; 0 = previous timing; read at modeld start (offroad)
     {"DisableSeatbeltCheck", {PERSISTENT, BOOL, "0"}},  // Night Star: card clears seatbeltUnlatched

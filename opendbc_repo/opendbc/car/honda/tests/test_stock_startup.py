@@ -60,7 +60,8 @@ def exercise_startup(identity, alpha, release, aol, base_word, monkeypatch, firm
   with OpenpilotPrefix():
     saved = Params()
     for key, value in (("OpenpilotEnabledToggle", True), ("AlwaysOnLateral", aol),
-                       ("AlphaLongitudinalEnabled", alpha), ("IsReleaseBranch", release)):
+                       ("AlphaLongitudinalEnabled", alpha), ("IsReleaseBranch", release),
+                       ("HondaAngleEpsAnnounced", True)):   # the Clarity EPS announced an angle build: angle mode applies
       saved.put_bool(key, value, block=True)
 
     initial = CarInterface.get_params(identity, fingerprint, list(firmware), card_module.alpha_long_requested(saved, is_release=release), release, False)

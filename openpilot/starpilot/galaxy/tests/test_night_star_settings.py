@@ -113,7 +113,27 @@ class TestNightStarSettings(unittest.TestCase):
     self.assertEqual(row['value'], '170')
     self.assertTrue(row['available'])
 
+  def test_angle_mode_is_hidden_until_the_eps_announces_an_angle_build(self):
+    # the Angle Mode default is "on": the row must not follow it, or a stock / torque PTM Clarity would be offered it
+    self.assertNotIn('Angle Mode', self.labels())
+    self.params.put_bool('HondaClarityAngleMode', True, block=True)
+    self.assertNotIn('Angle Mode', self.labels())
+    self.params.put_bool('HondaClarityAngleMode', False, block=True)
+    self.assertNotIn('Angle Mode', self.labels())
+    self.params.put_bool('HondaAngleEpsAnnounced', True, block=True)    # card saw a layout-4 V3 build on 0x6A4
+    self.assertIn('Angle Mode', self.labels())
+    self.params.put_bool('HondaClarityAngleMode', True, block=True)
+    self.assertIn('Angle Mode', self.labels())                         # the row stays so it can be switched off
+    self.params.put_bool('HondaAngleEpsAnnounced', False, block=True)  # cleared: the EPS went back to a stock / PTM image
+    self.assertNotIn('Angle Mode', self.labels())
+
+  def test_angle_mode_row_is_shown_while_the_car_runs_angle_mode(self):
+    from opendbc.car.honda.clarity_angle_mode import apply_angle_mode
+    self.use(apply_angle_mode(vehicle(), True), parked=True)
+    self.assertIn('Angle Mode', self.labels())
+
   def test_clarity_has_angle_mode_on_by_default(self):
+    self.params.put_bool('HondaAngleEpsAnnounced', True, block=True)
     row = next(row for row in self.page()['rows'] if row['label'] == 'Angle Mode')
     self.assertEqual((row['value'], row.get('default_value', 'On')), ('On', 'On'))
     self.assertTrue(self.set('Angle Mode', 'Off'))

@@ -320,6 +320,8 @@ class Car:
         raise ValueError('explicit car interface requires a radar interface')
       self.RI = RI
 
+    from openpilot.starpilot.car.honda.clarity_angle_mode import AngleAnnouncement
+    self.honda_angle_announce = AngleAnnouncement.create(self.CP, self.params)   # saves HondaAngleEpsAnnounced (Angle Mode row, flag)
     self.volt_cc_selected = gm_cc_transport_required(self.CP)
     self.volt_cc_boot_offset_ns = None
     self.volt_cc_source_floor_ns = 0
@@ -523,6 +525,9 @@ class Car:
     # Update carState from CAN
     observe_controller_can(self.CI, can_list)
     CS = self.CI.update(can_list)
+    angle_announce = getattr(self, 'honda_angle_announce', None)
+    if angle_announce is not None:
+      angle_announce.update(self.CI.CS.eps_cal_status, CS.vEgo, bool(CS.canValid and not CS.canTimeout))
     self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
     seatbelt_check = getattr(self, 'seatbelt_check', None)
     if seatbelt_check is not None:

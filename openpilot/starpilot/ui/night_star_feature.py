@@ -14,6 +14,7 @@ from openpilot.starpilot.ui.feature_settings_state import FeatureRow
 
 SEATBELT_KEY = "DisableSeatbeltCheck"
 ANGLE_MODE_KEY = "HondaClarityAngleMode"
+ANNOUNCED_KEY = "HondaAngleEpsAnnounced"   # saved by card: the EPS announced an angle-capable build
 LOOKAHEAD_KEY = "NrdrClarityAngleLookaheadMs"   # nrdr's name and semantics (selfdrive/modeld/clarity_lookahead.py)
 OFFROAD_ONLY = frozenset((LOOKAHEAD_KEY,))
 CLAMP_ON_READ = frozenset(("HondaEpsAngleRateLimit",))   # a saved value above the maximum is read as the maximum
@@ -119,12 +120,19 @@ class NightStarFeature:
       keys.extend(k for k in EPS_KEYS if not (angle and k in TORQUE_ONLY_KEYS))
       # read once at car start (starpilot/car/honda/clarity_angle_mode.py): the Clarity on any modified image (its interlock
       # finds the build), a profile car only while it runs its angle image (angle mode on; with it off the branch above)
-      if fingerprint == CLARITY or flags & int(HondaFlags.CLARITY_ANGLE_MODE):
+      # The Clarity shows the row only once its EPS has announced an angle-capable build (HondaAngleEpsAnnounced, saved by card
+      # from a valid 0x6A4 layout-4 frame of a V3 build; the Angle Mode value itself plays no part, so the default "on" shows
+      # it to nobody on a stock or torque PTM image). The row stays while the EPS keeps announcing, so it can be switched off.
+      if flags & int(HondaFlags.CLARITY_ANGLE_MODE) or (fingerprint == CLARITY and self._announced()):
         keys.append(ANGLE_MODE_KEY)
       if fingerprint == CLARITY:
         keys.append(LOOKAHEAD_KEY)    # read once when modeld starts; parked only
     keys.append(SEATBELT_KEY)
     return tuple(keys)
+
+  def _announced(self) -> bool:
+    raw, readable = read_saved(self.params, ANNOUNCED_KEY, 8)
+    return bool(readable and raw == b"1")
 
   def _saved_bool(self, key):
     raw, readable = read_saved(self.params, key, 8)

@@ -156,6 +156,15 @@ class CarState(CarStateBase):
       # NO_TORQUE_ALERT_2 can be caused by bump or steering nudge from driver
       # FIXME: the stock camera stops steering on NO_TORQUE_ALERT_1
       ret.steerFaultTemporary = steer_status not in ("NORMAL", "LOW_SPEED_LOCKOUT", "NO_TORQUE_ALERT_2")
+      # Clarity angle mode: the stock EPS raises NO_TORQUE_ALERT_1 when the column torque holds >= 3000 for 50 ms, i.e. a firm
+      # driver override, which openpilot already answers with YIELD. As a temporary fault it dropped latActive mid-press and
+      # modeld reset the model's previous action to the measured curvature: the plan snapped to the driver's wheel and relaxed
+      # over 0.3-0.5 s after the release (route 0000012e on 0x10: 45 of 46 latActive drops, all 1606 alert-1 frames inside a
+      # press, 0x6A4 FAULT clear; rwd-xray clarity/CLARITY_0x10_FIRST_DRIVE_20261127). Ignored only while the press detector
+      # holds a press (last frame's state; the alert needs 50 ms above 3000, far above Start); otherwise it stays a fault.
+      if (steer_status == "NO_TORQUE_ALERT_1" and self.modified_eps and self.CP.flags & HondaFlags.CLARITY_ANGLE_MODE
+          and self.steering_pressed_hysteresis.pressed):
+        ret.steerFaultTemporary = False
 
     if (self.CP.carFingerprint == CAR.ACURA_MDX_4G) and (steer_status == "TJA_LOW_SPEED_LOCKOUT"):
       ret.steerFaultPermanent = False

@@ -591,16 +591,21 @@ def test_default_levels_match_the_old_single_setting():
     assert angle_mode_threshold(DEFAULT_SETTINGS.override_end_torque, a) == pytest.approx(0.6 * 2000 * old, rel=0.005)
 
 
-def _press_at(ci, angle, torque, n=6):
+def _press_at(ci, angle, torque, n=6, status=0, out=None, eps_status=False):
   from opendbc.can import CANPacker
+  from opendbc.car.honda.tests.test_linear_angle import lin_frame
   pk = CANPacker("honda_clarity_hybrid_2018_can_generated")
   cs = None
   for _ in range(n):
     _press_at.t += 10_000_000
     msgs = [pk.make_can_msg("STEERING_SENSORS", 0, {"STEER_ANGLE": angle, "COUNTER": _press_at.c}),
-            pk.make_can_msg("STEER_STATUS", 0, {"STEER_TORQUE_SENSOR": torque, "COUNTER": _press_at.c})]
+            pk.make_can_msg("STEER_STATUS", 0, {"STEER_TORQUE_SENSOR": torque, "STEER_STATUS": status, "COUNTER": _press_at.c})]
+    if eps_status:   # the angle EPS's own frames (0x6A4 layout 4, 0x6A2), so the interlock stays ready
+      msgs += [(0x6A4, v4(counter=_press_at.c), 0), (0x6A2, lin_frame(angle, angle, _press_at.c), 0)]
     _press_at.c = (_press_at.c + 1) % 4
     cs = ci.update([(_press_at.t, [(a, d, b) for a, d, b in msgs])])
+    if out is not None:
+      out.append(cs)
   return cs.steeringPressed
 _press_at.t, _press_at.c = 3_000_000_000, 0
 
@@ -639,3 +644,34 @@ def test_only_v3_and_torque_frames_are_packed():
   assert not {"eps_mode", "angle_payload", "arm_bits"} & set(args)
   for name in ("AuthorityRamp", "stock_arm_bits", "STOCK_ARM_IMAGES", "ANGLE_PAYLOAD", "HOLD_LIMITS_FADE_S"):
     assert not hasattr(cam, name), name
+
+
+def test_angle_mode_alert_1_during_a_press_is_not_a_steering_fault(angle_file):
+  # route 0000012e (0x10): the stock EPS raised NO_TORQUE_ALERT_1 (2) during firm presses; as a temporary fault it dropped
+  # latActive and modeld reset the model's previous action to the driver's wheel
+  ci = clarity()
+  assert ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE
+  out = []
+  assert not _press_at(ci, 2.0, 0, n=20, out=out, eps_status=True)        # interlock ready, no fault
+  assert not out[-1].steerFaultTemporary
+  out = []
+  assert _press_at(ci, 2.0, 3400, n=20, out=out, eps_status=True)         # a press
+  assert _press_at(ci, 2.0, 3400, n=10, status=2, out=out, eps_status=True)   # alert 1 inside it
+  assert not any(s.steerFaultTemporary for s in out)
+  out = []
+  assert not _press_at(ci, 2.0, 0, n=30, out=out, eps_status=True)        # released
+  _press_at(ci, 2.0, 0, n=5, status=2, out=out, eps_status=True)          # alert 1 without a press: still a fault
+  assert not out[29].steerFaultTemporary and all(s.steerFaultTemporary for s in out[-4:])
+  out = []
+  _press_at(ci, 2.0, 3400, n=20, out=out, eps_status=True)
+  _press_at(ci, 2.0, 3400, n=5, status=5, out=out, eps_status=True)       # any other alert during a press: a fault as before
+  assert all(s.steerFaultTemporary for s in out[-4:])
+
+
+def test_torque_mode_alert_1_is_still_a_fault_during_a_press():
+  ci = clarity()                                                           # Angle Mode off
+  assert not ci.CP.flags & HondaFlags.CLARITY_ANGLE_MODE
+  out = []
+  assert _press_at(ci, 2.0, 3400, n=20, out=out)
+  _press_at(ci, 2.0, 3400, n=10, status=2, out=out)
+  assert all(s.steerFaultTemporary for s in out[-9:])

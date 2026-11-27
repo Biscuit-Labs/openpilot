@@ -278,7 +278,6 @@ def beyond_limit(sender: "AngleModeSender", measured_deg: float, v_ego: float) -
   return abs(float(measured_deg)) > std_angle_limit(v_ego, sender.linear, sender.profile)
 
 
-
 # Graded override (opt-in, ModifiedEpsSettings.graded_override; HKG CAN-FD's torque-reduction gain): between
 # GRADED_SOFT_FRACTION of the effective Override Start Torque and the Start Torque itself, the loop's effort (the target's
 # error from the wheel, AngleModeSender.update authority) falls from full to zero as the driver's torque rises; at Start

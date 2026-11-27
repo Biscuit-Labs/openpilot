@@ -259,6 +259,11 @@ def sender_follow(sender: "AngleModeSender", measured_deg: float, measured_rate_
   panda's step), waiting at panda's absolute limit past it (beyond_limit keeps the frames YIELD until the wheel is back inside)."""
   sender.apply_angle, sender.apply_rate, sender.active_frames = float(measured_deg), float(measured_rate_deg_s), 0
   if tracks_wheel:
+    # the release starts at rest: carrying the driver's unwind rate into the trajectory, whose acceleration the engage
+    # fade holds at 15 % at first, coasted the target 15.7 deg (median, up to 64) past the plan and the EPS dragged the
+    # wheel after it (Clarity 0x0F route 00000129, rwd-xray clarity/CLARITY_0x0F_FIRST_DRIVE_20261126/REPORT.md); on 0x0E the
+    # step-limited follow below lagged the wheel and hid it
+    sender.apply_rate = 0.0
     sender.out_angle = float(measured_deg)
     if beyond_limit(sender, measured_deg, v_ego):
       sender.sent_active = False

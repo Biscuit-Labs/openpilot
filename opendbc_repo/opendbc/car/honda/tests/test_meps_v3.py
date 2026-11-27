@@ -118,6 +118,37 @@ def test_v3_0x0F_press_yields_with_the_target_at_the_wheel_every_frame():
   assert abs(tr[10] - 200) < abs(tr[60] - 200)
 
 
+def _e4_rate(ci, lat, angle_des, measured, rate, v, pressed=False, t=[5_000_000_000]):
+  from opendbc.car import structs
+  ci.CS.out = structs.CarState(vEgo=float(v), steeringAngleDeg=float(measured), steeringRateDeg=float(rate),
+                               steeringPressed=bool(pressed)).as_reader()
+  cc = structs.CarControl(latActive=lat)
+  cc.actuators.steeringAngleDeg = float(angle_des)
+  t[0] += 10_000_000
+  _, frames = ci.apply(cc.as_reader(), t[0])
+  return next(bytes(x[1]) for x in frames if x[0] == 0xE4)
+
+
+def test_v3_0x0F_release_starts_at_rest_and_does_not_coast_past_the_plan():
+  # route 00000129: the driver let go while unwinding at 100-200 deg/s; carrying that rate into the release trajectory
+  # coasted the target 15-64 deg past the plan. The release now starts at rest: the target never runs on past the release
+  # point away from the plan, and settles on it
+  ci, _ = start_v3(0x0F)
+  for _ in range(100):
+    _e4_rate(ci, True, 0.0, 0.0, 0.0, 8.0)
+  wheel = 0.0
+  for _ in range(40):                                                    # unwind to +60 deg at 150 deg/s while pressed
+    wheel += 1.5
+    _e4_rate(ci, True, 0.0, wheel, 150.0, 8.0, pressed=True)
+  rel = []
+  for _ in range(250):                                                   # released (still turning); the wheel follows
+    f = _e4_rate(ci, True, 0.0, wheel, 150.0 if not rel else 0.0, 8.0)
+    rel.append(target(f) / -10.0)
+    wheel += 0.3 * (rel[-1] - wheel)
+  assert max(rel) <= 60.0 + 0.2, max(rel)                                # no coast past the release point
+  assert abs(rel[-1]) < 1.0                                              # and back on the plan (0 deg)
+
+
 def test_v3_0x0F_yield_past_the_limit_is_standby_until_the_wheel_is_back_inside():
   from opendbc.car.honda import clarity_angle_mode as cam
   ci, _ = start_v3(0x0F)

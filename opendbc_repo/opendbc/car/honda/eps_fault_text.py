@@ -12,6 +12,8 @@ generic text stays.
 import os
 import time
 
+from opendbc.car.honda.meps.protocol import V3_BUILDS
+
 FAULT_FILE = "/dev/shm/honda_eps_fault"
 MAX_AGE_S = 2.0       # card refreshes while faulted every REFRESH_S; an older file is a dead card, not a live fault
 REFRESH_S = 0.5
@@ -24,7 +26,10 @@ def describe(fault: str, build_id: int) -> str:
   name, _, rest = fault.partition(" ")
   why = rest.strip("() ")
   if name in ("unknown_build", "unsupported_build"):
-    return f"EPS firmware build {build_id:#04x} not supported by this openpilot: update openpilot or flash a supported EPS"
+    v3 = sorted(V3_BUILDS)
+    if build_id < v3[0]:   # an older build (v1 / v2 telemetry): this openpilot speaks protocol v3 only
+      return f"EPS firmware build {build_id:#04x} is not protocol v3: flash build {v3[0]:#04x} or newer"
+    return f"EPS firmware build {build_id:#04x} is newer than this openpilot: update openpilot"
   if name == "no_status":
     return "EPS firmware is not reporting (no 0x6A4)"
   if name == "lost":

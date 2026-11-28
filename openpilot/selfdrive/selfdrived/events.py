@@ -229,6 +229,24 @@ def soft_disable_alert(alert_text_2: str) -> AlertCallbackType:
     return SoftDisableAlert(alert_text_2)
   return func
 
+def _eps_fault_text() -> str:
+  """The modified-EPS interlock fault named by card (opendbc honda eps_fault_text), "" when there is none."""
+  from opendbc.car.honda.eps_fault_text import read_fault_text
+  return read_fault_text()
+
+
+def eps_fault_soft_disable_alert(default_text: str) -> AlertCallbackType:
+  def func(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+    return soft_disable_alert(_eps_fault_text() or default_text)(CP, CS, sm, metric, soft_disable_time, personality)
+  return func
+
+
+def eps_fault_no_entry_alert(default_text: str) -> AlertCallbackType:
+  def func(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
+    return NoEntryAlert(_eps_fault_text() or default_text)
+  return func
+
+
 def user_soft_disable_alert(alert_text_2: str) -> AlertCallbackType:
   def func(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality) -> Alert:
     if soft_disable_time < int(0.5 / DT_CTRL):
@@ -762,8 +780,8 @@ EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
   },
 
   EventName.steerTempUnavailable: {
-    ET.SOFT_DISABLE: soft_disable_alert("Steering Assist Temporarily Unavailable"),
-    ET.NO_ENTRY: NoEntryAlert("Steering Temporarily Unavailable"),
+    ET.SOFT_DISABLE: eps_fault_soft_disable_alert("Steering Assist Temporarily Unavailable"),
+    ET.NO_ENTRY: eps_fault_no_entry_alert("Steering Temporarily Unavailable"),
   },
 
   EventName.steerTimeLimit: {

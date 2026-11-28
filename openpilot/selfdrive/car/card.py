@@ -322,6 +322,9 @@ class Car:
 
     from openpilot.starpilot.car.honda.clarity_angle_mode import AngleAnnouncement
     self.honda_angle_announce = AngleAnnouncement.create(self.CP, self.params)   # saves HondaAngleEpsAnnounced (Angle Mode row, flag)
+    from opendbc.car.honda.eps_fault_text import FaultTextPublisher
+    from opendbc.car.honda.modified_eps import modified_eps
+    self.honda_eps_fault_text = FaultTextPublisher() if modified_eps(self.CP) else None   # names the EPS interlock fault in the alert
     self.volt_cc_selected = gm_cc_transport_required(self.CP)
     self.volt_cc_boot_offset_ns = None
     self.volt_cc_source_floor_ns = 0
@@ -528,6 +531,9 @@ class Car:
     angle_announce = getattr(self, 'honda_angle_announce', None)
     if angle_announce is not None:
       angle_announce.update(self.CI.CS.eps_cal_status, CS.vEgo, bool(CS.canValid and not CS.canTimeout))
+    eps_fault_text = getattr(self, 'honda_eps_fault_text', None)
+    if eps_fault_text is not None:
+      eps_fault_text.update(self.CI.CS.eps_cal_status)
     self.RI.v_ego = CS.vEgo   # the Honda Bosch-A decoder bounds a reversing coast with it
     seatbelt_check = getattr(self, 'seatbelt_check', None)
     if seatbelt_check is not None:

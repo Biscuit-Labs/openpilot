@@ -6,8 +6,8 @@ on:
       - master
       - Domathon
       # Honda-PTM branches and the night-star7(-clean) mirrors only change by a pull request that already ran this
-      # workflow, so a push run there tests the same tree twice. The personal branch (night-star7-vfn-personal-DONOTFLASH)
-      # takes direct pushes with no push CI: it is a working branch, tested on the testing branches and by "Run workflow".
+      # workflow, so a push run there tests the same tree twice. Only the personal branch takes direct pushes.
+      - night-star7-vfn-personal-DONOTFLASH
   pull_request:
   workflow_call:
     inputs:

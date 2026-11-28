@@ -72,7 +72,7 @@ from openpilot.starpilot.car.hyundai.aol import retained_shared_long_cancel_inte
 from openpilot.starpilot.car.ford.aol import (brake_pause_active as ford_brake_pause_active,
                                                awaiting_initial_request as ford_awaiting_initial_request)
 from openpilot.starpilot.aol.runtime import AXIS_MAX_AGE_NS, current_axis, current_native
-from openpilot.starpilot.aol.honda_override import honda_override_shield
+from openpilot.starpilot.aol.honda_override import honda_denial_grace, honda_override_shield
 from openpilot.starpilot.aol.vehicle import create_intent as create_aol_intent, native_latch_rejected, policy_for as aol_policy_for
 from openpilot.starpilot.aol.wire import IntentState, encode_intent
 from openpilot.starpilot.conditional_mode.manual import Button, ButtonTracker, IoniqMediaMapCache, WheelMapCache, Press, ioniq6_media_eligible
@@ -646,6 +646,14 @@ class Car:
         acknowledged_arm_ns=getattr(self, '_angle_aol_acknowledged_arm_ns', 0))
       # Night Star: a Honda override's temporary EPS fault feeds neither the transport tracker nor native loss
       honda_shield = honda_override_shield(self, self.CP, CS, self.aol_card_intent.allowed_latch)
+      # a denial that reaches card before the override's temporary fault gets a short grace (honda_override.py) on the transport / lost-grant paths only (native rejection
+      # stays immediate, test_stock_aol), unless a cancel / brake source is pending
+      honda_grace = False
+      if self.CP.brand == 'honda' and qualified_honda_stock_aol(self.CP, marked_only=True) and not cancel_source_ns and not brake_source_ns:
+        early = current_native(self.sm, self.CP, now_ns=now_ns, axis_session_id=self.aol_axis_session())
+        honda_grace = honda_denial_grace(self, self.CP, CS, native_denied=bool(early is not None and early.requestedLateral and not early.lateralAllowed),
+                                         latched=self.aol_card_intent.allowed_latch, now_ns=now_ns)
+      honda_shield = bool(honda_shield or honda_grace)
       ford_initial_wait = bool(not self.aol_transport_feedback.ever_lateral_active and
         self.aol_card_intent.allowed_latch and qualified_ford_aol(self.CP, marked_only=True) and
         ford_awaiting_initial_request(self.CP, CS, self.sm,

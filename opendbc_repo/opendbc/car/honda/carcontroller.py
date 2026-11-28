@@ -246,7 +246,7 @@ class CarController(CarControllerBase):
         # (builds that track the wheel on YIELD send STANDBY past the limit instead: sender_follow)
         held = (self.angle_yield and self.angle_sender.sent_active and not meps_protocol.yield_tracks_wheel(CS.eps_cal_status.build_id)
                 and beyond_limit(self.angle_sender, CS.out.steeringAngleDeg, CS.out.vEgo))
-        self.angle_yield = pressed or held
+        self.angle_yield = (pressed or held) and not meps_protocol.never_yields(CS.eps_cal_status.build_id)   # 0x11: the EPS owns the override law, no YIELD
         lkas_active = bool(CC.latActive and not below_min_steer_speed(CS.out.vEgo, mset.min_steer_speed_mph))
     else:
       limited_torque = rate_limit(torque_cmd, self.last_torque, -self.params.STEER_DELTA_DOWN * DT_CTRL,

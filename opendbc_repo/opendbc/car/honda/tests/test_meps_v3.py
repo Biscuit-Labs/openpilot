@@ -45,10 +45,10 @@ def test_codec():
   assert P.v3_byte2(True) == 0x4C and P.v3_byte2(False) == 0x0C and P.V3_STANDBY == 0x0D
   assert P.is_v3_angle(0x4C) and P.is_v3_angle(0x0C)
   assert not any(P.is_v3_angle(b) for b in (0x0D, 0x4D, 0x8C, 0xCC, 0x1C, 0x2C, 0x0E, 0x08, 0x48, 0xC8, 0x00))
-  assert P.protocol_of(0x0E) == 3 and P.protocol_of(0x0F) == 3 and P.protocol_of(0x10) == 3 and P.protocol_of(0x11) == 3 and P.protocol_of(0x12) == 3 and all(P.protocol_of(b) is None for b in (0x0B, 0x0C, 0x0D, 0x13))
-  assert P.KNOWN_BUILDS == P.V3_BUILDS == {0x0E, 0x0F, 0x10, 0x11, 0x12} == P.LINEAR_ANGLE_BUILDS
-  assert P.YIELD_TRACKS_WHEEL_BUILDS == {0x0F, 0x10, 0x11, 0x12} and P.yield_tracks_wheel(0x0F) and P.yield_tracks_wheel(0x10) and P.yield_tracks_wheel(0x11) and not P.yield_tracks_wheel(0x0E)
-  assert P.NO_YIELD_BUILDS == {0x11, 0x12} and P.never_yields(0x11) and P.never_yields(0x12) and not P.never_yields(0x10) and not P.never_yields(0x0F) and not P.never_yields(-1)
+  assert P.protocol_of(0x0E) == 3 and P.protocol_of(0x0F) == 3 and P.protocol_of(0x10) == 3 and P.protocol_of(0x11) == 3 and P.protocol_of(0x12) == 3 and P.protocol_of(0x13) == 3 and all(P.protocol_of(b) is None for b in (0x0B, 0x0C, 0x0D, 0x14))
+  assert P.KNOWN_BUILDS == P.V3_BUILDS == {0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13} == P.LINEAR_ANGLE_BUILDS
+  assert P.YIELD_TRACKS_WHEEL_BUILDS == {0x0F, 0x10, 0x11, 0x12, 0x13} and P.yield_tracks_wheel(0x0F) and P.yield_tracks_wheel(0x10) and P.yield_tracks_wheel(0x11) and not P.yield_tracks_wheel(0x0E)
+  assert P.NO_YIELD_BUILDS == {0x11, 0x12, 0x13} and P.never_yields(0x11) and P.never_yields(0x12) and P.never_yields(0x13) and not P.never_yields(0x10) and not P.never_yields(0x0F) and not P.never_yields(-1)
   assert not P.yield_tracks_wheel(-1)
   assert not hasattr(P, "byte3_v2") and not hasattr(P, "V2_BUILDS")
 
@@ -167,7 +167,7 @@ def test_v3_0x0F_yield_past_the_limit_is_standby_until_the_wheel_is_back_inside(
   assert target(back[-1]) == -50
 
 
-@pytest.mark.parametrize("build", [0x0E, 0x0F, 0x10, 0x11, 0x12])
+@pytest.mark.parametrize("build", [0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13])
 def test_v3_release_goes_drive_at_once_on_a_fast_wheel(build):
   # no release hold or Start backstop in openpilot: build 0x10 removes the handback brake in the EPS (rwd-xray
   # clarity/CLARITY_HANDBACK_DAMPING_DESIGNS_20261127, design C); the press detector keeps one fixed Start level
@@ -181,9 +181,9 @@ def test_v3_release_goes_drive_at_once_on_a_fast_wheel(build):
   assert not hasattr(ci.CS, "press_start_scale") and not hasattr(ci.CC, "release_hold")
 
 
-def test_v3_builds_11_12_never_send_yield_and_0x10_still_does():
+def test_v3_builds_11_12_13_never_send_yield_and_0x10_still_does():
   # 0x11: the EPS owns the override law. A press (and the hold after it) never turns into YIELD frames; the frame stays DRIVE with the plan as the target
-  for build, yields in ((0x11, False), (0x12, False), (0x10, True)):
+  for build, yields in ((0x11, False), (0x12, False), (0x13, False), (0x10, True)):
     ci, _ = start_v3(build)
     for _ in range(100):
       _e4_rate(ci, True, 0.0, 0.0, 0.0, 8.0)
